@@ -14,8 +14,8 @@ const DEFAULT_PRESET = {
   name: "Default preset",
   source: "TheMatrixTrilogy.scr Basic code metrics / Code appearance",
   speedRowsPerSecond: 14.2,
-  releaseEveryTicks: 4.4,
-  maxReleaseTracers: 3,
+  releaseEveryTicks: 5.2,
+  maxReleaseTracers: 2,
   splashEveryReleases: 0,
   maxSplashTracers: 0,
   rotatorOccurrence: 0.8,
@@ -29,10 +29,10 @@ const DEFAULT_PRESET = {
     longMinRows: 0.78,
     longMaxRows: 1.45
   },
-  positiveDensity: 94,
-  positiveDensityVariance: 8,
-  negativeDensity: 81,
-  negativeDensityVariance: 18,
+  positiveDensity: 88,
+  positiveDensityVariance: 14,
+  negativeDensity: 88,
+  negativeDensityVariance: 12,
   negativeEveryNthStream: 8,
   fadeBottom: true,
   samePattern: true,
@@ -54,7 +54,7 @@ const DEFAULT_PRESET = {
     variance: 0.34
   },
   characterSize: 100,
-  maxConcurrentStreamsPerColumn: 6,
+  maxConcurrentStreamsPerColumn: 5,
   initialWarmupSeconds: 5,
   bottomFade: {
     baseVisibility: 1.22,
@@ -84,8 +84,8 @@ const DEFAULT_PRESET = {
     resetStartMax: 1
   },
   releaseModes: {
-    eraserChance: 0.18,
-    fragmentChance: 0.42,
+    eraserChance: 0.22,
+    fragmentChance: 0.36,
     deepChance: 0.06,
     fragmentEndMinRows: 0.2,
     fragmentEndMaxRows: 0.5,
@@ -93,16 +93,16 @@ const DEFAULT_PRESET = {
     eraserEndMaxRows: 0.95
   },
   standaloneRotators: {
-    chancePerTick: 0.5,
-    maxPerTick: 3,
-    pairChance: 0.34,
-    tripleChance: 0.12,
+    chancePerTick: 0.42,
+    maxPerTick: 2,
+    pairChance: 0.32,
+    tripleChance: 0.1,
     rotatingChance: 0.36,
     upperBiasPower: 1.35,
     unrestrictedChance: 0.28,
     lowerScreenKeepChance: 0.3,
-    minLifeTicks: 48,
-    maxLifeTicks: 112,
+    minLifeTicks: 42,
+    maxLifeTicks: 96,
     minAlpha: 0.36,
     maxAlpha: 0.88,
     minRotateTicks: 38,
@@ -458,9 +458,9 @@ function makeColumn(index, seed) {
   const densityBias = clamp((settings.density - 30) / 65, 0, 1);
   const streamRoll = hashUnit(seed ^ 0x55ca12);
   const streamCount =
-    streamRoll < 0.26 + densityBias * 0.12
+    streamRoll < 0.14 + densityBias * 0.08
       ? 4
-      : streamRoll < 0.72 + densityBias * 0.12
+      : streamRoll < 0.56 + densityBias * 0.1
         ? 3
         : 2;
   const intensity = clamp(
@@ -504,16 +504,16 @@ function buildColumns() {
   while (index < gridColumns + 2) {
     const gapRoll = hashUnit(seed ^ 0x21990);
     const gap =
-      gapRoll < 0.12
-        ? Math.floor(seededRange(seed ^ 0x79f4, 3, 7) / densityScale)
-        : gapRoll < 0.42
-          ? Math.floor(seededRange(seed ^ 0x9287, 1.4, 3) / densityScale)
-          : Math.floor(seededRange(seed ^ 0x4d2a, 1, 2) / densityScale);
+      gapRoll < 0.18
+        ? Math.floor(seededRange(seed ^ 0x79f4, 4, 8) / densityScale)
+        : gapRoll < 0.55
+          ? Math.floor(seededRange(seed ^ 0x9287, 2, 4) / densityScale)
+          : Math.floor(seededRange(seed ^ 0x4d2a, 1, 3) / densityScale);
     index += Math.max(1, gap);
     seed = hashInt(seed + 97);
     addColumn(index, seed);
 
-    const clusterChance = 0.08 + densityScale * 0.055;
+    const clusterChance = 0.04 + densityScale * 0.032;
     if (hashUnit(seed ^ 0x447a) < clusterChance && index + 1 < gridColumns + 2) {
       seed = hashInt(seed + 131);
       addColumn(index + 1, seed);
@@ -975,7 +975,7 @@ document.addEventListener("visibilitychange", () => {
   }
 });
 
-const fontReady = document.fonts
+const fontReady = document.fonts && typeof document.fonts.load === "function"
   ? document.fonts.load(`${fontSize || 18}px ${FONT_FAMILY}`).then(() => document.fonts.ready)
   : Promise.resolve();
 

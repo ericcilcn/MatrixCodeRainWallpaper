@@ -10,13 +10,81 @@ const PATTERN_SEED = 0x4d415452;
 const CHAR_POOL =
   "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+-*/=<>[]{}()|:;,.!?#$%&\"'";
 
+const DEFAULT_PRESET = {
+  name: "Default preset",
+  source: "TheMatrixTrilogy.scr Basic code metrics / Code appearance",
+  speedRowsPerSecond: 2.825,
+  releaseEveryTicks: 4.8,
+  maxReleaseTracers: 4,
+  splashEveryReleases: 0,
+  maxSplashTracers: 0,
+  rotatorOccurrence: 2.5,
+  rotatorVariance: 52,
+  negativeRotatorOccurrence: 1.3,
+  negativeRotatorVariance: 38,
+  streamLength: {
+    longChance: 58,
+    shortMinRows: 1.9,
+    shortMaxRows: 3.1,
+    longMinRows: 3.3,
+    longMaxRows: 5.4
+  },
+  positiveDensity: 99,
+  positiveDensityVariance: 2,
+  negativeDensity: 81,
+  negativeDensityVariance: 18,
+  negativeEveryNthStream: 8,
+  fadeBottom: true,
+  samePattern: true,
+  glowingTracers: {
+    occurrence: 15,
+    variance: 14,
+    negativeOccurrence: 0.4,
+    intensity: 90
+  },
+  speedVariability: 90,
+  colorVariance: 100,
+  intensityVariance: 66,
+  positiveAlpha: {
+    base: 0.98,
+    variance: 0.32
+  },
+  negativeAlpha: {
+    base: 0.58,
+    variance: 0.34
+  },
+  characterSize: 122,
+  maxConcurrentStreamsPerColumn: 12,
+  initialWarmupSeconds: 18,
+  bottomFade: {
+    baseVisibility: 1.22,
+    start: 0.05,
+    power: 0.78,
+    amount: 1.02,
+    minVisibility: 0.36,
+    maxVisibility: 1.34
+  },
+  entryBoost: {
+    portion: 0.24,
+    amount: 0.16
+  },
+  wallpaperProperties: {
+    density: 62,
+    speed: 55,
+    brightness: 75,
+    glyphscale: 100,
+    glow: true
+  },
+  baseColor: BASE_COLOR
+};
+
 const settings = {
-  density: 62,
-  speed: 55,
-  brightness: 75,
-  glyphscale: 100,
-  glow: true,
-  color: BASE_COLOR,
+  density: DEFAULT_PRESET.wallpaperProperties.density,
+  speed: DEFAULT_PRESET.wallpaperProperties.speed,
+  brightness: DEFAULT_PRESET.wallpaperProperties.brightness,
+  glyphscale: DEFAULT_PRESET.wallpaperProperties.glyphscale,
+  glow: DEFAULT_PRESET.wallpaperProperties.glow,
+  color: DEFAULT_PRESET.baseColor,
   fps: 0
 };
 
@@ -36,6 +104,7 @@ let lastFrameTime = 0;
 let fpsRemainder = 0;
 let tickAccumulator = 0;
 let logicalTick = 0;
+let releaseCounter = 0;
 let renderSeconds = 0;
 let running = true;
 let started = false;
@@ -86,13 +155,13 @@ function rgba(color, alpha) {
 
 function parseWallpaperColor(value) {
   if (typeof value !== "string") {
-    return BASE_COLOR;
+    return DEFAULT_PRESET.baseColor;
   }
 
   const parts = value.trim().split(/\s+/).map(Number);
 
   if (parts.length < 3 || parts.some((part) => !Number.isFinite(part))) {
-    return BASE_COLOR;
+    return DEFAULT_PRESET.baseColor;
   }
 
   return {
@@ -109,6 +178,8 @@ function chooseStableChar(seed, columnIndex, rowIndex, salt = 0) {
 
 function buildPalettes() {
   const brightness = clamp(settings.brightness / 72, 0.48, 1.38);
+  const colorVariance = DEFAULT_PRESET.colorVariance / 100;
+  const glowIntensity = DEFAULT_PRESET.glowingTracers.intensity / 100;
   const white = { r: 255, g: 255, b: 255 };
   const variants = [
     { name: "dim", body: 0.58, dim: 0.18, pale: 0.02, head: 0.48, glow: 0.16 },
@@ -119,8 +190,9 @@ function buildPalettes() {
   ];
 
   palettes = variants.map((variant) => {
-    const body = mixColor(scaleColor(settings.color, variant.body * brightness), white, variant.pale);
-    const dim = mixColor(scaleColor(settings.color, variant.dim * brightness), white, variant.pale * 0.35);
+    const pale = variant.pale * colorVariance;
+    const body = mixColor(scaleColor(settings.color, variant.body * brightness), white, pale);
+    const dim = mixColor(scaleColor(settings.color, variant.dim * brightness), white, pale * 0.35);
     const bright = mixColor(body, white, variant.head * 0.55);
     const head = mixColor(body, white, variant.head);
 
@@ -130,7 +202,7 @@ function buildPalettes() {
       body: rgb(body),
       bright: rgb(bright),
       head: rgb(head),
-      glow: rgba(mixColor(body, white, 0.22), variant.glow * clamp(settings.brightness / 72, 0.45, 1.35))
+      glow: rgba(mixColor(body, white, 0.22), variant.glow * glowIntensity * clamp(settings.brightness / 72, 0.45, 1.35))
     };
   });
 
@@ -156,28 +228,39 @@ function streamRowsPerSecond(stream) {
 }
 
 function randomSpeedScale(seed) {
-  return 1.55 + hashUnit(seed ^ 0x514d2d3) * 2.55;
+  const variability = DEFAULT_PRESET.speedVariability / 100;
+  const minFactor = 1 - variability * 0.5;
+  const maxFactor = 1 + variability * 0.5;
+  return DEFAULT_PRESET.speedRowsPerSecond * seededRange(seed ^ 0x514d2d3, minFactor, maxFactor);
 }
 
 function streamDensity(stream) {
-  const base = stream.negative ? 0.72 : 0.98;
-  const range = stream.negative ? 0.18 : 0.02;
-  return clamp((base + hashUnit(stream.seed ^ 0x68a31) * range) * (settings.density / 62), 0.32, 1);
+  const target = (stream.negative ? DEFAULT_PRESET.negativeDensity : DEFAULT_PRESET.positiveDensity) / 100;
+  const variance = (stream.negative ? DEFAULT_PRESET.negativeDensityVariance : DEFAULT_PRESET.positiveDensityVariance) / 100;
+  const min = target - variance * 0.5;
+  return clamp((min + hashUnit(stream.seed ^ 0x68a31) * variance) * (settings.density / 62), 0.32, 1);
 }
 
 function streamLength(stream, seed) {
+  const lengthPreset = DEFAULT_PRESET.streamLength;
   const length = stream.long
-    ? seededRange(seed ^ 0x7f3ac21, rows * 1.8, rows * 3.25)
-    : seededRange(seed ^ 0x2b61fd9, rows * 1.05, rows * 1.85);
+    ? seededRange(seed ^ 0x7f3ac21, rows * lengthPreset.longMinRows, rows * lengthPreset.longMaxRows)
+    : seededRange(seed ^ 0x2b61fd9, rows * lengthPreset.shortMinRows, rows * lengthPreset.shortMaxRows);
   return Math.max(7, Math.round(length));
 }
 
 function rowVisibility(rowIndex) {
+  if (!DEFAULT_PRESET.fadeBottom) {
+    return 1;
+  }
+
+  const fade = DEFAULT_PRESET.bottomFade;
+  const boost = DEFAULT_PRESET.entryBoost;
   const t = rowIndex / Math.max(1, rows - 1);
-  const falloff = clamp((t - 0.05) / 0.95, 0, 1);
-  const base = 1.22 - Math.pow(falloff, 0.78) * 1.02;
-  const entryBoost = 1 + clamp((0.24 - t) / 0.24, 0, 1) * 0.16;
-  return clamp(base * entryBoost, 0.36, 1.34);
+  const falloff = clamp((t - fade.start) / (1 - fade.start), 0, 1);
+  const base = fade.baseVisibility - Math.pow(falloff, fade.power) * fade.amount;
+  const entryBoost = 1 + clamp((boost.portion - t) / boost.portion, 0, 1) * boost.amount;
+  return clamp(base * entryBoost, fade.minVisibility, fade.maxVisibility);
 }
 
 function createCell(column, stream, rowIndex, age = 0) {
@@ -190,9 +273,8 @@ function createCell(column, stream, rowIndex, age = 0) {
   const stableChar = chooseStableChar(column.seed, column.index, rowIndex, stream.patternSalt);
   const rotator = hashUnit(stream.seed ^ Math.imul(rowIndex + 41, 2654435761)) < stream.rotatorRate;
   const alphaUnit = hashUnit(stream.patternSalt ^ Math.imul(rowIndex + 37, 2246822519));
-  const alphaBase = stream.negative
-    ? 0.54 + alphaUnit * 0.32
-    : 0.82 + alphaUnit * 0.28;
+  const alphaPreset = stream.negative ? DEFAULT_PRESET.negativeAlpha : DEFAULT_PRESET.positiveAlpha;
+  const alphaBase = alphaPreset.base + alphaUnit * alphaPreset.variance;
   const glowHead = !stream.negative && hashUnit(stream.seed ^ Math.imul(rowIndex + 17, 1597334677)) < stream.headChance;
 
   return {
@@ -233,13 +315,24 @@ function writeCell(column, stream, rowIndex, age = 0) {
 function resetStream(stream, column, initial = false) {
   const cycleSeed = hashInt(stream.seed ^ Math.imul(logicalTick + 1, 2246822519));
   stream.progress = hashUnit(cycleSeed ^ 0x423f) * 0.9;
-  stream.patternSalt = cycleSeed;
+  stream.patternSalt = DEFAULT_PRESET.samePattern ? stream.seed : cycleSeed;
   stream.length = streamLength(stream, cycleSeed);
   stream.density = streamDensity(stream);
-  stream.rotatorRate = stream.negative
-    ? seededRange(cycleSeed ^ 0x4881, 0.008, 0.018)
-    : seededRange(cycleSeed ^ 0x4881, 0.012, 0.038);
-  stream.headChance = stream.negative ? 0.004 : seededRange(cycleSeed ^ 0x11eb, 0.08, 0.22);
+  const rotatorMean = (stream.negative ? DEFAULT_PRESET.negativeRotatorOccurrence : DEFAULT_PRESET.rotatorOccurrence) / 100;
+  const rotatorVariance = (stream.negative ? DEFAULT_PRESET.negativeRotatorVariance : DEFAULT_PRESET.rotatorVariance) / 100;
+  stream.rotatorRate = seededRange(
+    cycleSeed ^ 0x4881,
+    rotatorMean * (1 - rotatorVariance),
+    rotatorMean * (1 + rotatorVariance)
+  );
+  const glow = DEFAULT_PRESET.glowingTracers;
+  const glowMean = stream.negative ? glow.negativeOccurrence : glow.occurrence;
+  const glowVariance = stream.negative ? 0 : glow.variance;
+  stream.headChance = seededRange(
+    cycleSeed ^ 0x11eb,
+    Math.max(0, glowMean - glowVariance * 0.5) / 100,
+    (glowMean + glowVariance * 0.5) / 100
+  );
   stream.speed = streamRowsPerSecond(stream);
   stream.headRow = initial
     ? Math.floor(seededRange(cycleSeed ^ 0x8cc5, 0, rows + stream.length * 0.25))
@@ -254,12 +347,12 @@ function resetStream(stream, column, initial = false) {
 
 function createStream(column, ordinal, initial) {
   const seed = hashInt(column.seed + ordinal * 7919);
-  const negative = ordinal === 0 && hashUnit(column.seed ^ 0x7f4a7c15) < 0.125;
+  const negative = ordinal === 0 && hashUnit(column.seed ^ 0x7f4a7c15) < 1 / DEFAULT_PRESET.negativeEveryNthStream;
   const stream = {
     id: `${column.index}:${ordinal}:${seed}`,
     seed,
     negative,
-    long: hashUnit(seed ^ 0x1f123bb5) < 0.58,
+    long: hashUnit(seed ^ 0x1f123bb5) < DEFAULT_PRESET.streamLength.longChance / 100,
     headRow: 0,
     progress: 0,
     patternSalt: seed,
@@ -286,7 +379,7 @@ function makeColumn(index, seed) {
           ? 4
           : 3;
   const intensity = clamp(
-    0.86 + hashUnit(seed ^ 0x99103) * 0.66 + (profile.name === "pale" ? 0.18 : 0) - (profile.name === "dim" ? 0.1 : 0),
+    0.86 + hashUnit(seed ^ 0x99103) * (DEFAULT_PRESET.intensityVariance / 100) + (profile.name === "pale" ? 0.18 : 0) - (profile.name === "dim" ? 0.1 : 0),
     0.52,
     1.58
   );
@@ -381,16 +474,19 @@ function stepStream(column, stream) {
 }
 
 function releaseSplash() {
-  const chance = 0.38 * clamp(settings.density / 62, 0.5, 1.35);
+  const chance = (1 / DEFAULT_PRESET.releaseEveryTicks) * clamp(settings.density / 62, 0.5, 1.35);
   if (hashUnit(logicalTick * 2654435761) > chance) {
     return;
   }
 
-  const count = Math.floor(seededRange(logicalTick ^ 0x326c, 1, 5));
+  releaseCounter += 1;
+  const isSplash = DEFAULT_PRESET.splashEveryReleases > 0 && releaseCounter % DEFAULT_PRESET.splashEveryReleases === 0;
+  const maxTracers = isSplash ? DEFAULT_PRESET.maxSplashTracers : DEFAULT_PRESET.maxReleaseTracers;
+  const count = 1 + Math.floor(hashUnit(logicalTick ^ 0x326c) * maxTracers);
   for (let i = 0; i < count; i += 1) {
     const columnIndex = Math.floor(hashUnit(Math.imul(logicalTick + i + 19, 1103515245)) * activeColumns.length);
     const column = activeColumns[columnIndex];
-    if (!column || column.streams.length >= 12) {
+    if (!column || column.streams.length >= DEFAULT_PRESET.maxConcurrentStreamsPerColumn) {
       continue;
     }
     const stream = createStream(column, column.streams.length + i + logicalTick, false);
@@ -483,13 +579,14 @@ function drawGlyph(cell, column, rowIndex) {
   const age = cell.age;
   let styleName = "body";
   let alpha = cell.alpha;
+  const glowIntensity = DEFAULT_PRESET.glowingTracers.intensity / 100;
 
   if (!cell.negative && cell.glowHead && age <= 1) {
     styleName = "head";
-    alpha *= 1.28;
+    alpha *= 1 + 0.28 * glowIntensity;
   } else if (!cell.negative && age <= 2) {
     styleName = "bright";
-    alpha *= 0.86;
+    alpha *= 0.76 + 0.1 * glowIntensity;
   } else if (cell.negative || alpha < 0.2) {
     styleName = "dim";
     alpha *= cell.negative ? 0.62 : 0.82;
@@ -583,7 +680,7 @@ function resize() {
   dpr = Math.min(window.devicePixelRatio || 1, DPR_LIMIT);
   rows = clamp(Math.round(60 * (100 / settings.glyphscale)), 42, 84);
   cellHeight = height / rows;
-  fontSize = clamp(Math.round(cellHeight * 1.22), 10, 48);
+  fontSize = clamp(Math.round(cellHeight * (DEFAULT_PRESET.characterSize / 100)), 10, 48);
   cellWidth = Math.max(8, cellHeight * 0.38);
   gridColumns = Math.ceil(width / cellWidth) + 2;
 
@@ -595,9 +692,10 @@ function resize() {
 
   glyphCache = new Map();
   logicalTick = 0;
+  releaseCounter = 0;
   tickAccumulator = 0;
   buildColumns();
-  for (let i = 0; i < Math.round(tickRate() * 18); i += 1) {
+  for (let i = 0; i < Math.round(tickRate() * DEFAULT_PRESET.initialWarmupSeconds); i += 1) {
     logicStep();
   }
   render(performance.now());
@@ -637,21 +735,21 @@ window.wallpaperPropertyListener = {
     let needsAppearanceRefresh = false;
 
     if (Object.prototype.hasOwnProperty.call(properties, "density")) {
-      settings.density = clamp(Number(properties.density.value) || 62, 30, 95);
+      settings.density = clamp(Number(properties.density.value) || DEFAULT_PRESET.wallpaperProperties.density, 30, 95);
       needsRestart = true;
     }
 
     if (Object.prototype.hasOwnProperty.call(properties, "speed")) {
-      settings.speed = clamp(Number(properties.speed.value) || 55, 20, 100);
+      settings.speed = clamp(Number(properties.speed.value) || DEFAULT_PRESET.wallpaperProperties.speed, 20, 100);
     }
 
     if (Object.prototype.hasOwnProperty.call(properties, "brightness")) {
-      settings.brightness = clamp(Number(properties.brightness.value) || 75, 35, 100);
+      settings.brightness = clamp(Number(properties.brightness.value) || DEFAULT_PRESET.wallpaperProperties.brightness, 35, 100);
       needsAppearanceRefresh = true;
     }
 
     if (Object.prototype.hasOwnProperty.call(properties, "glyphscale")) {
-      settings.glyphscale = clamp(Number(properties.glyphscale.value) || 100, 75, 130);
+      settings.glyphscale = clamp(Number(properties.glyphscale.value) || DEFAULT_PRESET.wallpaperProperties.glyphscale, 75, 130);
       needsRestart = true;
     }
 

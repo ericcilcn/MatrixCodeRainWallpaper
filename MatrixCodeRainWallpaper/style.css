@@ -1,0 +1,25 @@
+@font-face {
+  font-family: "Matrix Code NFI";
+  src: url("assets/fonts/matrix-code-nfi-2.otf") format("opentype");
+  font-display: block;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: #000;
+}
+
+body {
+  cursor: none;
+}
+
+canvas {
+  display: block;
+  width: 100vw;
+  height: 100vh;
+  background: #000;
+}

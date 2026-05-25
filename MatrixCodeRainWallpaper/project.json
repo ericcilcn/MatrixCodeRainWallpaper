@@ -1,0 +1,59 @@
+{
+  "title": "Matrix Code Rain",
+  "description": "A lightweight real-time Matrix-style code rain wallpaper rendered with HTML5 Canvas.",
+  "file": "index.html",
+  "type": "web",
+  "general": {
+    "properties": {
+      "density": {
+        "text": "Density",
+        "type": "slider",
+        "value": 62,
+        "min": 30,
+        "max": 95,
+        "editable": true,
+        "order": 10
+      },
+      "speed": {
+        "text": "Speed",
+        "type": "slider",
+        "value": 55,
+        "min": 20,
+        "max": 100,
+        "editable": true,
+        "order": 20
+      },
+      "brightness": {
+        "text": "Brightness",
+        "type": "slider",
+        "value": 75,
+        "min": 35,
+        "max": 100,
+        "editable": true,
+        "order": 30
+      },
+      "glyphscale": {
+        "text": "Glyph scale",
+        "type": "slider",
+        "value": 100,
+        "min": 75,
+        "max": 130,
+        "editable": true,
+        "order": 40
+      },
+      "glow": {
+        "text": "Glow",
+        "type": "bool",
+        "value": true,
+        "order": 50
+      },
+      "color": {
+        "text": "Color",
+        "type": "color",
+        "value": "0.14 0.85 0.41",
+        "order": 60
+      }
+    },
+    "supportsaudioprocessing": false
+  }
+}

@@ -1,0 +1,22 @@
+# Local reference media and extracted Windows screensaver files.
+/matrix .mp4
+/*.mp4
+/SnowShot.png
+/*.scr
+/*.exe
+/*.dll
+/TheMatrixTrilogy062-64/
+
+# Local backup/version snapshots outside Git history.
+/saved_versions/
+
+# Source/reference font downloads outside the Wallpaper Engine deliverable.
+/Matrix-Code-NFI/
+/matrix-1.ttf
+/matrix-code-nfi-1.ttf
+/matrix-code-nfi-2.otf
+
+# Local scratch files.
+/.DS_Store
+/新建 文本文档.txt
+node_modules/

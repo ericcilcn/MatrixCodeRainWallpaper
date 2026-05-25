@@ -60,8 +60,8 @@ const DEFAULT_PRESET = {
     baseVisibility: 1.22,
     start: 0.08,
     power: 0.92,
-    amount: 1.16,
-    minVisibility: 0.06,
+    amount: 0.9,
+    minVisibility: 0.14,
     maxVisibility: 1.25
   },
   entryBoost: {
@@ -107,6 +107,24 @@ const DEFAULT_PRESET = {
     maxAlpha: 0.88,
     minRotateTicks: 38,
     maxRotateTicks: 110
+  },
+  lowerFragments: {
+    chancePerTick: 0.22,
+    maxPerTick: 2,
+    startMinRows: 0.5,
+    startMaxRows: 0.84,
+    startBiasPower: 1.55,
+    minLengthRows: 2,
+    maxLengthRows: 7,
+    quietGapRows: 7,
+    rotatingChance: 0.22,
+    brightHeadChance: 0.18,
+    minLifeTicks: 40,
+    maxLifeTicks: 94,
+    minAlpha: 0.34,
+    maxAlpha: 0.9,
+    minRotateTicks: 42,
+    maxRotateTicks: 120
   },
   wallpaperProperties: {
     density: 62,
@@ -662,6 +680,94 @@ function releaseStandaloneRotators() {
   }
 }
 
+function hasQuietGap(column, startRow, gapRows) {
+  const from = Math.max(0, startRow - gapRows);
+  for (let rowIndex = from; rowIndex < startRow; rowIndex += 1) {
+    const cell = column.cells[rowIndex];
+    if (cell && cell.target > 0.08) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function hasWritableRows(column, startRow, length) {
+  for (let offset = 0; offset < length; offset += 1) {
+    const cell = column.cells[startRow + offset];
+    if (cell && cell.target > 0.12) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function releaseLowerFragments() {
+  const fragments = DEFAULT_PRESET.lowerFragments;
+  const chance = fragments.chancePerTick * clamp(settings.density / 62, 0.55, 1.3);
+  if (hashUnit(Math.imul(logicalTick + 47, 1103515245)) > chance) {
+    return;
+  }
+
+  const count = 1 + Math.floor(hashUnit(logicalTick ^ 0x5f31) * fragments.maxPerTick);
+  for (let i = 0; i < count; i += 1) {
+    const seed = hashInt(Math.imul(logicalTick + i + 17, 374761393) ^ PATTERN_SEED);
+    const startUnit = Math.pow(hashUnit(seed ^ 0x84cd), fragments.startBiasPower);
+    const startMin = rows * fragments.startMinRows;
+    const startMax = rows * fragments.startMaxRows;
+    const randomStart = seededRange(seed ^ 0x2ac1, startMin, startMax);
+    const startRow = Math.floor(randomStart * (1 - startUnit) + startMin * startUnit);
+    const length = Math.min(
+      rows - startRow,
+      Math.floor(seededRange(seed ^ 0x33d1, fragments.minLengthRows, fragments.maxLengthRows + 1))
+    );
+
+    if (length <= 0) {
+      continue;
+    }
+
+    let column = null;
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const columnIndex = Math.floor(hashUnit(seed ^ Math.imul(attempt + 3, 1597334677)) * activeColumns.length);
+      const candidate = activeColumns[columnIndex];
+      if (candidate && hasQuietGap(candidate, startRow, fragments.quietGapRows) && hasWritableRows(candidate, startRow, length)) {
+        column = candidate;
+        break;
+      }
+    }
+
+    if (!column) {
+      continue;
+    }
+
+    const life = Math.floor(seededRange(seed ^ 0x44f1, fragments.minLifeTicks, fragments.maxLifeTicks));
+    const baseAlpha = seededRange(seed ^ 0x9e3d, fragments.minAlpha, fragments.maxAlpha) * column.intensity;
+    const rotates = hashUnit(seed ^ 0x71dd) < fragments.rotatingChance;
+
+    for (let offset = 0; offset < length; offset += 1) {
+      const rowIndex = startRow + offset;
+      const charSalt = hashInt(seed ^ Math.imul(offset + 1, 0x85ebca6b));
+      const char = chooseStableChar(column.seed, column.index, rowIndex, charSalt);
+      const rowAlpha = baseAlpha * seededRange(charSalt ^ 0x51a7, 0.72, 1.08);
+      column.cells[rowIndex] = {
+        char,
+        stableChar: char,
+        salt: charSalt,
+        age: Math.floor(hashUnit(charSalt ^ 0x391f) * 4),
+        life,
+        alpha: rowAlpha,
+        target: rowAlpha,
+        baseAlpha: rowAlpha,
+        rotator: rotates && hashUnit(charSalt ^ 0x1e7a) < 0.58,
+        nextRotateTick: logicalTick + Math.floor(seededRange(charSalt ^ 0x148d, fragments.minRotateTicks, fragments.maxRotateTicks)),
+        streamId: `lower:${column.index}:${rowIndex}:${seed}`,
+        negative: false,
+        glowHead: offset === 0 && hashUnit(charSalt ^ 0xd82f) < fragments.brightHeadChance,
+        justWritten: true
+      };
+    }
+  }
+}
+
 function logicStep() {
   logicalTick += 1;
 
@@ -687,6 +793,7 @@ function logicStep() {
 
   releaseSplash();
   releaseStandaloneRotators();
+  releaseLowerFragments();
 }
 
 function createGlyph(char, styleName, palette) {

@@ -13,14 +13,14 @@ const CHAR_POOL =
 const DEFAULT_PRESET = {
   name: "Default preset",
   source: "TheMatrixTrilogy.scr Basic code metrics / Code appearance",
-  speedRowsPerSecond: 12.8,
+  speedRowsPerSecond: 14.2,
   releaseEveryTicks: 4.4,
   maxReleaseTracers: 3,
   splashEveryReleases: 0,
   maxSplashTracers: 0,
-  rotatorOccurrence: 1.1,
+  rotatorOccurrence: 0.8,
   rotatorVariance: 35,
-  negativeRotatorOccurrence: 0.4,
+  negativeRotatorOccurrence: 0.25,
   negativeRotatorVariance: 25,
   streamLength: {
     longChance: 48,
@@ -70,7 +70,7 @@ const DEFAULT_PRESET = {
   },
   layout: {
     glyphAspect: 0.72,
-    glyphWidthScale: 1.42,
+    glyphWidthScale: 1.3,
     columnGapPx: 1.5,
     rowGapPx: 1
   },
@@ -93,8 +93,11 @@ const DEFAULT_PRESET = {
     eraserEndMaxRows: 0.95
   },
   standaloneRotators: {
-    chancePerTick: 0.44,
+    chancePerTick: 0.5,
     maxPerTick: 3,
+    pairChance: 0.34,
+    tripleChance: 0.12,
+    rotatingChance: 0.36,
     upperBiasPower: 1.35,
     unrestrictedChance: 0.28,
     lowerScreenKeepChance: 0.3,
@@ -102,8 +105,8 @@ const DEFAULT_PRESET = {
     maxLifeTicks: 112,
     minAlpha: 0.36,
     maxAlpha: 0.88,
-    minRotateTicks: 18,
-    maxRotateTicks: 52
+    minRotateTicks: 38,
+    maxRotateTicks: 110
   },
   wallpaperProperties: {
     density: 62,
@@ -341,7 +344,7 @@ function createCell(column, stream, rowIndex, age = 0) {
     target: 0,
     baseAlpha: alphaBase * column.intensity,
     rotator,
-    nextRotateTick: logicalTick + 28 + Math.floor(hashUnit(stream.seed ^ rowIndex) * 72),
+    nextRotateTick: logicalTick + 40 + Math.floor(hashUnit(stream.seed ^ rowIndex) * 110),
     streamId: stream.id,
     negative: stream.negative,
     glowHead,
@@ -544,7 +547,7 @@ function updateCell(column, rowIndex) {
   if (cell.rotator && logicalTick >= cell.nextRotateTick) {
     cell.salt = hashInt(cell.salt + logicalTick + rowIndex);
     cell.char = chooseStableChar(column.seed, column.index, rowIndex, cell.salt);
-    cell.nextRotateTick = logicalTick + 28 + Math.floor(hashUnit(cell.salt ^ rowIndex) * 72);
+    cell.nextRotateTick = logicalTick + 40 + Math.floor(hashUnit(cell.salt ^ rowIndex) * 110);
   }
 
   cell.alpha = cell.target;
@@ -623,30 +626,39 @@ function releaseStandaloneRotators() {
       continue;
     }
 
-    const current = column.cells[row];
-    if (current && current.target > 0.12) {
-      continue;
-    }
-
+    const sizeRoll = hashUnit(seed ^ 0x5a4f);
+    const groupSize = sizeRoll < rotators.tripleChance ? 3 : sizeRoll < rotators.tripleChance + rotators.pairChance ? 2 : 1;
+    const startRow = Math.min(row, rows - groupSize);
     const life = Math.floor(seededRange(seed ^ 0x44f1, rotators.minLifeTicks, rotators.maxLifeTicks));
     const baseAlpha = seededRange(seed ^ 0x9e3d, rotators.minAlpha, rotators.maxAlpha) * column.intensity;
-    const charSalt = hashInt(seed ^ 0xa531);
-    column.cells[row] = {
-      char: chooseStableChar(column.seed, column.index, row, charSalt),
-      stableChar: chooseStableChar(column.seed, column.index, row, charSalt),
-      salt: charSalt,
-      age: 0,
-      life,
-      alpha: baseAlpha,
-      target: baseAlpha,
-      baseAlpha,
-      rotator: true,
-      nextRotateTick: logicalTick + Math.floor(seededRange(seed ^ 0x148d, rotators.minRotateTicks, rotators.maxRotateTicks)),
-      streamId: `solo:${column.index}:${row}:${seed}`,
-      negative: false,
-      glowHead: hashUnit(seed ^ 0xd82f) < 0.18,
-      justWritten: true
-    };
+    const rotates = hashUnit(seed ^ 0x71dd) < rotators.rotatingChance;
+
+    for (let offset = 0; offset < groupSize; offset += 1) {
+      const targetRow = startRow + offset;
+      const current = column.cells[targetRow];
+      if (current && current.target > 0.12) {
+        continue;
+      }
+
+      const charSalt = hashInt(seed ^ Math.imul(offset + 1, 0xa531));
+      const char = chooseStableChar(column.seed, column.index, targetRow, charSalt);
+      column.cells[targetRow] = {
+        char,
+        stableChar: char,
+        salt: charSalt,
+        age: 0,
+        life,
+        alpha: baseAlpha,
+        target: baseAlpha,
+        baseAlpha,
+        rotator: rotates,
+        nextRotateTick: logicalTick + Math.floor(seededRange(charSalt ^ 0x148d, rotators.minRotateTicks, rotators.maxRotateTicks)),
+        streamId: `solo:${column.index}:${targetRow}:${seed}`,
+        negative: false,
+        glowHead: hashUnit(charSalt ^ 0xd82f) < 0.18,
+        justWritten: true
+      };
+    }
   }
 }
 

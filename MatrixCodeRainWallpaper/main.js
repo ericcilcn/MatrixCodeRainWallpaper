@@ -14,8 +14,8 @@ const DEFAULT_PRESET = {
   name: "Default preset",
   source: "TheMatrixTrilogy.scr Basic code metrics / Code appearance",
   speedRowsPerSecond: 9.2,
-  releaseEveryTicks: 3.6,
-  maxReleaseTracers: 4,
+  releaseEveryTicks: 4.4,
+  maxReleaseTracers: 3,
   splashEveryReleases: 0,
   maxSplashTracers: 0,
   rotatorOccurrence: 2.5,
@@ -29,8 +29,8 @@ const DEFAULT_PRESET = {
     longMinRows: 0.78,
     longMaxRows: 1.45
   },
-  positiveDensity: 99,
-  positiveDensityVariance: 2,
+  positiveDensity: 94,
+  positiveDensityVariance: 8,
   negativeDensity: 81,
   negativeDensityVariance: 18,
   negativeEveryNthStream: 8,
@@ -54,8 +54,8 @@ const DEFAULT_PRESET = {
     variance: 0.34
   },
   characterSize: 82,
-  maxConcurrentStreamsPerColumn: 8,
-  initialWarmupSeconds: 6,
+  maxConcurrentStreamsPerColumn: 6,
+  initialWarmupSeconds: 5,
   bottomFade: {
     baseVisibility: 1.22,
     start: 0.08,
@@ -65,8 +65,8 @@ const DEFAULT_PRESET = {
     maxVisibility: 1.25
   },
   entryBoost: {
-    portion: 0.34,
-    amount: 0.3
+    portion: 0.28,
+    amount: 0.16
   },
   layout: {
     glyphAspect: 0.84,
@@ -75,16 +75,25 @@ const DEFAULT_PRESET = {
     rowGapPx: 1
   },
   topOrigin: {
-    initialTopChance: 0.88,
-    initialTopPortion: 0.32,
+    initialTopChance: 0.82,
+    initialTopPortion: 0.27,
     reachesBottomChance: 0.11,
     endMinRows: 0.42,
     endMaxRows: 0.68,
     resetStartMin: -3,
     resetStartMax: 1
   },
+  releaseModes: {
+    eraserChance: 0.22,
+    fragmentChance: 0.32,
+    deepChance: 0.08,
+    fragmentEndMinRows: 0.2,
+    fragmentEndMaxRows: 0.5,
+    eraserEndMinRows: 0.5,
+    eraserEndMaxRows: 0.95
+  },
   standaloneRotators: {
-    chancePerTick: 0.38,
+    chancePerTick: 0.26,
     maxPerTick: 2,
     upperBiasPower: 1.85,
     unrestrictedChance: 0.16,
@@ -370,6 +379,9 @@ function resetStream(stream, column, initial = false) {
   stream.progress = hashUnit(cycleSeed ^ 0x423f) * 0.9;
   stream.patternSalt = DEFAULT_PRESET.samePattern ? stream.seed : cycleSeed;
   stream.length = streamLength(stream, cycleSeed);
+  if (stream.mode === "fragment") {
+    stream.length = Math.max(6, Math.floor(stream.length * seededRange(cycleSeed ^ 0xb38d, 0.48, 0.78)));
+  }
   stream.density = streamDensity(stream);
   const rotatorMean = (stream.negative ? DEFAULT_PRESET.negativeRotatorOccurrence : DEFAULT_PRESET.rotatorOccurrence) / 100;
   const rotatorVariance = (stream.negative ? DEFAULT_PRESET.negativeRotatorVariance : DEFAULT_PRESET.rotatorVariance) / 100;
@@ -388,10 +400,17 @@ function resetStream(stream, column, initial = false) {
   );
   stream.speed = streamRowsPerSecond(stream);
   const origin = DEFAULT_PRESET.topOrigin;
-  const reachesBottom = hashUnit(cycleSeed ^ 0x671a) < origin.reachesBottomChance;
-  stream.endRow = reachesBottom
-    ? rows + stream.length + 2
-    : Math.floor(seededRange(cycleSeed ^ 0x25ef, rows * origin.endMinRows, rows * origin.endMaxRows));
+  const modes = DEFAULT_PRESET.releaseModes;
+  if (stream.mode === "fragment") {
+    stream.endRow = Math.floor(seededRange(cycleSeed ^ 0x25ef, rows * modes.fragmentEndMinRows, rows * modes.fragmentEndMaxRows));
+  } else if (stream.mode === "eraser") {
+    stream.endRow = Math.floor(seededRange(cycleSeed ^ 0x25ef, rows * modes.eraserEndMinRows, rows * modes.eraserEndMaxRows));
+  } else {
+    const reachesBottom = stream.mode === "deep" || hashUnit(cycleSeed ^ 0x671a) < origin.reachesBottomChance;
+    stream.endRow = reachesBottom
+      ? rows + stream.length + 2
+      : Math.floor(seededRange(cycleSeed ^ 0x25ef, rows * origin.endMinRows, rows * origin.endMaxRows));
+  }
 
   if (initial) {
     const topBiased = hashUnit(cycleSeed ^ 0x49ac) < origin.initialTopChance;
@@ -409,13 +428,15 @@ function resetStream(stream, column, initial = false) {
   }
 }
 
-function createStream(column, ordinal, initial) {
+function createStream(column, ordinal, initial, mode = "normal") {
   const seed = hashInt(column.seed + ordinal * 7919);
-  const negative = ordinal === 0 && hashUnit(column.seed ^ 0x7f4a7c15) < 1 / DEFAULT_PRESET.negativeEveryNthStream;
+  const negative = mode === "eraser" || (ordinal === 0 && hashUnit(column.seed ^ 0x7f4a7c15) < 1 / DEFAULT_PRESET.negativeEveryNthStream);
+  const streamMode = negative ? "eraser" : mode;
   const stream = {
     id: `${column.index}:${ordinal}:${seed}`,
     seed,
     negative,
+    mode: streamMode,
     long: hashUnit(seed ^ 0x1f123bb5) < DEFAULT_PRESET.streamLength.longChance / 100,
     headRow: 0,
     progress: 0,
@@ -465,9 +486,19 @@ function makeColumn(index, seed) {
 
 function buildColumns() {
   const nextColumns = [];
+  const occupied = new Set();
   const densityScale = clamp(settings.density / 62, 0.65, 1.75);
   let index = -2;
   let seed = hashInt(PATTERN_SEED ^ Math.imul(rows, 131) ^ Math.imul(gridColumns, 521));
+
+  const addColumn = (columnIndex, columnSeed) => {
+    if (occupied.has(columnIndex)) {
+      return false;
+    }
+    occupied.add(columnIndex);
+    nextColumns.push(makeColumn(columnIndex, columnSeed));
+    return true;
+  };
 
   while (index < gridColumns + 2) {
     const gapRoll = hashUnit(seed ^ 0x21990);
@@ -479,20 +510,20 @@ function buildColumns() {
           : Math.floor(seededRange(seed ^ 0x4d2a, 1, 2) / densityScale);
     index += Math.max(1, gap);
     seed = hashInt(seed + 97);
-    nextColumns.push(makeColumn(index, seed));
+    addColumn(index, seed);
 
-    const clusterChance = 0.12 + densityScale * 0.08;
+    const clusterChance = 0.08 + densityScale * 0.055;
     if (hashUnit(seed ^ 0x447a) < clusterChance && index + 1 < gridColumns + 2) {
       seed = hashInt(seed + 131);
-      nextColumns.push(makeColumn(index + 1, seed));
+      addColumn(index + 1, seed);
     }
     if (hashUnit(seed ^ 0x8842) < clusterChance * 0.35 && index + 2 < gridColumns + 2) {
       seed = hashInt(seed + 173);
-      nextColumns.push(makeColumn(index + 2, seed));
+      addColumn(index + 2, seed);
     }
   }
 
-  activeColumns = nextColumns;
+  activeColumns = nextColumns.sort((a, b) => a.index - b.index);
 }
 
 function updateCell(column, rowIndex) {
@@ -548,7 +579,17 @@ function releaseSplash() {
     if (!column || column.streams.length >= DEFAULT_PRESET.maxConcurrentStreamsPerColumn) {
       continue;
     }
-    const stream = createStream(column, column.streams.length + i + logicalTick, false);
+    const modeRoll = hashUnit(Math.imul(logicalTick + i + 101, 1597334677));
+    const modes = DEFAULT_PRESET.releaseModes;
+    const mode =
+      modeRoll < modes.eraserChance
+        ? "eraser"
+        : modeRoll < modes.eraserChance + modes.fragmentChance
+          ? "fragment"
+          : modeRoll > 1 - modes.deepChance
+            ? "deep"
+            : "normal";
+    const stream = createStream(column, column.streams.length + i + logicalTick, false, mode);
     stream.length = Math.max(10, Math.floor(stream.length * seededRange(stream.seed ^ 0x751e, 0.68, 1.25)));
     stream.speed *= seededRange(stream.seed ^ 0x431c, 0.9, 1.42);
     column.streams.push(stream);

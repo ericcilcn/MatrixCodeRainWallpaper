@@ -13,8 +13,8 @@ const CHAR_POOL =
 const DEFAULT_PRESET = {
   name: "Default preset",
   source: "TheMatrixTrilogy.scr Basic code metrics / Code appearance",
-  speedRowsPerSecond: 2.825,
-  releaseEveryTicks: 4.8,
+  speedRowsPerSecond: 4.7,
+  releaseEveryTicks: 3.6,
   maxReleaseTracers: 4,
   splashEveryReleases: 0,
   maxSplashTracers: 0,
@@ -23,11 +23,11 @@ const DEFAULT_PRESET = {
   negativeRotatorOccurrence: 1.3,
   negativeRotatorVariance: 38,
   streamLength: {
-    longChance: 58,
-    shortMinRows: 1.9,
-    shortMaxRows: 3.1,
-    longMinRows: 3.3,
-    longMaxRows: 5.4
+    longChance: 52,
+    shortMinRows: 0.7,
+    shortMaxRows: 1.25,
+    longMinRows: 1.25,
+    longMaxRows: 2.3
   },
   positiveDensity: 99,
   positiveDensityVariance: 2,
@@ -53,20 +53,45 @@ const DEFAULT_PRESET = {
     base: 0.58,
     variance: 0.34
   },
-  characterSize: 122,
-  maxConcurrentStreamsPerColumn: 12,
-  initialWarmupSeconds: 18,
+  characterSize: 82,
+  maxConcurrentStreamsPerColumn: 8,
+  initialWarmupSeconds: 6,
   bottomFade: {
     baseVisibility: 1.22,
-    start: 0.05,
-    power: 0.78,
-    amount: 1.02,
-    minVisibility: 0.36,
-    maxVisibility: 1.34
+    start: 0.08,
+    power: 0.92,
+    amount: 1.16,
+    minVisibility: 0.06,
+    maxVisibility: 1.25
   },
   entryBoost: {
-    portion: 0.24,
-    amount: 0.16
+    portion: 0.34,
+    amount: 0.3
+  },
+  layout: {
+    glyphAspect: 0.92,
+    glyphWidthScale: 1.8,
+    columnGapPx: 1.5,
+    rowGapPx: 1
+  },
+  topOrigin: {
+    initialTopChance: 0.88,
+    initialTopPortion: 0.32,
+    resetStartMin: -3,
+    resetStartMax: 1
+  },
+  standaloneRotators: {
+    chancePerTick: 0.38,
+    maxPerTick: 2,
+    upperBiasPower: 1.85,
+    unrestrictedChance: 0.16,
+    lowerScreenKeepChance: 0.18,
+    minLifeTicks: 34,
+    maxLifeTicks: 82,
+    minAlpha: 0.36,
+    maxAlpha: 0.88,
+    minRotateTicks: 5,
+    maxRotateTicks: 16
   },
   wallpaperProperties: {
     density: 62,
@@ -151,6 +176,14 @@ function rgb(color) {
 
 function rgba(color, alpha) {
   return `rgba(${color.r}, ${color.g}, ${color.b}, ${alpha})`;
+}
+
+function fillScaledText(context, text, x, y, scaleX) {
+  context.save();
+  context.translate(x, y);
+  context.scale(scaleX, 1);
+  context.fillText(text, 0, 0);
+  context.restore();
 }
 
 function parseWallpaperColor(value) {
@@ -334,9 +367,16 @@ function resetStream(stream, column, initial = false) {
     (glowMean + glowVariance * 0.5) / 100
   );
   stream.speed = streamRowsPerSecond(stream);
-  stream.headRow = initial
-    ? Math.floor(seededRange(cycleSeed ^ 0x8cc5, 0, rows + stream.length * 0.25))
-    : Math.floor(seededRange(cycleSeed ^ 0x5d7f, -1, 1));
+  if (initial) {
+    const origin = DEFAULT_PRESET.topOrigin;
+    const topBiased = hashUnit(cycleSeed ^ 0x49ac) < origin.initialTopChance;
+    stream.headRow = topBiased
+      ? Math.floor(seededRange(cycleSeed ^ 0x8cc5, -stream.length * 0.1, rows * origin.initialTopPortion))
+      : Math.floor(seededRange(cycleSeed ^ 0x3f91, rows * 0.12, rows * 0.82));
+  } else {
+    const origin = DEFAULT_PRESET.topOrigin;
+    stream.headRow = Math.floor(seededRange(cycleSeed ^ 0x5d7f, origin.resetStartMin, origin.resetStartMax));
+  }
 
   if (initial) {
     for (let offset = 0; offset < stream.length; offset += 1) {
@@ -371,13 +411,11 @@ function makeColumn(index, seed) {
   const densityBias = clamp((settings.density - 30) / 65, 0, 1);
   const streamRoll = hashUnit(seed ^ 0x55ca12);
   const streamCount =
-    streamRoll < 0.34 + densityBias * 0.18
-      ? 6
-      : streamRoll < 0.68 + densityBias * 0.18
-        ? 5
-        : streamRoll < 0.94 + densityBias * 0.05
-          ? 4
-          : 3;
+    streamRoll < 0.26 + densityBias * 0.12
+      ? 4
+      : streamRoll < 0.72 + densityBias * 0.12
+        ? 3
+        : 2;
   const intensity = clamp(
     0.86 + hashUnit(seed ^ 0x99103) * (DEFAULT_PRESET.intensityVariance / 100) + (profile.name === "pale" ? 0.18 : 0) - (profile.name === "dim" ? 0.1 : 0),
     0.52,
@@ -418,12 +456,12 @@ function buildColumns() {
     seed = hashInt(seed + 97);
     nextColumns.push(makeColumn(index, seed));
 
-    const clusterChance = 0.18 + densityScale * 0.14;
-    if (hashUnit(seed ^ 0x447a) < clusterChance * 1.25 && index + 1 < gridColumns + 2) {
+    const clusterChance = 0.12 + densityScale * 0.08;
+    if (hashUnit(seed ^ 0x447a) < clusterChance && index + 1 < gridColumns + 2) {
       seed = hashInt(seed + 131);
       nextColumns.push(makeColumn(index + 1, seed));
     }
-    if (hashUnit(seed ^ 0x8842) < clusterChance * 0.58 && index + 2 < gridColumns + 2) {
+    if (hashUnit(seed ^ 0x8842) < clusterChance * 0.35 && index + 2 < gridColumns + 2) {
       seed = hashInt(seed + 173);
       nextColumns.push(makeColumn(index + 2, seed));
     }
@@ -496,6 +534,62 @@ function releaseSplash() {
   }
 }
 
+function releaseStandaloneRotators() {
+  const rotators = DEFAULT_PRESET.standaloneRotators;
+  const chance = rotators.chancePerTick * clamp(settings.density / 62, 0.55, 1.35);
+  if (hashUnit(Math.imul(logicalTick + 29, 1597334677)) > chance) {
+    return;
+  }
+
+  const count = 1 + Math.floor(hashUnit(logicalTick ^ 0x62a3) * rotators.maxPerTick);
+  for (let i = 0; i < count; i += 1) {
+    const columnIndex = Math.floor(hashUnit(Math.imul(logicalTick + i + 73, 1103515245)) * activeColumns.length);
+    const column = activeColumns[columnIndex];
+    if (!column) {
+      continue;
+    }
+
+    const seed = hashInt(column.seed ^ Math.imul(logicalTick + i + 1, 374761393));
+    const rowUnit = hashUnit(seed ^ 0x934a);
+    const unrestricted = hashUnit(seed ^ 0x21ec) < rotators.unrestrictedChance;
+    const row = unrestricted
+      ? Math.floor(rowUnit * rows)
+      : Math.floor(Math.pow(rowUnit, rotators.upperBiasPower) * rows);
+
+    if (row < 0 || row >= rows) {
+      continue;
+    }
+    if (row > rows * 0.68 && hashUnit(seed ^ 0x72dd) > rotators.lowerScreenKeepChance) {
+      continue;
+    }
+
+    const current = column.cells[row];
+    if (current && current.target > 0.12) {
+      continue;
+    }
+
+    const life = Math.floor(seededRange(seed ^ 0x44f1, rotators.minLifeTicks, rotators.maxLifeTicks));
+    const baseAlpha = seededRange(seed ^ 0x9e3d, rotators.minAlpha, rotators.maxAlpha) * column.intensity;
+    const charSalt = hashInt(seed ^ 0xa531);
+    column.cells[row] = {
+      char: chooseStableChar(column.seed, column.index, row, charSalt),
+      stableChar: chooseStableChar(column.seed, column.index, row, charSalt),
+      salt: charSalt,
+      age: 0,
+      life,
+      alpha: current ? Math.max(current.alpha * 0.3, 0.04) : 0.04,
+      target: baseAlpha,
+      baseAlpha,
+      rotator: true,
+      nextRotateTick: logicalTick + Math.floor(seededRange(seed ^ 0x148d, rotators.minRotateTicks, rotators.maxRotateTicks)),
+      streamId: `solo:${column.index}:${row}:${seed}`,
+      negative: false,
+      glowHead: hashUnit(seed ^ 0xd82f) < 0.18,
+      justWritten: true
+    };
+  }
+}
+
 function logicStep() {
   logicalTick += 1;
 
@@ -520,6 +614,7 @@ function logicStep() {
   }
 
   releaseSplash();
+  releaseStandaloneRotators();
 }
 
 function createGlyph(char, styleName, palette) {
@@ -531,9 +626,11 @@ function createGlyph(char, styleName, palette) {
   }
 
   const sprite = document.createElement("canvas");
-  const padding = Math.ceil(fontSize * 0.62);
-  const cssWidth = Math.ceil(cellWidth + padding * 2);
-  const cssHeight = Math.ceil(cellHeight + padding * 1.65);
+  const layout = DEFAULT_PRESET.layout;
+  const glyphBoxWidth = Math.max(1, cellWidth - Math.max(1, layout.columnGapPx));
+  const padding = Math.ceil(fontSize * 0.46);
+  const cssWidth = Math.ceil(glyphBoxWidth + padding * 2);
+  const cssHeight = Math.ceil(cellHeight + padding * 1.35);
   sprite.width = Math.ceil(cssWidth * dpr);
   sprite.height = Math.ceil(cssHeight * dpr);
   sprite.cssWidth = cssWidth;
@@ -549,13 +646,16 @@ function createGlyph(char, styleName, palette) {
   const centerX = cssWidth / 2;
   const centerY = cssHeight / 2 + fontSize * 0.03;
   const color = palette[styleName] || palette.body;
+  const measuredWidth = Math.max(1, sctx.measureText(char).width);
+  const maxScale = Math.max(0.72, glyphBoxWidth / measuredWidth);
+  const scaleX = clamp(layout.glyphWidthScale, 0.72, maxScale);
 
   if (settings.glow) {
     if (styleName === "head") {
       sctx.shadowColor = palette.glow;
       sctx.shadowBlur = fontSize * 0.85;
       sctx.fillStyle = palette.bright;
-      sctx.fillText(char, centerX, centerY);
+      fillScaledText(sctx, char, centerX, centerY, scaleX);
       sctx.shadowBlur = fontSize * 0.36;
     } else if (styleName === "bright") {
       sctx.shadowColor = palette.glow;
@@ -570,7 +670,7 @@ function createGlyph(char, styleName, palette) {
   }
 
   sctx.fillStyle = color;
-  sctx.fillText(char, centerX, centerY);
+  fillScaledText(sctx, char, centerX, centerY, scaleX);
   glyphCache.set(key, sprite);
   return sprite;
 }
@@ -680,8 +780,12 @@ function resize() {
   dpr = Math.min(window.devicePixelRatio || 1, DPR_LIMIT);
   rows = clamp(Math.round(60 * (100 / settings.glyphscale)), 42, 84);
   cellHeight = height / rows;
-  fontSize = clamp(Math.round(cellHeight * (DEFAULT_PRESET.characterSize / 100)), 10, 48);
-  cellWidth = Math.max(8, cellHeight * 0.38);
+  fontSize = clamp(
+    Math.round(Math.min(cellHeight - DEFAULT_PRESET.layout.rowGapPx, cellHeight * (DEFAULT_PRESET.characterSize / 100))),
+    10,
+    48
+  );
+  cellWidth = Math.max(10, fontSize * DEFAULT_PRESET.layout.glyphAspect + Math.max(1, DEFAULT_PRESET.layout.columnGapPx));
   gridColumns = Math.ceil(width / cellWidth) + 2;
 
   canvas.width = Math.ceil(width * dpr);

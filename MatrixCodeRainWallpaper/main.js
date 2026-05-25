@@ -13,15 +13,15 @@ const CHAR_POOL =
 const DEFAULT_PRESET = {
   name: "Default preset",
   source: "TheMatrixTrilogy.scr Basic code metrics / Code appearance",
-  speedRowsPerSecond: 9.2,
+  speedRowsPerSecond: 12.8,
   releaseEveryTicks: 4.4,
   maxReleaseTracers: 3,
   splashEveryReleases: 0,
   maxSplashTracers: 0,
-  rotatorOccurrence: 2.5,
-  rotatorVariance: 52,
-  negativeRotatorOccurrence: 1.3,
-  negativeRotatorVariance: 38,
+  rotatorOccurrence: 1.1,
+  rotatorVariance: 35,
+  negativeRotatorOccurrence: 0.4,
+  negativeRotatorVariance: 25,
   streamLength: {
     longChance: 48,
     shortMinRows: 0.38,
@@ -53,7 +53,7 @@ const DEFAULT_PRESET = {
     base: 0.58,
     variance: 0.34
   },
-  characterSize: 82,
+  characterSize: 100,
   maxConcurrentStreamsPerColumn: 6,
   initialWarmupSeconds: 5,
   bottomFade: {
@@ -69,8 +69,8 @@ const DEFAULT_PRESET = {
     amount: 0.16
   },
   layout: {
-    glyphAspect: 0.84,
-    glyphWidthScale: 1.52,
+    glyphAspect: 0.72,
+    glyphWidthScale: 1.42,
     columnGapPx: 1.5,
     rowGapPx: 1
   },
@@ -84,26 +84,26 @@ const DEFAULT_PRESET = {
     resetStartMax: 1
   },
   releaseModes: {
-    eraserChance: 0.22,
-    fragmentChance: 0.32,
-    deepChance: 0.08,
+    eraserChance: 0.18,
+    fragmentChance: 0.42,
+    deepChance: 0.06,
     fragmentEndMinRows: 0.2,
     fragmentEndMaxRows: 0.5,
     eraserEndMinRows: 0.5,
     eraserEndMaxRows: 0.95
   },
   standaloneRotators: {
-    chancePerTick: 0.26,
-    maxPerTick: 2,
-    upperBiasPower: 1.85,
-    unrestrictedChance: 0.16,
-    lowerScreenKeepChance: 0.18,
-    minLifeTicks: 34,
-    maxLifeTicks: 82,
+    chancePerTick: 0.44,
+    maxPerTick: 3,
+    upperBiasPower: 1.35,
+    unrestrictedChance: 0.28,
+    lowerScreenKeepChance: 0.3,
+    minLifeTicks: 48,
+    maxLifeTicks: 112,
     minAlpha: 0.36,
     maxAlpha: 0.88,
-    minRotateTicks: 5,
-    maxRotateTicks: 16
+    minRotateTicks: 18,
+    maxRotateTicks: 52
   },
   wallpaperProperties: {
     density: 62,
@@ -227,11 +227,11 @@ function buildPalettes() {
   const glowIntensity = DEFAULT_PRESET.glowingTracers.intensity / 100;
   const white = { r: 255, g: 255, b: 255 };
   const variants = [
-    { name: "dim", body: 0.58, dim: 0.18, pale: 0.02, head: 0.48, glow: 0.16 },
-    { name: "normal", body: 0.88, dim: 0.27, pale: 0.05, head: 0.65, glow: 0.22 },
-    { name: "pale", body: 0.92, dim: 0.32, pale: 0.27, head: 0.82, glow: 0.28 },
-    { name: "accent", body: 1.08, dim: 0.38, pale: 0.12, head: 0.92, glow: 0.34 },
-    { name: "negative", body: 0.42, dim: 0.12, pale: 0, head: 0.35, glow: 0.08 }
+    { name: "dim", body: 0.45, dim: 0.13, pale: 0.01, head: 0.42, glow: 0.1 },
+    { name: "normal", body: 0.82, dim: 0.24, pale: 0.04, head: 0.62, glow: 0.18 },
+    { name: "pale", body: 0.98, dim: 0.34, pale: 0.24, head: 0.8, glow: 0.24 },
+    { name: "accent", body: 1.22, dim: 0.44, pale: 0.16, head: 0.94, glow: 0.32 },
+    { name: "negative", body: 0.32, dim: 0.09, pale: 0, head: 0.28, glow: 0.05 }
   ];
 
   palettes = variants.map((variant) => {
@@ -256,10 +256,10 @@ function buildPalettes() {
 
 function paletteForColumn(seed) {
   const value = hashUnit(seed);
-  if (value < 0.1) return palettes[4];
-  if (value < 0.34) return palettes[0];
+  if (value < 0.16) return palettes[4];
+  if (value < 0.43) return palettes[0];
   if (value < 0.72) return palettes[1];
-  if (value < 0.91) return palettes[2];
+  if (value < 0.9) return palettes[2];
   return palettes[3];
 }
 
@@ -341,7 +341,7 @@ function createCell(column, stream, rowIndex, age = 0) {
     target: 0,
     baseAlpha: alphaBase * column.intensity,
     rotator,
-    nextRotateTick: logicalTick + 10 + Math.floor(hashUnit(stream.seed ^ rowIndex) * 32),
+    nextRotateTick: logicalTick + 28 + Math.floor(hashUnit(stream.seed ^ rowIndex) * 72),
     streamId: stream.id,
     negative: stream.negative,
     glowHead,
@@ -355,9 +355,7 @@ function writeCell(column, stream, rowIndex, age = 0) {
   }
 
   if (stream.negative) {
-    if (hashUnit(stream.seed ^ Math.imul(rowIndex + 8191, 1103515245)) <= stream.density) {
-      column.cells[rowIndex] = null;
-    }
+    column.cells[rowIndex] = null;
     return;
   }
 
@@ -464,8 +462,8 @@ function makeColumn(index, seed) {
         : 2;
   const intensity = clamp(
     0.86 + hashUnit(seed ^ 0x99103) * (DEFAULT_PRESET.intensityVariance / 100) + (profile.name === "pale" ? 0.18 : 0) - (profile.name === "dim" ? 0.1 : 0),
-    0.52,
-    1.58
+    0.42,
+    1.72
   );
   const column = {
     index,
@@ -546,7 +544,7 @@ function updateCell(column, rowIndex) {
   if (cell.rotator && logicalTick >= cell.nextRotateTick) {
     cell.salt = hashInt(cell.salt + logicalTick + rowIndex);
     cell.char = chooseStableChar(column.seed, column.index, rowIndex, cell.salt);
-    cell.nextRotateTick = logicalTick + 12 + Math.floor(hashUnit(cell.salt ^ rowIndex) * 30);
+    cell.nextRotateTick = logicalTick + 28 + Math.floor(hashUnit(cell.salt ^ rowIndex) * 72);
   }
 
   cell.alpha = cell.target;

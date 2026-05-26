@@ -121,7 +121,7 @@ const DEFAULT_PRESET = {
   ambientGrid: {
     topChance: 0.43,
     midChance: 0.32,
-    bottomChance: 0.055,
+    bottomChance: 0.012,
     columnVariance: 0.34,
     runStartFactor: 0.28,
     runContinueMin: 0.74,
@@ -130,20 +130,20 @@ const DEFAULT_PRESET = {
     singletonKeepChance: 0.26,
     singletonColumnizeChance: 0.42,
     bridgeSingleGapChance: 0.22,
-    bridgeLowerGapChance: 0.18,
+    bridgeLowerGapChance: 0.03,
     replenishRate: 0.00012,
     lowerSingletonStart: 0.48,
-    lowerSingletonKeepChance: 0.12,
-    deepLowerSingletonKeepChance: 0.03,
-    lowerSingletonColumnizeChance: 0.44,
-    deepLowerSingletonColumnizeChance: 0.18,
-    lowerReplenishSingletonKeepChance: 0.36,
-    deepLowerReplenishSingletonKeepChance: 0.02,
-    lowerSingleBirthKeepChance: 0.4,
-    deepLowerSingleBirthKeepChance: 0.04,
+    lowerSingletonKeepChance: 0.06,
+    deepLowerSingletonKeepChance: 0.01,
+    lowerSingletonColumnizeChance: 0.12,
+    deepLowerSingletonColumnizeChance: 0.04,
+    lowerReplenishSingletonKeepChance: 0.1,
+    deepLowerReplenishSingletonKeepChance: 0.005,
+    lowerSingleBirthKeepChance: 0.15,
+    deepLowerSingleBirthKeepChance: 0.01,
     charRefreshChance: 0.003,
-    brightFlipChance: 0.018,
-    brightChance: 0.94,
+    brightFlipChance: 0.008,
+    brightChance: 0.58,
     brightAlphaMin: 1.15,
     brightAlphaMax: 1.45,
     bodyAlphaMin: 0.4,
@@ -155,13 +155,14 @@ const DEFAULT_PRESET = {
     singleBirthAttempts: 10,
     singleLifeMinTicks: 70,
     singleLifeMaxTicks: 220,
-    singleBrightChance: 0.88,
-    smallColumnChancePerTick: 0.055,
+    singleBrightChance: 0.52,
+    smallColumnChancePerTick: 0.024,
     smallColumnAttempts: 12,
     smallColumnMinRows: 3,
     smallColumnMaxRows: 5,
-    smallColumnLifeMinTicks: 120,
-    smallColumnLifeMaxTicks: 300
+    lowerSmallColumnKeepChance: 0.08,
+    smallColumnLifeMinTicks: 48,
+    smallColumnLifeMaxTicks: 120
   },
   standaloneRotators: {
     chancePerTick: 0.018,
@@ -180,21 +181,23 @@ const DEFAULT_PRESET = {
     maxRotateTicks: 9
   },
   lowerFragments: {
-    chancePerTick: 0.16,
-    maxPerTick: 2,
+    chancePerTick: 0.045,
+    maxPerTick: 1,
     startMinRows: 0.45,
     startMaxRows: 0.86,
     startBiasPower: 1.55,
-    minLengthRows: 5,
-    maxLengthRows: 10,
+    minLengthRows: 3,
+    maxLengthRows: 6,
     quietGapRows: 7,
-    rotatingChance: 0.48,
-    brightHeadChance: 0.48,
-    brightCellChance: 0.48,
-    minLifeTicks: 70,
-    maxLifeTicks: 170,
-    minAlpha: 0.38,
-    maxAlpha: 0.94,
+    rotatingChance: 0.32,
+    brightHeadChance: 0.38,
+    brightCellChance: 0.08,
+    minLifeTicks: 5,
+    maxLifeTicks: 10,
+    minAlpha: 0.44,
+    maxAlpha: 0.76,
+    minSpeedRowsPerSecond: 22,
+    maxSpeedRowsPerSecond: 34,
     minRotateTicks: 7,
     maxRotateTicks: 18
   },
@@ -336,8 +339,8 @@ function buildPalettes() {
     const pale = variant.pale * colorVariance;
     const body = mixColor(scaleColor(settings.color, variant.body * brightness), white, pale);
     const dim = mixColor(scaleColor(settings.color, variant.dim * brightness), white, pale * 0.35);
-    const bright = mixColor(body, white, Math.max(variant.head * 0.6, 0.48));
-    const head = mixColor(scaleColor(settings.color, 1.32 * brightness), white, 0.78);
+    const bright = mixColor(scaleColor(settings.color, variant.body * 1.16 * brightness), white, Math.max(variant.head * 0.28, 0.24));
+    const head = mixColor(scaleColor(settings.color, 1.38 * brightness), white, 0.54);
     const glowBase = mixColor(head, settings.color, 0.24);
 
     return {
@@ -694,7 +697,7 @@ function shapeColumnSingletons(column) {
   for (let pass = 0; pass < 2; pass += 1) {
     for (let rowIndex = 0; rowIndex < rows; rowIndex += 1) {
       const cell = column.cells[rowIndex];
-      if (!cell || cell.negative || cell.head || !cellVisibleEnough(cell, rowIndex) || hasVisibleVerticalCell(column, rowIndex)) {
+      if (!cell || cell.negative || cell.transient || cell.head || !cellVisibleEnough(cell, rowIndex) || hasVisibleVerticalCell(column, rowIndex)) {
         continue;
       }
 
@@ -871,7 +874,9 @@ function createCell(column, stream, rowIndex, age = 0, forceVisible = false) {
   const rotator = hashUnit(stream.seed ^ Math.imul(rowIndex + 41, 2654435761)) < stream.rotatorRate;
   const alphaUnit = hashUnit(stream.patternSalt ^ Math.imul(rowIndex + 37, 2246822519));
   const alphaPreset = stream.negative ? DEFAULT_PRESET.negativeAlpha : DEFAULT_PRESET.positiveAlpha;
-  const alphaBase = alphaPreset.base + alphaUnit * alphaPreset.variance;
+  const alphaBase = Number.isFinite(stream.alphaBase)
+    ? stream.alphaBase
+    : alphaPreset.base + alphaUnit * alphaPreset.variance;
   const glowHead = !stream.negative && hashUnit(stream.seed ^ Math.imul(rowIndex + 17, 1597334677)) < stream.headChance;
 
   return {
@@ -879,7 +884,7 @@ function createCell(column, stream, rowIndex, age = 0, forceVisible = false) {
     stableChar,
     salt: stream.patternSalt,
     age,
-    life: Math.max(stream.length + 1, Math.round(stream.length * DEFAULT_PRESET.cellLifetimeScale)),
+    life: stream.cellLifeTicks || Math.max(stream.length + 1, Math.round(stream.length * DEFAULT_PRESET.cellLifetimeScale)),
     alpha: 0,
     target: 0,
     baseAlpha: alphaBase * column.intensity,
@@ -891,6 +896,7 @@ function createCell(column, stream, rowIndex, age = 0, forceVisible = false) {
     streamId: stream.id,
     negative: stream.negative,
     glowHead,
+    transient: Boolean(stream.transient),
     justWritten: age <= 1
   };
 }
@@ -947,6 +953,39 @@ function demoteStreamHead(column, stream) {
   }
 
   stream.headCellRow = null;
+}
+
+function createLowerFragmentStream(column, seed, startRow, length) {
+  const fragments = DEFAULT_PRESET.lowerFragments;
+  const ordinal = column.nextStreamOrdinal;
+  column.nextStreamOrdinal += 1;
+  const endRow = Math.min(rows - 1, startRow + length - 1);
+
+  return {
+    id: `lower:${column.index}:${ordinal}:${seed}`,
+    seed,
+    negative: false,
+    mode: "lowerFragment",
+    long: false,
+    headRow: startRow - 1,
+    headCellRow: null,
+    progress: 0,
+    patternSalt: seed,
+    length,
+    density: 1,
+    rotatorRate: fragments.rotatingChance,
+    headChance: fragments.brightCellChance,
+    brightHead: hashUnit(seed ^ 0xd82f) < fragments.brightHeadChance,
+    cooldownTicks: 0,
+    paletteName: column.paletteName,
+    toneMultiplier: 1,
+    speed: seededRange(seed ^ 0x53fa, fragments.minSpeedRowsPerSecond, fragments.maxSpeedRowsPerSecond),
+    endRow,
+    finished: false,
+    transient: true,
+    cellLifeTicks: Math.floor(seededRange(seed ^ 0x44f1, fragments.minLifeTicks, fragments.maxLifeTicks)),
+    alphaBase: seededRange(seed ^ 0x9e3d, fragments.minAlpha, fragments.maxAlpha)
+  };
 }
 
 function resetStream(stream, column, initial = false) {
@@ -1039,7 +1078,10 @@ function createStream(column, ordinal, initial, mode = "normal") {
     toneMultiplier: 1,
     speed: 0,
     endRow: rows,
-    finished: false
+    finished: false,
+    transient: false,
+    cellLifeTicks: null,
+    alphaBase: null
   };
   resetStream(stream, column, initial);
   return stream;
@@ -1189,7 +1231,7 @@ function updateCell(column, rowIndex) {
   cell.justWritten = false;
 
   if (cell.age >= cell.life) {
-    if (!cell.demotedBeforeClear && (cell.head || cell.glowHead)) {
+    if (!cell.transient && !cell.demotedBeforeClear && (cell.head || cell.glowHead)) {
       const dimSeed = hashInt(cell.salt ^ Math.imul(logicalTick + rowIndex + 5, 668265263));
       cell.demotedBeforeClear = true;
       cell.head = false;
@@ -1267,6 +1309,10 @@ function releaseAmbientSmallColumns() {
 
     const length = Math.floor(seededRange(seed ^ 0xa73d, ambient.smallColumnMinRows, ambient.smallColumnMaxRows + 1));
     const startRow = Math.min(rows - length, Math.floor(hashUnit(seed ^ 0x5bc7) * rows));
+    if (isLowerSingletonRow(startRow) && hashUnit(seed ^ 0x7c91) > ambient.lowerSmallColumnKeepChance) {
+      continue;
+    }
+
     let writable = true;
     for (let offset = 0; offset < length; offset += 1) {
       if (column.cells[startRow + offset]) {
@@ -1296,6 +1342,11 @@ function stepStream(column, stream) {
   stream.headRow += 1;
 
   if (stream.headRow > stream.endRow) {
+    if (stream.mode === "lowerFragment") {
+      stream.finished = true;
+      return;
+    }
+
     if (column.active) {
       pauseStream(stream, column);
     } else {
@@ -1475,35 +1526,11 @@ function releaseLowerFragments() {
       continue;
     }
 
-    const life = Math.floor(seededRange(seed ^ 0x44f1, fragments.minLifeTicks, fragments.maxLifeTicks));
-    const baseAlpha = seededRange(seed ^ 0x9e3d, fragments.minAlpha, fragments.maxAlpha) * column.intensity;
-    const rotates = hashUnit(seed ^ 0x71dd) < fragments.rotatingChance;
-
-    for (let offset = 0; offset < length; offset += 1) {
-      const rowIndex = startRow + offset;
-      const charSalt = hashInt(seed ^ Math.imul(offset + 1, 0x85ebca6b));
-      const char = chooseStableChar(column.seed, column.index, rowIndex, charSalt);
-      const rowAlpha = baseAlpha;
-      column.cells[rowIndex] = {
-        char,
-        stableChar: char,
-        salt: charSalt,
-        age: Math.floor(hashUnit(charSalt ^ 0x391f) * 4),
-        life,
-        alpha: rowAlpha,
-        target: rowAlpha,
-        baseAlpha: rowAlpha,
-        paletteName: column.paletteName,
-        rotator: rotates && hashUnit(charSalt ^ 0x1e7a) < 0.58,
-        nextRotateTick: logicalTick + rotateDelay(charSalt, rowIndex, fragments),
-        streamId: `lower:${column.index}:${rowIndex}:${seed}`,
-        negative: false,
-        glowHead: offset === 0
-          ? hashUnit(charSalt ^ 0xd82f) < fragments.brightHeadChance
-          : hashUnit(charSalt ^ 0x52cd) < fragments.brightCellChance,
-        justWritten: true
-      };
+    if (column.streams.some((stream) => stream.mode === "lowerFragment" && !stream.finished)) {
+      continue;
     }
+
+    column.streams.push(createLowerFragmentStream(column, seed, startRow, length));
   }
 }
 
@@ -1632,7 +1659,11 @@ function drawGlyph(cell, column, rowIndex) {
   const y = (rowIndex + 0.5) * cellHeight;
   let visibility = rowVisibility(rowIndex);
   if (!cell.negative && (cell.head || cell.glowHead)) {
-    visibility = Math.max(visibility, cell.head ? 0.74 : 0.66);
+    const rowUnit = rowIndex / Math.max(1, rows - 1);
+    const upperFloor = cell.head ? 0.74 : 0.66;
+    const lowerFloor = cell.head ? 0.28 : 0.18;
+    const floorMix = clamp((0.68 - rowUnit) / 0.2, 0, 1);
+    visibility = Math.max(visibility, lowerFloor * (1 - floorMix) + upperFloor * floorMix);
   }
 
   ctx.globalAlpha = clamp(alpha * visibility * clamp(settings.brightness / 72, 0.45, 1.32), 0, 1);

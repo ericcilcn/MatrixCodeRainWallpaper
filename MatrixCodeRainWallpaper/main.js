@@ -8,15 +8,14 @@ const DPR_LIMIT = 2;
 const BASE_COLOR = { r: 35, g: 217, b: 104 };
 const PATTERN_SEED = 0x4d415452;
 const DEBUG_STATE_ENABLED = new URLSearchParams(window.location.search).has("debugstate");
-const CHAR_POOL =
-  "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+-*/=<>[]";
-const GLYPH_MEASURE_POOL = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+const CHAR_POOL = "012345789+*<>:|\\";
+const GLYPH_MEASURE_POOL = CHAR_POOL;
 
 const DEFAULT_PRESET = {
   name: "Default preset",
   source: "TheMatrixTrilogy.scr Basic code metrics / Code appearance",
-  speedRowsPerSecond: 28,
-  releaseEveryTicks: 600,
+  speedRowsPerSecond: 50,
+  releaseEveryTicks: 360,
   maxReleaseTracers: 1,
   splashEveryReleases: 0,
   maxSplashTracers: 0,
@@ -31,19 +30,19 @@ const DEFAULT_PRESET = {
     longMinRows: 0.78,
     longMaxRows: 1.45
   },
-  cellLifetimeScale: 3.15,
-  positiveDensity: 88,
-  positiveDensityVariance: 14,
+  cellLifetimeScale: 1.65,
+  positiveDensity: 74,
+  positiveDensityVariance: 16,
   negativeDensity: 88,
   negativeDensityVariance: 12,
   fadeBottom: true,
   samePattern: true,
   glowingTracers: {
-    occurrence: 15,
+    occurrence: 24,
     variance: 14,
     negativeOccurrence: 0.4,
     intensity: 90,
-    fallingHeadChance: 0.46
+    fallingHeadChance: 0.64
   },
   speedVariability: 90,
   colorVariance: 100,
@@ -66,27 +65,27 @@ const DEFAULT_PRESET = {
     variance: 0
   },
   characterSize: 100,
-  maxConcurrentStreamsPerColumn: 1,
+  maxConcurrentStreamsPerColumn: 2,
   initialWarmupSeconds: 5,
   bottomFade: {
-    baseVisibility: 1.16,
-    start: 0.2,
-    power: 1.08,
-    amount: 1.02,
-    minVisibility: 0.08,
-    maxVisibility: 1.22
+    baseVisibility: 1,
+    start: 0.27,
+    power: 1,
+    amount: 0.68,
+    minVisibility: 0.24,
+    maxVisibility: 1.1
   },
   entryBoost: {
     portion: 0.28,
-    amount: 0.16
+    amount: 0.04
   },
   layout: {
     referenceWidth: 3840,
     referenceHeight: 2160,
     columnPitchPx: 28,
     rowPitchPx: 37,
-    glyphTargetWidthPx: 18,
-    glyphTargetHeightPx: 24,
+    glyphTargetWidthPx: 19,
+    glyphTargetHeightPx: 25,
     columnGapPx: 1,
     rowGapPx: 1,
     fontInsetPx: 1,
@@ -99,36 +98,38 @@ const DEFAULT_PRESET = {
   topOrigin: {
     initialTopChance: 0.82,
     initialTopPortion: 0.27,
-    reachesBottomChance: 0.05,
-    endMinRows: 0.34,
-    endMaxRows: 0.62,
+    reachesBottomChance: 0.28,
+    endMinRows: 0.56,
+    endMaxRows: 0.98,
     resetStartMin: -3,
     resetStartMax: 1
   },
   releaseModes: {
     eraserChance: 0.05,
-    fragmentChance: 0.2,
-    deepChance: 0.015,
+    fragmentChance: 0.18,
+    deepChance: 0.03,
     fragmentEndMinRows: 0.2,
-    fragmentEndMaxRows: 0.43,
+    fragmentEndMaxRows: 0.5,
     eraserEndMinRows: 0.5,
     eraserEndMaxRows: 0.78
   },
   streamRestart: {
-    minTicks: 180,
-    maxTicks: 420
+    minTicks: 30,
+    maxTicks: 95
   },
   ambientGrid: {
-    topChance: 0.43,
-    midChance: 0.32,
+    topChance: 0.23,
+    midChance: 0.14,
     bottomChance: 0.012,
     columnVariance: 0.34,
-    runStartFactor: 0.28,
-    runContinueMin: 0.74,
-    runContinueByDensity: 0.17,
-    runContinueMax: 0.87,
-    singletonKeepChance: 0.26,
-    singletonColumnizeChance: 0.42,
+    quietColumnChance: 0.24,
+    quietColumnMultiplier: 0.04,
+    runStartFactor: 0.24,
+    runContinueMin: 0.61,
+    runContinueByDensity: 0.1,
+    runContinueMax: 0.76,
+    singletonKeepChance: 0.18,
+    singletonColumnizeChance: 0.36,
     bridgeSingleGapChance: 0.22,
     bridgeLowerGapChance: 0.03,
     replenishRate: 0.00012,
@@ -150,7 +151,7 @@ const DEFAULT_PRESET = {
     bodyAlphaMax: 0.64,
     lifeMinTicks: 1500,
     lifeMaxTicks: 3600,
-    singleBirthChancePerTick: 0.34,
+    singleBirthChancePerTick: 0.24,
     singleBirthsPerTick: 1,
     singleBirthAttempts: 10,
     singleLifeMinTicks: 70,
@@ -165,14 +166,14 @@ const DEFAULT_PRESET = {
     smallColumnLifeMaxTicks: 120
   },
   standaloneRotators: {
-    chancePerTick: 0.018,
+    chancePerTick: 0.014,
     maxPerTick: 1,
     pairChance: 0,
     tripleChance: 0,
     rotatingChance: 1,
     upperBiasPower: 1.68,
     unrestrictedChance: 0.03,
-    lowerScreenKeepChance: 0.08,
+    lowerScreenKeepChance: 0.05,
     minLifeTicks: 260,
     maxLifeTicks: 640,
     minAlpha: 0.24,
@@ -202,12 +203,12 @@ const DEFAULT_PRESET = {
     maxRotateTicks: 18
   },
   columnActivity: {
-    initialActiveChance: 0.02,
-    minActiveTicks: 84,
-    maxActiveTicks: 260,
-    minQuietTicks: 88,
-    maxQuietTicks: 280,
-    reawakenStreamRatio: 0.45,
+    initialActiveChance: 0.03,
+    minActiveTicks: 75,
+    maxActiveTicks: 190,
+    minQuietTicks: 130,
+    maxQuietTicks: 320,
+    reawakenStreamRatio: 0.8,
     retireMinTicks: 72,
     retireMaxTicks: 180
   },
@@ -520,7 +521,12 @@ function ambientRegionChance(rowIndex) {
 }
 
 function ambientColumnMultiplier(column) {
-  const variance = DEFAULT_PRESET.ambientGrid.columnVariance;
+  const ambient = DEFAULT_PRESET.ambientGrid;
+  if (hashUnit(column.seed ^ 0x4c171) < ambient.quietColumnChance) {
+    return ambient.quietColumnMultiplier;
+  }
+
+  const variance = ambient.columnVariance;
   return seededRange(column.seed ^ 0x68bf13, 1 - variance, 1 + variance);
 }
 
@@ -1356,7 +1362,7 @@ function stepStream(column, stream) {
   }
 
   const written = writeCell(column, stream, stream.headRow, 0, {
-    forceVisible: !stream.negative,
+    forceVisible: !stream.negative && (stream.brightHead || stream.mode === "lowerFragment"),
     head: stream.brightHead
   });
   if (written) {

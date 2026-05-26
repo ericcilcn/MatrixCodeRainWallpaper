@@ -3,7 +3,7 @@
 const canvas = document.getElementById("matrix-rain");
 const ctx = canvas.getContext("2d", { alpha: false });
 
-const FONT_FAMILY = "\"Matrix Code NFI\", monospace";
+const FONT_FAMILY = "\"Matrix Code\", monospace";
 const DPR_LIMIT = 2;
 const BASE_COLOR = { r: 35, g: 217, b: 104 };
 const PATTERN_SEED = 0x4d415452;

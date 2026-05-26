@@ -9,14 +9,14 @@ const BASE_COLOR = { r: 35, g: 217, b: 104 };
 const PATTERN_SEED = 0x4d415452;
 const DEBUG_STATE_ENABLED = new URLSearchParams(window.location.search).has("debugstate");
 const CHAR_POOL =
-  "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+-*/=<>[]{}()|:;,.!?#$%&\"'";
+  "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+-*/=<>[]";
 const GLYPH_MEASURE_POOL = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 
 const DEFAULT_PRESET = {
   name: "Default preset",
   source: "TheMatrixTrilogy.scr Basic code metrics / Code appearance",
-  speedRowsPerSecond: 24,
-  releaseEveryTicks: 8.6,
+  speedRowsPerSecond: 28,
+  releaseEveryTicks: 600,
   maxReleaseTracers: 1,
   splashEveryReleases: 0,
   maxSplashTracers: 0,
@@ -66,14 +66,14 @@ const DEFAULT_PRESET = {
     variance: 0
   },
   characterSize: 100,
-  maxConcurrentStreamsPerColumn: 3,
+  maxConcurrentStreamsPerColumn: 1,
   initialWarmupSeconds: 5,
   bottomFade: {
-    baseVisibility: 1.17,
-    start: 0.16,
+    baseVisibility: 1.16,
+    start: 0.2,
     power: 1.08,
-    amount: 1.1,
-    minVisibility: 0.05,
+    amount: 1.02,
+    minVisibility: 0.08,
     maxVisibility: 1.22
   },
   entryBoost: {
@@ -93,8 +93,8 @@ const DEFAULT_PRESET = {
     fontOversizePx: 4
   },
   rotatingCells: {
-    minRotateTicks: 3,
-    maxRotateTicks: 8
+    minRotateTicks: 12,
+    maxRotateTicks: 24
   },
   topOrigin: {
     initialTopChance: 0.82,
@@ -115,11 +115,38 @@ const DEFAULT_PRESET = {
     eraserEndMaxRows: 0.78
   },
   streamRestart: {
-    minTicks: 96,
-    maxTicks: 260
+    minTicks: 180,
+    maxTicks: 420
+  },
+  ambientGrid: {
+    topChance: 0.43,
+    midChance: 0.27,
+    bottomChance: 0.04,
+    columnVariance: 0.34,
+    replenishRate: 0.00012,
+    charRefreshChance: 0.003,
+    brightFlipChance: 0.018,
+    brightChance: 0.94,
+    brightAlphaMin: 1.15,
+    brightAlphaMax: 1.45,
+    bodyAlphaMin: 0.4,
+    bodyAlphaMax: 0.64,
+    lifeMinTicks: 1500,
+    lifeMaxTicks: 3600,
+    singleBirthsPerTick: 1,
+    singleBirthAttempts: 22,
+    singleLifeMinTicks: 70,
+    singleLifeMaxTicks: 220,
+    singleBrightChance: 0.88,
+    smallColumnChancePerTick: 0.07,
+    smallColumnAttempts: 12,
+    smallColumnMinRows: 2,
+    smallColumnMaxRows: 3,
+    smallColumnLifeMinTicks: 80,
+    smallColumnLifeMaxTicks: 240
   },
   standaloneRotators: {
-    chancePerTick: 0.15,
+    chancePerTick: 0.035,
     maxPerTick: 1,
     pairChance: 0,
     tripleChance: 0,
@@ -153,12 +180,12 @@ const DEFAULT_PRESET = {
     maxRotateTicks: 18
   },
   columnActivity: {
-    initialActiveChance: 0.5,
+    initialActiveChance: 0.02,
     minActiveTicks: 84,
     maxActiveTicks: 260,
     minQuietTicks: 88,
     maxQuietTicks: 280,
-    reawakenStreamRatio: 0.65,
+    reawakenStreamRatio: 0.45,
     retireMinTicks: 72,
     retireMaxTicks: 180
   },
@@ -452,6 +479,167 @@ function rowVisibility(rowIndex) {
   return clamp(base * entryBoost, fade.minVisibility, fade.maxVisibility);
 }
 
+function ambientRegionChance(rowIndex) {
+  const ambient = DEFAULT_PRESET.ambientGrid;
+  const t = rowIndex / Math.max(1, rows - 1);
+
+  if (t < 1 / 3) {
+    const local = t * 3;
+    return ambient.topChance * (1 - local) + ambient.midChance * local;
+  }
+
+  if (t < 2 / 3) {
+    const local = (t - 1 / 3) * 3;
+    return ambient.midChance * (1 - local) + ambient.bottomChance * local;
+  }
+
+  const local = (t - 2 / 3) * 3;
+  return ambient.bottomChance * (1 - local) + ambient.bottomChance * 0.58 * local;
+}
+
+function ambientColumnMultiplier(column) {
+  const variance = DEFAULT_PRESET.ambientGrid.columnVariance;
+  return seededRange(column.seed ^ 0x68bf13, 1 - variance, 1 + variance);
+}
+
+function ambientCellChance(column, rowIndex) {
+  return clamp(ambientRegionChance(rowIndex) * ambientColumnMultiplier(column) * clamp(settings.density / 62, 0.58, 1.28), 0.02, 0.72);
+}
+
+function hasAdjacentCell(column, rowIndex) {
+  if (rowIndex > 0 && column.cells[rowIndex - 1]) {
+    return true;
+  }
+  if (rowIndex < rows - 1 && column.cells[rowIndex + 1]) {
+    return true;
+  }
+
+  const left = activeColumns.find((candidate) => candidate.index === column.index - 1);
+  const right = activeColumns.find((candidate) => candidate.index === column.index + 1);
+  return Boolean(
+    (left && left.cells[rowIndex]) ||
+    (right && right.cells[rowIndex])
+  );
+}
+
+function ambientAlpha(seed, column, bright) {
+  const ambient = DEFAULT_PRESET.ambientGrid;
+  const min = bright ? ambient.brightAlphaMin : ambient.bodyAlphaMin;
+  const max = bright ? ambient.brightAlphaMax : ambient.bodyAlphaMax;
+  return seededRange(seed ^ 0x5a1fc9, min, max) * column.intensity;
+}
+
+function createAmbientCell(column, rowIndex, seed, options = {}) {
+  const ambient = DEFAULT_PRESET.ambientGrid;
+  const bright = Object.prototype.hasOwnProperty.call(options, "bright")
+    ? options.bright
+    : hashUnit(seed ^ 0x296d) < ambient.brightChance;
+  const lifeMin = options.lifeMin || ambient.lifeMinTicks;
+  const lifeMax = options.lifeMax || ambient.lifeMaxTicks;
+  const charSalt = hashInt(seed ^ Math.imul(rowIndex + 1, 0x85ebca6b));
+  const char = chooseStableChar(column.seed, column.index, rowIndex, charSalt);
+  const baseAlpha = ambientAlpha(seed, column, bright);
+
+  return {
+    char,
+    stableChar: char,
+    salt: charSalt,
+    age: options.age || 0,
+    life: Math.floor(seededRange(seed ^ 0x44f1, lifeMin, lifeMax)),
+    alpha: baseAlpha,
+    target: baseAlpha,
+    baseAlpha,
+    paletteName: column.paletteName,
+    rotator: true,
+    head: false,
+    headPreviousGlowHead: false,
+    headStreamId: null,
+    nextRotateTick: logicalTick + rotateDelay(charSalt, rowIndex, DEFAULT_PRESET.rotatingCells),
+    streamId: `ambient:${column.index}:${rowIndex}:${seed}`,
+    negative: false,
+    glowHead: bright,
+    staticCell: true,
+    justWritten: true
+  };
+}
+
+function placeAmbientCell(column, rowIndex, seed, options = {}) {
+  if (rowIndex < 0 || rowIndex >= rows) {
+    return null;
+  }
+
+  const current = column.cells[rowIndex];
+  if (current && current.target > 0.08) {
+    return null;
+  }
+
+  const cell = createAmbientCell(column, rowIndex, seed, options);
+  column.cells[rowIndex] = cell;
+  return cell;
+}
+
+function seedAmbientColumn(column) {
+  for (let rowIndex = 0; rowIndex < rows; rowIndex += 1) {
+    const seed = hashInt(column.seed ^ Math.imul(rowIndex + 17, 1597334677));
+    if (hashUnit(seed) < ambientCellChance(column, rowIndex)) {
+      const cell = createAmbientCell(column, rowIndex, seed, {
+        age: Math.floor(hashUnit(seed ^ 0x31df) * DEFAULT_PRESET.ambientGrid.lifeMinTicks)
+      });
+      column.cells[rowIndex] = cell;
+    }
+  }
+}
+
+function updateAmbientCell(column, rowIndex, cell) {
+  const ambient = DEFAULT_PRESET.ambientGrid;
+  cell.age += 1;
+  cell.justWritten = false;
+
+  if (cell.age >= cell.life) {
+    if (!cell.demotedBeforeClear && cell.glowHead) {
+      const dimSeed = hashInt(cell.salt ^ Math.imul(logicalTick + rowIndex + 3, 1597334677));
+      cell.demotedBeforeClear = true;
+      cell.glowHead = false;
+      cell.baseAlpha = ambientAlpha(dimSeed, column, false);
+      cell.target = cell.baseAlpha;
+      cell.alpha = cell.baseAlpha;
+      cell.life = cell.age + Math.floor(seededRange(dimSeed ^ 0x38d1, 80, 180));
+      return;
+    }
+
+    column.cells[rowIndex] = null;
+    return;
+  }
+
+  const tickSeed = hashInt(cell.salt ^ Math.imul(logicalTick + rowIndex + 1, 2246822519));
+  if (hashUnit(tickSeed ^ 0x31b9) < ambient.charRefreshChance || logicalTick >= cell.nextRotateTick) {
+    cell.salt = hashInt(cell.salt ^ tickSeed ^ logicalTick);
+    cell.char = chooseStableChar(column.seed, column.index, rowIndex, cell.salt);
+    cell.nextRotateTick = logicalTick + rotateDelay(cell.salt, rowIndex, DEFAULT_PRESET.rotatingCells);
+  }
+
+  if (hashUnit(tickSeed ^ 0x81e3) < ambient.brightFlipChance) {
+    cell.glowHead = hashUnit(tickSeed ^ 0xc2d1) < ambient.brightChance;
+    cell.baseAlpha = ambientAlpha(tickSeed, column, cell.glowHead);
+  }
+
+  cell.target = cell.baseAlpha;
+  cell.alpha = cell.baseAlpha;
+}
+
+function maybeReplenishAmbientCell(column, rowIndex) {
+  if (column.cells[rowIndex]) {
+    return;
+  }
+
+  const ambient = DEFAULT_PRESET.ambientGrid;
+  const seed = hashInt(column.seed ^ Math.imul(logicalTick + 1, 374761393) ^ Math.imul(rowIndex + 4099, 668265263));
+  const chance = ambientCellChance(column, rowIndex) * ambient.replenishRate;
+  if (hashUnit(seed) < chance) {
+    placeAmbientCell(column, rowIndex, seed);
+  }
+}
+
 function createCell(column, stream, rowIndex, age = 0, forceVisible = false) {
   const visible = forceVisible || hashUnit(stream.seed ^ Math.imul(rowIndex + 8191, 1103515245)) <= stream.density;
 
@@ -660,6 +848,7 @@ function makeColumn(index, seed) {
     streams: []
   };
 
+  seedAmbientColumn(column);
   setColumnActivity(column, active, activitySeed, true);
   return column;
 }
@@ -771,10 +960,29 @@ function updateCell(column, rowIndex) {
     return;
   }
 
+  if (cell.staticCell) {
+    updateAmbientCell(column, rowIndex, cell);
+    return;
+  }
+
   cell.age += 1;
   cell.justWritten = false;
 
   if (cell.age >= cell.life) {
+    if (!cell.demotedBeforeClear && (cell.head || cell.glowHead)) {
+      const dimSeed = hashInt(cell.salt ^ Math.imul(logicalTick + rowIndex + 5, 668265263));
+      cell.demotedBeforeClear = true;
+      cell.head = false;
+      cell.headStreamId = null;
+      cell.headPreviousGlowHead = false;
+      cell.glowHead = false;
+      cell.baseAlpha = seededRange(dimSeed ^ 0x4a91, 0.34, 0.62) * column.intensity;
+      cell.target = cell.baseAlpha;
+      cell.alpha = cell.baseAlpha;
+      cell.life = cell.age + Math.floor(seededRange(dimSeed ^ 0x2c5f, 70, 160));
+      return;
+    }
+
     column.cells[rowIndex] = null;
     return;
   }
@@ -787,6 +995,72 @@ function updateCell(column, rowIndex) {
 
   cell.target = cell.baseAlpha;
   cell.alpha = cell.baseAlpha;
+}
+
+function releaseAmbientSingles() {
+  const ambient = DEFAULT_PRESET.ambientGrid;
+  for (let i = 0; i < ambient.singleBirthsPerTick; i += 1) {
+    const baseSeed = hashInt(PATTERN_SEED ^ Math.imul(logicalTick + 1, 1597334677) ^ Math.imul(i + 17, 374761393));
+    for (let attempt = 0; attempt < ambient.singleBirthAttempts; attempt += 1) {
+      const seed = hashInt(baseSeed ^ Math.imul(attempt + 1, 668265263));
+      const column = activeColumns[Math.floor(hashUnit(seed ^ 0x6d2b) * activeColumns.length)];
+      if (!column) {
+        continue;
+      }
+
+      const row = Math.floor(hashUnit(seed ^ 0x9301) * rows);
+      if (column.cells[row] || hasAdjacentCell(column, row)) {
+        continue;
+      }
+
+      placeAmbientCell(column, row, seed, {
+        bright: hashUnit(seed ^ 0xc31a) < ambient.singleBrightChance,
+        lifeMin: ambient.singleLifeMinTicks,
+        lifeMax: ambient.singleLifeMaxTicks
+      });
+      break;
+    }
+  }
+}
+
+function releaseAmbientSmallColumns() {
+  const ambient = DEFAULT_PRESET.ambientGrid;
+  if (hashUnit(Math.imul(logicalTick + 79, 1103515245)) > ambient.smallColumnChancePerTick) {
+    return;
+  }
+
+  const baseSeed = hashInt(PATTERN_SEED ^ Math.imul(logicalTick + 5, 2246822519));
+  for (let attempt = 0; attempt < ambient.smallColumnAttempts; attempt += 1) {
+    const seed = hashInt(baseSeed ^ Math.imul(attempt + 1, 1597334677));
+    const column = activeColumns[Math.floor(hashUnit(seed ^ 0x31bf) * activeColumns.length)];
+    if (!column) {
+      continue;
+    }
+
+    const length = Math.floor(seededRange(seed ^ 0xa73d, ambient.smallColumnMinRows, ambient.smallColumnMaxRows + 1));
+    const startRow = Math.min(rows - length, Math.floor(hashUnit(seed ^ 0x5bc7) * rows));
+    let writable = true;
+    for (let offset = 0; offset < length; offset += 1) {
+      if (column.cells[startRow + offset]) {
+        writable = false;
+        break;
+      }
+    }
+    if (!writable) {
+      continue;
+    }
+
+    const brightHead = hashUnit(seed ^ 0x77ac) < ambient.singleBrightChance;
+    for (let offset = 0; offset < length; offset += 1) {
+      const rowIndex = startRow + offset;
+      placeAmbientCell(column, rowIndex, hashInt(seed ^ Math.imul(offset + 1, 0xa531)), {
+        bright: offset === 0 ? brightHead : hashUnit(seed ^ Math.imul(offset + 3, 0x9e37)) < ambient.brightChance,
+        lifeMin: ambient.smallColumnLifeMinTicks,
+        lifeMax: ambient.smallColumnLifeMaxTicks
+      });
+    }
+    break;
+  }
 }
 
 function stepStream(column, stream) {
@@ -1011,6 +1285,7 @@ function logicStep() {
 
     for (let rowIndex = 0; rowIndex < rows; rowIndex += 1) {
       updateCell(column, rowIndex);
+      maybeReplenishAmbientCell(column, rowIndex);
     }
 
     for (let i = column.streams.length - 1; i >= 0; i -= 1) {
@@ -1037,6 +1312,8 @@ function logicStep() {
   }
 
   releaseSplash();
+  releaseAmbientSingles();
+  releaseAmbientSmallColumns();
   releaseStandaloneRotators();
   releaseLowerFragments();
 }
@@ -1119,7 +1396,12 @@ function drawGlyph(cell, column, rowIndex) {
   const sprite = createGlyph(cell.char, styleName, palette);
   const x = column.x;
   const y = (rowIndex + 0.5) * cellHeight;
-  ctx.globalAlpha = clamp(alpha * rowVisibility(rowIndex) * clamp(settings.brightness / 72, 0.45, 1.32), 0, 1);
+  let visibility = rowVisibility(rowIndex);
+  if (!cell.negative && (cell.head || cell.glowHead)) {
+    visibility = Math.max(visibility, cell.head ? 0.74 : 0.66);
+  }
+
+  ctx.globalAlpha = clamp(alpha * visibility * clamp(settings.brightness / 72, 0.45, 1.32), 0, 1);
   ctx.drawImage(
     sprite,
     Math.round(x - sprite.cssWidth / 2),

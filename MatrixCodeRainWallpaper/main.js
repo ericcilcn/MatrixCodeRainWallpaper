@@ -16,12 +16,12 @@ const DEFAULT_PRESET = {
   name: "Default preset",
   source: "TheMatrixTrilogy.scr Basic code metrics / Code appearance",
   speedRowsPerSecond: 24,
-  releaseEveryTicks: 5.2,
-  maxReleaseTracers: 2,
+  releaseEveryTicks: 8.6,
+  maxReleaseTracers: 1,
   splashEveryReleases: 0,
   maxSplashTracers: 0,
-  rotatorOccurrence: 1.4,
-  rotatorVariance: 18,
+  rotatorOccurrence: 7.2,
+  rotatorVariance: 45,
   negativeRotatorOccurrence: 0,
   negativeRotatorVariance: 0,
   streamLength: {
@@ -31,7 +31,7 @@ const DEFAULT_PRESET = {
     longMinRows: 0.78,
     longMaxRows: 1.45
   },
-  cellLifetimeScale: 3.4,
+  cellLifetimeScale: 3.15,
   positiveDensity: 88,
   positiveDensityVariance: 14,
   negativeDensity: 88,
@@ -42,7 +42,8 @@ const DEFAULT_PRESET = {
     occurrence: 15,
     variance: 14,
     negativeOccurrence: 0.4,
-    intensity: 90
+    intensity: 90,
+    fallingHeadChance: 0.46
   },
   speedVariability: 90,
   colorVariance: 100,
@@ -65,15 +66,15 @@ const DEFAULT_PRESET = {
     variance: 0
   },
   characterSize: 100,
-  maxConcurrentStreamsPerColumn: 5,
+  maxConcurrentStreamsPerColumn: 3,
   initialWarmupSeconds: 5,
   bottomFade: {
-    baseVisibility: 1.22,
-    start: 0.08,
-    power: 0.92,
-    amount: 0.9,
-    minVisibility: 0.14,
-    maxVisibility: 1.25
+    baseVisibility: 1.17,
+    start: 0.16,
+    power: 1.08,
+    amount: 1.1,
+    minVisibility: 0.05,
+    maxVisibility: 1.22
   },
   entryBoost: {
     portion: 0.28,
@@ -84,8 +85,8 @@ const DEFAULT_PRESET = {
     referenceHeight: 2160,
     columnPitchPx: 28,
     rowPitchPx: 37,
-    glyphTargetWidthPx: 17,
-    glyphTargetHeightPx: 25,
+    glyphTargetWidthPx: 18,
+    glyphTargetHeightPx: 24,
     columnGapPx: 1,
     rowGapPx: 1,
     fontInsetPx: 1,
@@ -98,30 +99,34 @@ const DEFAULT_PRESET = {
   topOrigin: {
     initialTopChance: 0.82,
     initialTopPortion: 0.27,
-    reachesBottomChance: 0.11,
-    endMinRows: 0.42,
-    endMaxRows: 0.68,
+    reachesBottomChance: 0.05,
+    endMinRows: 0.34,
+    endMaxRows: 0.62,
     resetStartMin: -3,
     resetStartMax: 1
   },
   releaseModes: {
     eraserChance: 0.05,
-    fragmentChance: 0.24,
-    deepChance: 0.04,
+    fragmentChance: 0.2,
+    deepChance: 0.015,
     fragmentEndMinRows: 0.2,
-    fragmentEndMaxRows: 0.5,
+    fragmentEndMaxRows: 0.43,
     eraserEndMinRows: 0.5,
-    eraserEndMaxRows: 0.95
+    eraserEndMaxRows: 0.78
+  },
+  streamRestart: {
+    minTicks: 96,
+    maxTicks: 260
   },
   standaloneRotators: {
-    chancePerTick: 0.12,
+    chancePerTick: 0.15,
     maxPerTick: 1,
     pairChance: 0,
     tripleChance: 0,
     rotatingChance: 1,
-    upperBiasPower: 1.35,
-    unrestrictedChance: 0.28,
-    lowerScreenKeepChance: 0.78,
+    upperBiasPower: 1.68,
+    unrestrictedChance: 0.16,
+    lowerScreenKeepChance: 0.42,
     minLifeTicks: 260,
     maxLifeTicks: 640,
     minAlpha: 0.24,
@@ -473,6 +478,7 @@ function createCell(column, stream, rowIndex, age = 0, forceVisible = false) {
     paletteName: column.paletteName,
     rotator,
     head: false,
+    headPreviousGlowHead: false,
     nextRotateTick: logicalTick + rotateDelay(stream.seed, rowIndex),
     streamId: stream.id,
     negative: stream.negative,
@@ -499,6 +505,9 @@ function writeCell(column, stream, rowIndex, age = 0, options = {}) {
   const current = column.cells[rowIndex];
   if (current && !current.negative && current.target > 0.12) {
     if (options.head) {
+      if (!current.head) {
+        current.headPreviousGlowHead = current.glowHead;
+      }
       current.head = true;
       current.headStreamId = stream.id;
       current.glowHead = true;
@@ -509,6 +518,7 @@ function writeCell(column, stream, rowIndex, age = 0, options = {}) {
   next.target = next.baseAlpha;
   next.alpha = next.target;
   next.head = Boolean(options.head);
+  next.headPreviousGlowHead = false;
   next.headStreamId = options.head ? stream.id : null;
   next.glowHead = next.glowHead || next.head;
   column.cells[rowIndex] = next;
@@ -524,7 +534,8 @@ function demoteStreamHead(column, stream) {
   if (cell && cell.head && cell.headStreamId === stream.id) {
     cell.head = false;
     cell.headStreamId = null;
-    cell.glowHead = false;
+    cell.glowHead = Boolean(cell.headPreviousGlowHead);
+    cell.headPreviousGlowHead = false;
   }
 
   stream.headCellRow = null;
@@ -534,6 +545,7 @@ function resetStream(stream, column, initial = false) {
   const cycleSeed = hashInt(stream.seed ^ Math.imul(logicalTick + 1, 2246822519));
   demoteStreamHead(column, stream);
   stream.finished = false;
+  stream.cooldownTicks = 0;
   stream.progress = hashUnit(cycleSeed ^ 0x423f) * 0.9;
   stream.patternSalt = DEFAULT_PRESET.samePattern ? stream.seed : cycleSeed;
   stream.paletteName = column.paletteName;
@@ -558,6 +570,7 @@ function resetStream(stream, column, initial = false) {
     Math.max(0, glowMean - glowVariance * 0.5) / 100,
     (glowMean + glowVariance * 0.5) / 100
   );
+  stream.brightHead = !stream.negative && hashUnit(cycleSeed ^ 0x57ac) < glow.fallingHeadChance;
   stream.speed = streamRowsPerSecond(stream);
   const origin = DEFAULT_PRESET.topOrigin;
   const modes = DEFAULT_PRESET.releaseModes;
@@ -585,7 +598,7 @@ function resetStream(stream, column, initial = false) {
     for (let offset = 0; offset < stream.length; offset += 1) {
       const written = writeCell(column, stream, stream.headRow - offset, offset, {
         forceVisible: offset === 0,
-        head: offset === 0 && !stream.negative
+        head: offset === 0 && stream.brightHead
       });
       if (offset === 0 && written) {
         stream.headCellRow = stream.headRow;
@@ -612,6 +625,8 @@ function createStream(column, ordinal, initial, mode = "normal") {
     density: 0,
     rotatorRate: 0,
     headChance: 0,
+    brightHead: false,
+    cooldownTicks: 0,
     paletteName: "normal",
     toneMultiplier: 1,
     speed: 0,
@@ -652,11 +667,24 @@ function makeColumn(index, seed) {
 function desiredStreamCount(seed) {
   const densityBias = clamp((settings.density - 30) / 65, 0, 1);
   const streamRoll = hashUnit(seed ^ 0x55ca12);
-  return streamRoll < 0.14 + densityBias * 0.08
-    ? 4
-    : streamRoll < 0.56 + densityBias * 0.1
-      ? 3
-      : 2;
+  return streamRoll < 0.1 + densityBias * 0.04
+    ? 3
+    : streamRoll < 0.44 + densityBias * 0.08
+      ? 2
+      : 1;
+}
+
+function streamRestartDelay(stream, column) {
+  const restart = DEFAULT_PRESET.streamRestart;
+  const seed = hashInt(stream.seed ^ column.activitySeed ^ Math.imul(logicalTick + 1, 374761393));
+  return Math.floor(seededRange(seed, restart.minTicks, restart.maxTicks));
+}
+
+function pauseStream(stream, column) {
+  demoteStreamHead(column, stream);
+  stream.progress = 0;
+  stream.cooldownTicks = streamRestartDelay(stream, column);
+  stream.headCellRow = null;
 }
 
 function columnActivityDuration(seed, active) {
@@ -767,7 +795,7 @@ function stepStream(column, stream) {
 
   if (stream.headRow > stream.endRow) {
     if (column.active) {
-      resetStream(stream, column);
+      pauseStream(stream, column);
     } else {
       stream.finished = true;
     }
@@ -776,7 +804,7 @@ function stepStream(column, stream) {
 
   const written = writeCell(column, stream, stream.headRow, 0, {
     forceVisible: !stream.negative,
-    head: !stream.negative
+    head: stream.brightHead
   });
   if (written) {
     stream.headCellRow = stream.headRow;
@@ -987,6 +1015,14 @@ function logicStep() {
 
     for (let i = column.streams.length - 1; i >= 0; i -= 1) {
       const stream = column.streams[i];
+      if (stream.cooldownTicks > 0) {
+        stream.cooldownTicks -= 1;
+        if (stream.cooldownTicks <= 0 && column.active) {
+          resetStream(stream, column);
+        }
+        continue;
+      }
+
       stream.progress += stream.speed / tickRate();
 
       while (stream.progress >= 1 && !stream.finished) {

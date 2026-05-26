@@ -135,6 +135,16 @@ const DEFAULT_PRESET = {
     minRotateTicks: 42,
     maxRotateTicks: 120
   },
+  columnActivity: {
+    initialActiveChance: 0.5,
+    minActiveTicks: 84,
+    maxActiveTicks: 260,
+    minQuietTicks: 88,
+    maxQuietTicks: 280,
+    reawakenStreamRatio: 0.65,
+    retireMinTicks: 18,
+    retireMaxTicks: 56
+  },
   wallpaperProperties: {
     density: 62,
     speed: 55,
@@ -437,6 +447,7 @@ function writeCell(column, stream, rowIndex, age = 0) {
 
 function resetStream(stream, column, initial = false) {
   const cycleSeed = hashInt(stream.seed ^ Math.imul(logicalTick + 1, 2246822519));
+  stream.finished = false;
   stream.progress = hashUnit(cycleSeed ^ 0x423f) * 0.9;
   stream.patternSalt = DEFAULT_PRESET.samePattern ? stream.seed : cycleSeed;
   const tone = toneForSeed(cycleSeed);
@@ -512,7 +523,8 @@ function createStream(column, ordinal, initial, mode = "normal") {
     paletteName: "normal",
     toneMultiplier: 1,
     speed: 0,
-    endRow: rows
+    endRow: rows,
+    finished: false
   };
   resetStream(stream, column, initial);
   return stream;
@@ -520,14 +532,9 @@ function createStream(column, ordinal, initial, mode = "normal") {
 
 function makeColumn(index, seed) {
   const profile = paletteForColumn(seed);
-  const densityBias = clamp((settings.density - 30) / 65, 0, 1);
-  const streamRoll = hashUnit(seed ^ 0x55ca12);
-  const streamCount =
-    streamRoll < 0.14 + densityBias * 0.08
-      ? 4
-      : streamRoll < 0.56 + densityBias * 0.1
-        ? 3
-        : 2;
+  const streamCount = desiredStreamCount(seed);
+  const active = hashUnit(seed ^ 0x4d23a) < DEFAULT_PRESET.columnActivity.initialActiveChance;
+  const activitySeed = hashInt(seed ^ 0x359ac);
   const intensity = clamp(0.88 + hashUnit(seed ^ 0x99103) * 0.26, 0.82, 1.16);
   const column = {
     index,
@@ -535,57 +542,105 @@ function makeColumn(index, seed) {
     x: (index + 0.5) * cellWidth,
     palette: profile,
     intensity,
+    streamTarget: streamCount,
+    nextStreamOrdinal: 0,
+    active: false,
+    activitySeed,
+    nextActivityTick: 0,
     cells: new Array(rows),
     streams: []
   };
 
-  for (let i = 0; i < streamCount; i += 1) {
-    column.streams.push(createStream(column, i, true));
+  setColumnActivity(column, active, activitySeed, true);
+  return column;
+}
+
+function desiredStreamCount(seed) {
+  const densityBias = clamp((settings.density - 30) / 65, 0, 1);
+  const streamRoll = hashUnit(seed ^ 0x55ca12);
+  return streamRoll < 0.14 + densityBias * 0.08
+    ? 4
+    : streamRoll < 0.56 + densityBias * 0.1
+      ? 3
+      : 2;
+}
+
+function columnActivityDuration(seed, active) {
+  const activity = DEFAULT_PRESET.columnActivity;
+  const min = active ? activity.minActiveTicks : activity.minQuietTicks;
+  const max = active ? activity.maxActiveTicks : activity.maxQuietTicks;
+  return Math.floor(seededRange(seed ^ 0xa91f, min, max));
+}
+
+function addColumnStream(column, initial, mode = "normal") {
+  const stream = createStream(column, column.nextStreamOrdinal, initial, mode);
+  column.nextStreamOrdinal += 1;
+  column.streams.push(stream);
+  return stream;
+}
+
+function ensureColumnStreams(column, initial = false) {
+  const activity = DEFAULT_PRESET.columnActivity;
+  const target = initial
+    ? column.streamTarget
+    : Math.max(1, Math.round(column.streamTarget * activity.reawakenStreamRatio));
+
+  while (column.streams.length < target && column.streams.length < DEFAULT_PRESET.maxConcurrentStreamsPerColumn) {
+    addColumnStream(column, initial);
+  }
+}
+
+function retireColumn(column, seed) {
+  const activity = DEFAULT_PRESET.columnActivity;
+  column.streams.length = 0;
+
+  for (let rowIndex = 0; rowIndex < rows; rowIndex += 1) {
+    const cell = column.cells[rowIndex];
+    if (!cell) {
+      continue;
+    }
+
+    const retireTicks = Math.floor(seededRange(seed ^ Math.imul(rowIndex + 1, 2246822519), activity.retireMinTicks, activity.retireMaxTicks));
+    cell.life = Math.min(cell.life, cell.age + retireTicks);
+    cell.glowHead = false;
+  }
+}
+
+function setColumnActivity(column, active, seed, initial = false) {
+  column.active = active;
+  column.activitySeed = seed;
+  column.nextActivityTick = logicalTick + columnActivityDuration(seed, active);
+
+  if (active) {
+    ensureColumnStreams(column, initial);
+  } else if (!initial) {
+    retireColumn(column, seed);
+  }
+}
+
+function updateColumnActivity(column) {
+  if (logicalTick < column.nextActivityTick) {
+    return;
   }
 
-  return column;
+  const seed = hashInt(column.activitySeed ^ Math.imul(logicalTick + column.index + 4099, 1597334677));
+  setColumnActivity(column, !column.active, seed);
+}
+
+function rainColumns() {
+  return activeColumns.filter((column) => column.active);
 }
 
 function buildColumns() {
   const nextColumns = [];
-  const occupied = new Set();
-  const densityScale = clamp(settings.density / 62, 0.65, 1.75);
-  let index = -2;
-  let seed = hashInt(PATTERN_SEED ^ Math.imul(rows, 131) ^ Math.imul(gridColumns, 521));
+  const seedBase = hashInt(PATTERN_SEED ^ Math.imul(rows, 131) ^ Math.imul(gridColumns, 521));
 
-  const addColumn = (columnIndex, columnSeed) => {
-    if (occupied.has(columnIndex)) {
-      return false;
-    }
-    occupied.add(columnIndex);
-    nextColumns.push(makeColumn(columnIndex, columnSeed));
-    return true;
-  };
-
-  while (index < gridColumns + 2) {
-    const gapRoll = hashUnit(seed ^ 0x21990);
-    const gap =
-      gapRoll < 0.18
-        ? Math.floor(seededRange(seed ^ 0x79f4, 4, 8) / densityScale)
-        : gapRoll < 0.55
-          ? Math.floor(seededRange(seed ^ 0x9287, 2, 4) / densityScale)
-          : Math.floor(seededRange(seed ^ 0x4d2a, 1, 3) / densityScale);
-    index += Math.max(1, gap);
-    seed = hashInt(seed + 97);
-    addColumn(index, seed);
-
-    const clusterChance = 0.04 + densityScale * 0.032;
-    if (hashUnit(seed ^ 0x447a) < clusterChance && index + 1 < gridColumns + 2) {
-      seed = hashInt(seed + 131);
-      addColumn(index + 1, seed);
-    }
-    if (hashUnit(seed ^ 0x8842) < clusterChance * 0.35 && index + 2 < gridColumns + 2) {
-      seed = hashInt(seed + 173);
-      addColumn(index + 2, seed);
-    }
+  for (let index = -2; index < gridColumns + 2; index += 1) {
+    const seed = hashInt(seedBase ^ Math.imul(index + 4096, 2654435761));
+    nextColumns.push(makeColumn(index, seed));
   }
 
-  activeColumns = nextColumns.sort((a, b) => a.index - b.index);
+  activeColumns = nextColumns;
 }
 
 function updateCell(column, rowIndex) {
@@ -618,7 +673,11 @@ function stepStream(column, stream) {
   stream.headRow += 1;
 
   if (stream.headRow > stream.endRow) {
-    resetStream(stream, column);
+    if (column.active) {
+      resetStream(stream, column);
+    } else {
+      stream.finished = true;
+    }
     return;
   }
 
@@ -635,9 +694,14 @@ function releaseSplash() {
   const isSplash = DEFAULT_PRESET.splashEveryReleases > 0 && releaseCounter % DEFAULT_PRESET.splashEveryReleases === 0;
   const maxTracers = isSplash ? DEFAULT_PRESET.maxSplashTracers : DEFAULT_PRESET.maxReleaseTracers;
   const count = 1 + Math.floor(hashUnit(logicalTick ^ 0x326c) * maxTracers);
+  const columns = rainColumns();
+  if (columns.length === 0) {
+    return;
+  }
+
   for (let i = 0; i < count; i += 1) {
-    const columnIndex = Math.floor(hashUnit(Math.imul(logicalTick + i + 19, 1103515245)) * activeColumns.length);
-    const column = activeColumns[columnIndex];
+    const columnIndex = Math.floor(hashUnit(Math.imul(logicalTick + i + 19, 1103515245)) * columns.length);
+    const column = columns[columnIndex];
     if (!column || column.streams.length >= DEFAULT_PRESET.maxConcurrentStreamsPerColumn) {
       continue;
     }
@@ -651,10 +715,9 @@ function releaseSplash() {
           : modeRoll > 1 - modes.deepChance
             ? "deep"
             : "normal";
-    const stream = createStream(column, column.streams.length + i + logicalTick, false, mode);
+    const stream = addColumnStream(column, false, mode);
     stream.length = Math.max(10, Math.floor(stream.length * seededRange(stream.seed ^ 0x751e, 0.68, 1.25)));
     stream.speed *= seededRange(stream.seed ^ 0x431c, 0.9, 1.42);
-    column.streams.push(stream);
   }
 }
 
@@ -819,6 +882,8 @@ function logicStep() {
   logicalTick += 1;
 
   for (const column of activeColumns) {
+    updateColumnActivity(column);
+
     for (let rowIndex = 0; rowIndex < rows; rowIndex += 1) {
       updateCell(column, rowIndex);
     }
@@ -827,12 +892,12 @@ function logicStep() {
       const stream = column.streams[i];
       stream.progress += stream.speed / tickRate();
 
-      while (stream.progress >= 1) {
+      while (stream.progress >= 1 && !stream.finished) {
         stream.progress -= 1;
         stepStream(column, stream);
       }
 
-      if (column.streams.length > 4 && stream.headRow > rows + stream.length + 2) {
+      if (stream.finished || (column.streams.length > 4 && stream.headRow > rows + stream.length + 2)) {
         column.streams.splice(i, 1);
       }
     }

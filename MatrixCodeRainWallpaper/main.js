@@ -31,7 +31,7 @@ const DEFAULT_PRESET = {
     longMaxRows: 1.45
   },
   cellLifetimeScale: 3.4,
-  positiveDensity: 76,
+  positiveDensity: 88,
   positiveDensityVariance: 14,
   negativeDensity: 88,
   negativeDensityVariance: 12,
@@ -82,11 +82,10 @@ const DEFAULT_PRESET = {
     referenceWidth: 1920,
     referenceHeight: 1080,
     columnPitch1080: 14,
-    rowPitch1080: 19,
+    rowPitch1080: 17,
     columnGapPx: 1,
     rowGapPx: 1,
-    fontInsetPx: 1,
-    inkSpreadPx: 1
+    fontInsetPx: 1
   },
   rotatingCells: {
     minRotateTicks: 3,
@@ -362,20 +361,12 @@ function measureMaxGlyphWidth(size) {
   return maxWidth;
 }
 
-function fitFontSizeForPitch(baseSize, maxGlyphWidth, inkSpreadPx) {
+function fitFontSizeForPitch(baseSize, maxGlyphWidth) {
   let size = baseSize;
-  while (size > 8 && measureMaxGlyphWidth(size) + inkSpreadPx > maxGlyphWidth) {
+  while (size > 8 && measureMaxGlyphWidth(size) > maxGlyphWidth) {
     size -= 1;
   }
   return size;
-}
-
-function fillCrispGlyph(context, char, x, y, spreadPx) {
-  context.fillText(char, x, y);
-
-  for (let offset = 1; offset <= spreadPx; offset += 1) {
-    context.fillText(char, x + offset, y);
-  }
 }
 
 function streamRowsPerSecond(stream) {
@@ -1001,17 +992,16 @@ function createGlyph(char, styleName, palette) {
   sctx.textAlign = "center";
   sctx.textBaseline = "middle";
 
-  const centerX = Math.round(cssWidth / 2 - DEFAULT_PRESET.layout.inkSpreadPx * 0.5);
+  const centerX = Math.round(cssWidth / 2);
   const centerY = Math.round(cssHeight / 2 + fontSize * 0.03);
   const color = palette[styleName] || palette.body;
-  const spreadPx = DEFAULT_PRESET.layout.inkSpreadPx;
 
   if (settings.glow) {
     if (styleName === "head") {
       sctx.shadowColor = palette.glow;
       sctx.shadowBlur = fontSize * 0.28;
       sctx.fillStyle = palette.bright;
-      fillCrispGlyph(sctx, char, centerX, centerY, spreadPx);
+      sctx.fillText(char, centerX, centerY);
     } else if (styleName === "bright") {
       sctx.shadowColor = palette.glow;
       sctx.shadowBlur = fontSize * 0.1;
@@ -1027,7 +1017,7 @@ function createGlyph(char, styleName, palette) {
   sctx.shadowBlur = 0;
   sctx.shadowColor = "transparent";
   sctx.fillStyle = color;
-  fillCrispGlyph(sctx, char, centerX, centerY, spreadPx);
+  sctx.fillText(char, centerX, centerY);
   glyphCache.set(key, sprite);
   return sprite;
 }
@@ -1141,8 +1131,7 @@ function resize() {
   rows = clamp(Math.ceil(height / cellHeight), 36, 96);
   fontSize = fitFontSizeForPitch(
     clamp(Math.round(cellHeight - layout.rowGapPx - layout.fontInsetPx), 9, 72),
-    Math.max(1, cellWidth - layout.columnGapPx),
-    layout.inkSpreadPx
+    Math.max(1, cellWidth - layout.columnGapPx)
   );
   gridColumns = Math.ceil(width / cellWidth) + 2;
 

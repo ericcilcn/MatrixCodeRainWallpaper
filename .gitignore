@@ -19,4 +19,7 @@
 # Local scratch files.
 /.DS_Store
 /新建 文本文档.txt
+/current-preview-*.png
+/matrix-spacing-preview-*.png
+/reference-video-frame.png
 node_modules/

@@ -31,7 +31,7 @@ const DEFAULT_PRESET = {
     longMaxRows: 1.45
   },
   cellLifetimeScale: 3.4,
-  positiveDensity: 88,
+  positiveDensity: 76,
   positiveDensityVariance: 14,
   negativeDensity: 88,
   negativeDensityVariance: 12,
@@ -79,11 +79,14 @@ const DEFAULT_PRESET = {
     amount: 0.16
   },
   layout: {
-    glyphAspect: 0.9,
-    glyphWidthScale: 1,
-    glyphHeightScale: 1,
-    columnGapPx: 1.5,
-    rowGapPx: 1
+    referenceWidth: 1920,
+    referenceHeight: 1080,
+    columnPitch1080: 14,
+    rowPitch1080: 19,
+    columnGapPx: 1,
+    rowGapPx: 1,
+    fontInsetPx: 1,
+    inkSpreadPx: 1
   },
   rotatingCells: {
     minRotateTicks: 3,
@@ -237,14 +240,6 @@ function rgba(color, alpha) {
   return `rgba(${color.r}, ${color.g}, ${color.b}, ${alpha})`;
 }
 
-function fillScaledText(context, text, x, y, scaleX, scaleY = 1) {
-  context.save();
-  context.translate(x, y);
-  context.scale(scaleX, scaleY);
-  context.fillText(text, 0, 0);
-  context.restore();
-}
-
 function parseWallpaperColor(value) {
   if (typeof value !== "string") {
     return DEFAULT_PRESET.baseColor;
@@ -348,6 +343,39 @@ function rotateDelay(seed, rowIndex, preset = DEFAULT_PRESET.rotatingCells) {
 
 function tickRate() {
   return 24;
+}
+
+function referenceLayoutScale() {
+  return Math.max(0.42, (height / DEFAULT_PRESET.layout.referenceHeight) * (settings.glyphscale / 100));
+}
+
+function measureMaxGlyphWidth(size) {
+  const scratch = document.createElement("canvas");
+  const sctx = scratch.getContext("2d");
+  sctx.font = `${size}px ${FONT_FAMILY}`;
+
+  let maxWidth = 1;
+  for (const char of CHAR_POOL) {
+    maxWidth = Math.max(maxWidth, sctx.measureText(char).width);
+  }
+
+  return maxWidth;
+}
+
+function fitFontSizeForPitch(baseSize, maxGlyphWidth, inkSpreadPx) {
+  let size = baseSize;
+  while (size > 8 && measureMaxGlyphWidth(size) + inkSpreadPx > maxGlyphWidth) {
+    size -= 1;
+  }
+  return size;
+}
+
+function fillCrispGlyph(context, char, x, y, spreadPx) {
+  context.fillText(char, x, y);
+
+  for (let offset = 1; offset <= spreadPx; offset += 1) {
+    context.fillText(char, x + offset, y);
+  }
 }
 
 function streamRowsPerSecond(stream) {
@@ -950,7 +978,7 @@ function logicStep() {
 }
 
 function createGlyph(char, styleName, palette) {
-  const key = `${fontSize}:${dpr}:${styleName}:${settings.glow}:${palette.name}:${palette.body}:${char}`;
+  const key = `${cellWidth}:${cellHeight}:${fontSize}:${dpr}:${styleName}:${settings.glow}:${palette.name}:${palette.body}:${char}`;
   const cached = glyphCache.get(key);
 
   if (cached) {
@@ -958,8 +986,6 @@ function createGlyph(char, styleName, palette) {
   }
 
   const sprite = document.createElement("canvas");
-  const layout = DEFAULT_PRESET.layout;
-  const glyphBoxWidth = Math.max(1, cellWidth - Math.max(1, layout.columnGapPx));
   const cssWidth = Math.max(1, Math.floor(cellWidth));
   const cssHeight = Math.max(1, Math.floor(cellHeight));
   sprite.width = Math.ceil(cssWidth * dpr);
@@ -975,20 +1001,17 @@ function createGlyph(char, styleName, palette) {
   sctx.textAlign = "center";
   sctx.textBaseline = "middle";
 
-  const centerX = Math.round(cssWidth / 2);
+  const centerX = Math.round(cssWidth / 2 - DEFAULT_PRESET.layout.inkSpreadPx * 0.5);
   const centerY = Math.round(cssHeight / 2 + fontSize * 0.03);
   const color = palette[styleName] || palette.body;
-  const measuredWidth = Math.max(1, sctx.measureText(char).width);
-  const maxScale = Math.max(0.72, glyphBoxWidth / measuredWidth);
-  const scaleX = clamp(layout.glyphWidthScale, 0.72, maxScale);
-  const scaleY = clamp(layout.glyphHeightScale, 0.92, 1.28);
+  const spreadPx = DEFAULT_PRESET.layout.inkSpreadPx;
 
   if (settings.glow) {
     if (styleName === "head") {
       sctx.shadowColor = palette.glow;
       sctx.shadowBlur = fontSize * 0.28;
       sctx.fillStyle = palette.bright;
-      fillScaledText(sctx, char, centerX, centerY, scaleX, scaleY);
+      fillCrispGlyph(sctx, char, centerX, centerY, spreadPx);
     } else if (styleName === "bright") {
       sctx.shadowColor = palette.glow;
       sctx.shadowBlur = fontSize * 0.1;
@@ -1004,7 +1027,7 @@ function createGlyph(char, styleName, palette) {
   sctx.shadowBlur = 0;
   sctx.shadowColor = "transparent";
   sctx.fillStyle = color;
-  fillScaledText(sctx, char, centerX, centerY, scaleX, scaleY);
+  fillCrispGlyph(sctx, char, centerX, centerY, spreadPx);
   glyphCache.set(key, sprite);
   return sprite;
 }
@@ -1111,14 +1134,16 @@ function resize() {
   width = window.innerWidth;
   height = window.innerHeight;
   dpr = Math.min(window.devicePixelRatio || 1, DPR_LIMIT);
-  rows = clamp(Math.round(60 * (100 / settings.glyphscale)), 42, 84);
-  cellHeight = height / rows;
-  fontSize = clamp(
-    Math.round(Math.min(cellHeight - DEFAULT_PRESET.layout.rowGapPx, cellHeight * (DEFAULT_PRESET.characterSize / 100))),
-    10,
-    48
+  const layout = DEFAULT_PRESET.layout;
+  const layoutScale = referenceLayoutScale();
+  cellHeight = Math.max(10, Math.round(layout.rowPitch1080 * layoutScale));
+  cellWidth = Math.max(8, Math.round(layout.columnPitch1080 * layoutScale));
+  rows = clamp(Math.ceil(height / cellHeight), 36, 96);
+  fontSize = fitFontSizeForPitch(
+    clamp(Math.round(cellHeight - layout.rowGapPx - layout.fontInsetPx), 9, 72),
+    Math.max(1, cellWidth - layout.columnGapPx),
+    layout.inkSpreadPx
   );
-  cellWidth = Math.ceil(Math.max(10, fontSize * DEFAULT_PRESET.layout.glyphAspect + Math.max(1, DEFAULT_PRESET.layout.columnGapPx)));
   gridColumns = Math.ceil(width / cellWidth) + 2;
 
   canvas.width = Math.ceil(width * dpr);

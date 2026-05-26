@@ -4,24 +4,25 @@ const canvas = document.getElementById("matrix-rain");
 const ctx = canvas.getContext("2d", { alpha: false });
 
 const FONT_FAMILY = "\"Matrix Code NFI\", monospace";
-const DPR_LIMIT = 1.5;
+const DPR_LIMIT = 2;
 const BASE_COLOR = { r: 35, g: 217, b: 104 };
 const PATTERN_SEED = 0x4d415452;
+const DEBUG_STATE_ENABLED = new URLSearchParams(window.location.search).has("debugstate");
 const CHAR_POOL =
   "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+-*/=<>[]{}()|:;,.!?#$%&\"'";
 
 const DEFAULT_PRESET = {
   name: "Default preset",
   source: "TheMatrixTrilogy.scr Basic code metrics / Code appearance",
-  speedRowsPerSecond: 14.2,
+  speedRowsPerSecond: 24,
   releaseEveryTicks: 5.2,
   maxReleaseTracers: 2,
   splashEveryReleases: 0,
   maxSplashTracers: 0,
-  rotatorOccurrence: 0.8,
-  rotatorVariance: 35,
-  negativeRotatorOccurrence: 0.25,
-  negativeRotatorVariance: 25,
+  rotatorOccurrence: 1.4,
+  rotatorVariance: 18,
+  negativeRotatorOccurrence: 0,
+  negativeRotatorVariance: 0,
   streamLength: {
     longChance: 48,
     shortMinRows: 0.38,
@@ -29,11 +30,11 @@ const DEFAULT_PRESET = {
     longMinRows: 0.78,
     longMaxRows: 1.45
   },
+  cellLifetimeScale: 3.4,
   positiveDensity: 88,
   positiveDensityVariance: 14,
   negativeDensity: 88,
   negativeDensityVariance: 12,
-  negativeEveryNthStream: 8,
   fadeBottom: true,
   samePattern: true,
   glowingTracers: {
@@ -55,12 +56,12 @@ const DEFAULT_PRESET = {
     accentMultiplier: 1.34
   },
   positiveAlpha: {
-    base: 0.98,
-    variance: 0.32
+    base: 0.86,
+    variance: 0.06
   },
   negativeAlpha: {
     base: 0.58,
-    variance: 0.34
+    variance: 0
   },
   characterSize: 100,
   maxConcurrentStreamsPerColumn: 5,
@@ -78,10 +79,15 @@ const DEFAULT_PRESET = {
     amount: 0.16
   },
   layout: {
-    glyphAspect: 0.72,
-    glyphWidthScale: 1.3,
+    glyphAspect: 0.9,
+    glyphWidthScale: 1,
+    glyphHeightScale: 1,
     columnGapPx: 1.5,
     rowGapPx: 1
+  },
+  rotatingCells: {
+    minRotateTicks: 3,
+    maxRotateTicks: 8
   },
   topOrigin: {
     initialTopChance: 0.82,
@@ -93,32 +99,32 @@ const DEFAULT_PRESET = {
     resetStartMax: 1
   },
   releaseModes: {
-    eraserChance: 0.22,
-    fragmentChance: 0.36,
-    deepChance: 0.06,
+    eraserChance: 0.05,
+    fragmentChance: 0.24,
+    deepChance: 0.04,
     fragmentEndMinRows: 0.2,
     fragmentEndMaxRows: 0.5,
     eraserEndMinRows: 0.5,
     eraserEndMaxRows: 0.95
   },
   standaloneRotators: {
-    chancePerTick: 0.42,
-    maxPerTick: 2,
-    pairChance: 0.32,
-    tripleChance: 0.1,
-    rotatingChance: 0.36,
+    chancePerTick: 0.12,
+    maxPerTick: 1,
+    pairChance: 0,
+    tripleChance: 0,
+    rotatingChance: 1,
     upperBiasPower: 1.35,
     unrestrictedChance: 0.28,
-    lowerScreenKeepChance: 0.3,
-    minLifeTicks: 42,
-    maxLifeTicks: 96,
-    minAlpha: 0.36,
-    maxAlpha: 0.88,
-    minRotateTicks: 38,
-    maxRotateTicks: 110
+    lowerScreenKeepChance: 0.78,
+    minLifeTicks: 260,
+    maxLifeTicks: 640,
+    minAlpha: 0.24,
+    maxAlpha: 0.52,
+    minRotateTicks: 3,
+    maxRotateTicks: 9
   },
   lowerFragments: {
-    chancePerTick: 0.22,
+    chancePerTick: 0,
     maxPerTick: 2,
     startMinRows: 0.5,
     startMaxRows: 0.84,
@@ -126,14 +132,14 @@ const DEFAULT_PRESET = {
     minLengthRows: 2,
     maxLengthRows: 7,
     quietGapRows: 7,
-    rotatingChance: 0.22,
+    rotatingChance: 0.48,
     brightHeadChance: 0.18,
     minLifeTicks: 40,
     maxLifeTicks: 94,
     minAlpha: 0.34,
     maxAlpha: 0.9,
-    minRotateTicks: 42,
-    maxRotateTicks: 120
+    minRotateTicks: 7,
+    maxRotateTicks: 18
   },
   columnActivity: {
     initialActiveChance: 0.5,
@@ -142,12 +148,12 @@ const DEFAULT_PRESET = {
     minQuietTicks: 88,
     maxQuietTicks: 280,
     reawakenStreamRatio: 0.65,
-    retireMinTicks: 18,
-    retireMaxTicks: 56
+    retireMinTicks: 72,
+    retireMaxTicks: 180
   },
   wallpaperProperties: {
     density: 62,
-    speed: 55,
+    speed: 76,
     brightness: 75,
     glyphscale: 100,
     glow: true
@@ -185,6 +191,7 @@ let releaseCounter = 0;
 let renderSeconds = 0;
 let running = true;
 let started = false;
+let debugStateElement = null;
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
@@ -230,10 +237,10 @@ function rgba(color, alpha) {
   return `rgba(${color.r}, ${color.g}, ${color.b}, ${alpha})`;
 }
 
-function fillScaledText(context, text, x, y, scaleX) {
+function fillScaledText(context, text, x, y, scaleX, scaleY = 1) {
   context.save();
   context.translate(x, y);
-  context.scale(scaleX, 1);
+  context.scale(scaleX, scaleY);
   context.fillText(text, 0, 0);
   context.restore();
 }
@@ -278,8 +285,9 @@ function buildPalettes() {
     const pale = variant.pale * colorVariance;
     const body = mixColor(scaleColor(settings.color, variant.body * brightness), white, pale);
     const dim = mixColor(scaleColor(settings.color, variant.dim * brightness), white, pale * 0.35);
-    const bright = mixColor(body, white, variant.head * 0.55);
-    const head = mixColor(body, white, variant.head);
+    const bright = mixColor(body, white, Math.max(variant.head * 0.6, 0.48));
+    const head = mixColor(scaleColor(settings.color, 1.32 * brightness), white, 0.78);
+    const glowBase = mixColor(head, settings.color, 0.24);
 
     return {
       name: variant.name,
@@ -287,7 +295,7 @@ function buildPalettes() {
       body: rgb(body),
       bright: rgb(bright),
       head: rgb(head),
-      glow: rgba(mixColor(body, white, 0.22), variant.glow * glowIntensity * clamp(settings.brightness / 72, 0.45, 1.35))
+      glow: rgba(glowBase, Math.max(variant.glow, 0.2) * glowIntensity * clamp(settings.brightness / 72, 0.45, 1.35))
     };
   });
 
@@ -334,6 +342,10 @@ function toneForSeed(seed) {
   };
 }
 
+function rotateDelay(seed, rowIndex, preset = DEFAULT_PRESET.rotatingCells) {
+  return Math.floor(seededRange(seed ^ Math.imul(rowIndex + 1, 1597334677), preset.minRotateTicks, preset.maxRotateTicks));
+}
+
 function tickRate() {
   return 24;
 }
@@ -365,15 +377,6 @@ function streamLength(stream, seed) {
   return Math.max(7, Math.round(length));
 }
 
-function tailLevel(cell) {
-  const ratio = cell.age / Math.max(1, cell.life);
-  if (ratio < 0.34) return 1;
-  if (ratio < 0.58) return 0.72;
-  if (ratio < 0.76) return 0.48;
-  if (ratio < 0.9) return 0.26;
-  return 0.12;
-}
-
 function rowVisibility(rowIndex) {
   if (!DEFAULT_PRESET.fadeBottom) {
     return 1;
@@ -388,8 +391,8 @@ function rowVisibility(rowIndex) {
   return clamp(base * entryBoost, fade.minVisibility, fade.maxVisibility);
 }
 
-function createCell(column, stream, rowIndex, age = 0) {
-  const visible = hashUnit(stream.seed ^ Math.imul(rowIndex + 8191, 1103515245)) <= stream.density;
+function createCell(column, stream, rowIndex, age = 0, forceVisible = false) {
+  const visible = forceVisible || hashUnit(stream.seed ^ Math.imul(rowIndex + 8191, 1103515245)) <= stream.density;
 
   if (!visible) {
     return null;
@@ -401,20 +404,20 @@ function createCell(column, stream, rowIndex, age = 0) {
   const alphaPreset = stream.negative ? DEFAULT_PRESET.negativeAlpha : DEFAULT_PRESET.positiveAlpha;
   const alphaBase = alphaPreset.base + alphaUnit * alphaPreset.variance;
   const glowHead = !stream.negative && hashUnit(stream.seed ^ Math.imul(rowIndex + 17, 1597334677)) < stream.headChance;
-  const streamIntensity = stream.toneMultiplier || 1;
 
   return {
     char: stableChar,
     stableChar,
     salt: stream.patternSalt,
     age,
-    life: stream.length,
+    life: Math.max(stream.length + 1, Math.round(stream.length * DEFAULT_PRESET.cellLifetimeScale)),
     alpha: 0,
     target: 0,
-    baseAlpha: alphaBase * column.intensity * streamIntensity,
-    paletteName: stream.paletteName || column.palette.name,
+    baseAlpha: alphaBase * column.intensity,
+    paletteName: column.paletteName,
     rotator,
-    nextRotateTick: logicalTick + 40 + Math.floor(hashUnit(stream.seed ^ rowIndex) * 110),
+    head: false,
+    nextRotateTick: logicalTick + rotateDelay(stream.seed, rowIndex),
     streamId: stream.id,
     negative: stream.negative,
     glowHead,
@@ -422,7 +425,7 @@ function createCell(column, stream, rowIndex, age = 0) {
   };
 }
 
-function writeCell(column, stream, rowIndex, age = 0) {
+function writeCell(column, stream, rowIndex, age = 0, options = {}) {
   if (rowIndex < 0 || rowIndex >= rows) {
     return;
   }
@@ -432,27 +435,53 @@ function writeCell(column, stream, rowIndex, age = 0) {
     return;
   }
 
-  const next = createCell(column, stream, rowIndex, age);
+  const next = createCell(column, stream, rowIndex, age, options.forceVisible);
   if (!next) {
     return;
   }
 
   const current = column.cells[rowIndex];
-  if (!current || next.baseAlpha >= current.baseAlpha * 0.78 || current.target < 0.12) {
-    next.target = next.baseAlpha * tailLevel(next);
-    next.alpha = next.target;
-    column.cells[rowIndex] = next;
+  if (current && !current.negative && current.target > 0.12) {
+    if (options.head) {
+      current.head = true;
+      current.headStreamId = stream.id;
+      current.glowHead = true;
+    }
+    return current;
   }
+
+  next.target = next.baseAlpha;
+  next.alpha = next.target;
+  next.head = Boolean(options.head);
+  next.headStreamId = options.head ? stream.id : null;
+  next.glowHead = next.glowHead || next.head;
+  column.cells[rowIndex] = next;
+  return next;
+}
+
+function demoteStreamHead(column, stream) {
+  if (!Number.isInteger(stream.headCellRow)) {
+    return;
+  }
+
+  const cell = column.cells[stream.headCellRow];
+  if (cell && cell.head && cell.headStreamId === stream.id) {
+    cell.head = false;
+    cell.headStreamId = null;
+    cell.glowHead = false;
+  }
+
+  stream.headCellRow = null;
 }
 
 function resetStream(stream, column, initial = false) {
   const cycleSeed = hashInt(stream.seed ^ Math.imul(logicalTick + 1, 2246822519));
+  demoteStreamHead(column, stream);
   stream.finished = false;
   stream.progress = hashUnit(cycleSeed ^ 0x423f) * 0.9;
   stream.patternSalt = DEFAULT_PRESET.samePattern ? stream.seed : cycleSeed;
-  const tone = toneForSeed(cycleSeed);
-  stream.paletteName = tone.paletteName;
-  stream.toneMultiplier = tone.multiplier;
+  stream.paletteName = column.paletteName;
+  stream.toneMultiplier = 1;
   stream.length = streamLength(stream, cycleSeed);
   if (stream.mode === "fragment") {
     stream.length = Math.max(6, Math.floor(stream.length * seededRange(cycleSeed ^ 0xb38d, 0.48, 0.78)));
@@ -498,14 +527,20 @@ function resetStream(stream, column, initial = false) {
 
   if (initial) {
     for (let offset = 0; offset < stream.length; offset += 1) {
-      writeCell(column, stream, stream.headRow - offset, offset);
+      const written = writeCell(column, stream, stream.headRow - offset, offset, {
+        forceVisible: offset === 0,
+        head: offset === 0 && !stream.negative
+      });
+      if (offset === 0 && written) {
+        stream.headCellRow = stream.headRow;
+      }
     }
   }
 }
 
 function createStream(column, ordinal, initial, mode = "normal") {
   const seed = hashInt(column.seed + ordinal * 7919);
-  const negative = mode === "eraser" || (ordinal === 0 && hashUnit(column.seed ^ 0x7f4a7c15) < 1 / DEFAULT_PRESET.negativeEveryNthStream);
+  const negative = mode === "eraser";
   const streamMode = negative ? "eraser" : mode;
   const stream = {
     id: `${column.index}:${ordinal}:${seed}`,
@@ -514,6 +549,7 @@ function createStream(column, ordinal, initial, mode = "normal") {
     mode: streamMode,
     long: hashUnit(seed ^ 0x1f123bb5) < DEFAULT_PRESET.streamLength.longChance / 100,
     headRow: 0,
+    headCellRow: null,
     progress: 0,
     patternSalt: seed,
     length: 0,
@@ -531,16 +567,18 @@ function createStream(column, ordinal, initial, mode = "normal") {
 }
 
 function makeColumn(index, seed) {
-  const profile = paletteForColumn(seed);
+  const tone = toneForSeed(seed);
+  const profile = paletteByName(tone.paletteName) || paletteForColumn(seed);
   const streamCount = desiredStreamCount(seed);
   const active = hashUnit(seed ^ 0x4d23a) < DEFAULT_PRESET.columnActivity.initialActiveChance;
   const activitySeed = hashInt(seed ^ 0x359ac);
-  const intensity = clamp(0.88 + hashUnit(seed ^ 0x99103) * 0.26, 0.82, 1.16);
+  const intensity = clamp(tone.multiplier * seededRange(seed ^ 0x99103, 0.94, 1.08), 0.58, 1.38);
   const column = {
     index,
     seed,
     x: (index + 0.5) * cellWidth,
     palette: profile,
+    paletteName: tone.paletteName,
     intensity,
     streamTarget: streamCount,
     nextStreamOrdinal: 0,
@@ -590,7 +628,7 @@ function ensureColumnStreams(column, initial = false) {
   }
 }
 
-function retireColumn(column, seed) {
+function retireColumn(column) {
   const activity = DEFAULT_PRESET.columnActivity;
   column.streams.length = 0;
 
@@ -600,7 +638,7 @@ function retireColumn(column, seed) {
       continue;
     }
 
-    const retireTicks = Math.floor(seededRange(seed ^ Math.imul(rowIndex + 1, 2246822519), activity.retireMinTicks, activity.retireMaxTicks));
+    const retireTicks = Math.floor(seededRange(column.activitySeed ^ Math.imul(rowIndex + 1, 2246822519), activity.retireMinTicks, activity.retireMaxTicks));
     cell.life = Math.min(cell.life, cell.age + retireTicks);
     cell.glowHead = false;
   }
@@ -614,7 +652,7 @@ function setColumnActivity(column, active, seed, initial = false) {
   if (active) {
     ensureColumnStreams(column, initial);
   } else if (!initial) {
-    retireColumn(column, seed);
+    retireColumn(column);
   }
 }
 
@@ -652,24 +690,23 @@ function updateCell(column, rowIndex) {
   cell.age += 1;
   cell.justWritten = false;
 
-  const ratio = cell.age / Math.max(1, cell.life);
-  if (ratio >= 1) {
+  if (cell.age >= cell.life) {
     column.cells[rowIndex] = null;
     return;
-  } else {
-    cell.target = cell.baseAlpha * tailLevel(cell);
   }
 
   if (cell.rotator && logicalTick >= cell.nextRotateTick) {
     cell.salt = hashInt(cell.salt + logicalTick + rowIndex);
     cell.char = chooseStableChar(column.seed, column.index, rowIndex, cell.salt);
-    cell.nextRotateTick = logicalTick + 40 + Math.floor(hashUnit(cell.salt ^ rowIndex) * 110);
+    cell.nextRotateTick = logicalTick + rotateDelay(cell.salt, rowIndex);
   }
 
-  cell.alpha = cell.target;
+  cell.target = cell.baseAlpha;
+  cell.alpha = cell.baseAlpha;
 }
 
 function stepStream(column, stream) {
+  demoteStreamHead(column, stream);
   stream.headRow += 1;
 
   if (stream.headRow > stream.endRow) {
@@ -681,7 +718,13 @@ function stepStream(column, stream) {
     return;
   }
 
-  writeCell(column, stream, stream.headRow, 0);
+  const written = writeCell(column, stream, stream.headRow, 0, {
+    forceVisible: !stream.negative,
+    head: !stream.negative
+  });
+  if (written) {
+    stream.headCellRow = stream.headRow;
+  }
 }
 
 function releaseSplash() {
@@ -754,8 +797,7 @@ function releaseStandaloneRotators() {
     const groupSize = sizeRoll < rotators.tripleChance ? 3 : sizeRoll < rotators.tripleChance + rotators.pairChance ? 2 : 1;
     const startRow = Math.min(row, rows - groupSize);
     const life = Math.floor(seededRange(seed ^ 0x44f1, rotators.minLifeTicks, rotators.maxLifeTicks));
-    const tone = toneForSeed(seed);
-    const baseAlpha = seededRange(seed ^ 0x9e3d, rotators.minAlpha, rotators.maxAlpha) * column.intensity * tone.multiplier;
+    const baseAlpha = seededRange(seed ^ 0x9e3d, rotators.minAlpha, rotators.maxAlpha) * column.intensity;
     const rotates = hashUnit(seed ^ 0x71dd) < rotators.rotatingChance;
 
     for (let offset = 0; offset < groupSize; offset += 1) {
@@ -776,12 +818,12 @@ function releaseStandaloneRotators() {
         alpha: baseAlpha,
         target: baseAlpha,
         baseAlpha,
-        paletteName: tone.paletteName,
+        paletteName: column.paletteName,
         rotator: rotates,
-        nextRotateTick: logicalTick + Math.floor(seededRange(charSalt ^ 0x148d, rotators.minRotateTicks, rotators.maxRotateTicks)),
+        nextRotateTick: logicalTick + rotateDelay(charSalt, targetRow, rotators),
         streamId: `solo:${column.index}:${targetRow}:${seed}`,
         negative: false,
-        glowHead: hashUnit(charSalt ^ 0xd82f) < 0.18,
+        glowHead: false,
         justWritten: true
       };
     }
@@ -848,15 +890,14 @@ function releaseLowerFragments() {
     }
 
     const life = Math.floor(seededRange(seed ^ 0x44f1, fragments.minLifeTicks, fragments.maxLifeTicks));
-    const tone = toneForSeed(seed);
-    const baseAlpha = seededRange(seed ^ 0x9e3d, fragments.minAlpha, fragments.maxAlpha) * column.intensity * tone.multiplier;
+    const baseAlpha = seededRange(seed ^ 0x9e3d, fragments.minAlpha, fragments.maxAlpha) * column.intensity;
     const rotates = hashUnit(seed ^ 0x71dd) < fragments.rotatingChance;
 
     for (let offset = 0; offset < length; offset += 1) {
       const rowIndex = startRow + offset;
       const charSalt = hashInt(seed ^ Math.imul(offset + 1, 0x85ebca6b));
       const char = chooseStableChar(column.seed, column.index, rowIndex, charSalt);
-      const rowAlpha = baseAlpha * seededRange(charSalt ^ 0x51a7, 0.72, 1.08);
+      const rowAlpha = baseAlpha;
       column.cells[rowIndex] = {
         char,
         stableChar: char,
@@ -866,9 +907,9 @@ function releaseLowerFragments() {
         alpha: rowAlpha,
         target: rowAlpha,
         baseAlpha: rowAlpha,
-        paletteName: tone.paletteName,
+        paletteName: column.paletteName,
         rotator: rotates && hashUnit(charSalt ^ 0x1e7a) < 0.58,
-        nextRotateTick: logicalTick + Math.floor(seededRange(charSalt ^ 0x148d, fragments.minRotateTicks, fragments.maxRotateTicks)),
+        nextRotateTick: logicalTick + rotateDelay(charSalt, rowIndex, fragments),
         streamId: `lower:${column.index}:${rowIndex}:${seed}`,
         negative: false,
         glowHead: offset === 0 && hashUnit(charSalt ^ 0xd82f) < fragments.brightHeadChance,
@@ -940,48 +981,48 @@ function createGlyph(char, styleName, palette) {
   const measuredWidth = Math.max(1, sctx.measureText(char).width);
   const maxScale = Math.max(0.72, glyphBoxWidth / measuredWidth);
   const scaleX = clamp(layout.glyphWidthScale, 0.72, maxScale);
+  const scaleY = clamp(layout.glyphHeightScale, 0.92, 1.28);
 
   if (settings.glow) {
     if (styleName === "head") {
       sctx.shadowColor = palette.glow;
       sctx.shadowBlur = fontSize * 0.28;
       sctx.fillStyle = palette.bright;
-      fillScaledText(sctx, char, centerX, centerY, scaleX);
+      fillScaledText(sctx, char, centerX, centerY, scaleX, scaleY);
     } else if (styleName === "bright") {
       sctx.shadowColor = palette.glow;
-      sctx.shadowBlur = fontSize * 0.16;
+      sctx.shadowBlur = fontSize * 0.1;
     } else if (styleName === "body") {
       sctx.shadowColor = palette.glow;
-      sctx.shadowBlur = fontSize * 0.08;
+      sctx.shadowBlur = fontSize * 0.025;
     } else {
       sctx.shadowColor = "rgba(0, 180, 70, 0.08)";
-      sctx.shadowBlur = fontSize * 0.04;
+      sctx.shadowBlur = fontSize * 0.015;
     }
   }
 
   sctx.shadowBlur = 0;
   sctx.shadowColor = "transparent";
   sctx.fillStyle = color;
-  fillScaledText(sctx, char, centerX, centerY, scaleX);
+  fillScaledText(sctx, char, centerX, centerY, scaleX, scaleY);
   glyphCache.set(key, sprite);
   return sprite;
 }
 
 function drawGlyph(cell, column, rowIndex) {
-  const age = cell.age;
   let styleName = "body";
   let alpha = cell.alpha;
   const glowIntensity = DEFAULT_PRESET.glowingTracers.intensity / 100;
 
-  if (!cell.negative && cell.glowHead && age <= 1) {
+  if (cell.head) {
     styleName = "head";
-    alpha *= 1 + 0.28 * glowIntensity;
-  } else if (!cell.negative && age <= 2) {
-    styleName = "bright";
-    alpha *= 0.76 + 0.1 * glowIntensity;
+    alpha *= 1.18 + 0.08 * glowIntensity;
   } else if (cell.negative || alpha < 0.2) {
     styleName = "dim";
     alpha *= cell.negative ? 0.62 : 0.82;
+  } else if (cell.rotator && cell.glowHead) {
+    styleName = "bright";
+    alpha *= 0.92 + 0.04 * glowIntensity;
   }
 
   if (alpha <= 0.012) {
@@ -1021,6 +1062,7 @@ function render(now = performance.now()) {
 
   ctx.globalAlpha = 1;
   ctx.globalCompositeOperation = "source-over";
+  publishDebugState();
 }
 
 function simulationStep(deltaSeconds) {
@@ -1097,11 +1139,66 @@ function resize() {
   render(performance.now());
 }
 
+function collectMatrixRainState() {
+  return {
+    rows,
+    gridColumns,
+    cellWidth,
+    cellHeight,
+    fontSize,
+    dpr,
+    layout: DEFAULT_PRESET.layout,
+    speedRowsPerSecond: DEFAULT_PRESET.speedRowsPerSecond,
+    settingsSpeed: settings.speed,
+    columns: activeColumns.map((column) => ({
+      index: column.index,
+      active: column.active,
+      streams: column.streams.map((stream) => {
+        const cell = Number.isInteger(stream.headCellRow) ? column.cells[stream.headCellRow] : null;
+        return {
+          id: stream.id,
+          negative: stream.negative,
+          finished: stream.finished,
+          headRow: stream.headCellRow,
+          hasHead: Boolean(cell && cell.head && cell.headStreamId === stream.id)
+        };
+      })
+    }))
+  };
+}
+
+function ensureDebugStateElement() {
+  if (!DEBUG_STATE_ENABLED) {
+    return null;
+  }
+
+  if (debugStateElement) {
+    return debugStateElement;
+  }
+
+  debugStateElement = document.createElement("script");
+  debugStateElement.id = "matrix-debug-state";
+  debugStateElement.type = "application/json";
+  document.body.appendChild(debugStateElement);
+  return debugStateElement;
+}
+
+function publishDebugState() {
+  const element = ensureDebugStateElement();
+  if (!element) {
+    return;
+  }
+
+  element.textContent = JSON.stringify(collectMatrixRainState());
+}
+
+window.__matrixRainState = collectMatrixRainState;
+
 function refreshAppearance() {
   buildPalettes();
 
   for (const column of activeColumns) {
-    column.palette = paletteForColumn(column.seed);
+    column.palette = paletteByName(column.paletteName) || paletteForColumn(column.seed);
   }
 
   if (started) {

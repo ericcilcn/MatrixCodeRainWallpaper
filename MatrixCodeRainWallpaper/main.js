@@ -10,6 +10,7 @@ const PATTERN_SEED = 0x4d415452;
 const DEBUG_STATE_ENABLED = new URLSearchParams(window.location.search).has("debugstate");
 const CHAR_POOL =
   "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+-*/=<>[]{}()|:;,.!?#$%&\"'";
+const GLYPH_MEASURE_POOL = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 
 const DEFAULT_PRESET = {
   name: "Default preset",
@@ -83,6 +84,8 @@ const DEFAULT_PRESET = {
     referenceHeight: 2160,
     columnPitchPx: 28,
     rowPitchPx: 37,
+    glyphTargetWidthPx: 16,
+    glyphTargetHeightPx: 26,
     columnGapPx: 1,
     rowGapPx: 1,
     fontInsetPx: 1,
@@ -182,6 +185,8 @@ let gridColumns = 0;
 let cellWidth = 20;
 let cellHeight = 36;
 let fontSize = 27;
+let glyphScaleX = 1;
+let glyphScaleY = 1;
 let activeColumns = [];
 let palettes = [];
 let glyphCache = new Map();
@@ -368,6 +373,37 @@ function fitFontSizeForPitch(baseSize, maxGlyphWidth) {
     size -= 1;
   }
   return size;
+}
+
+function measureMedianGlyphBounds(size) {
+  const scratch = document.createElement("canvas");
+  const sctx = scratch.getContext("2d");
+  sctx.font = `${size}px ${FONT_FAMILY}`;
+
+  const widths = [];
+  const heights = [];
+  for (const char of GLYPH_MEASURE_POOL) {
+    const metrics = sctx.measureText(char);
+    const measuredWidth = metrics.actualBoundingBoxLeft + metrics.actualBoundingBoxRight || metrics.width;
+    const measuredHeight = metrics.actualBoundingBoxAscent + metrics.actualBoundingBoxDescent || size;
+    widths.push(measuredWidth);
+    heights.push(measuredHeight);
+  }
+
+  widths.sort((a, b) => a - b);
+  heights.sort((a, b) => a - b);
+  return {
+    width: widths[Math.floor(widths.length / 2)] || 1,
+    height: heights[Math.floor(heights.length / 2)] || 1
+  };
+}
+
+function fillFittedText(context, text, x, y) {
+  context.save();
+  context.translate(x, y);
+  context.scale(glyphScaleX, glyphScaleY);
+  context.fillText(text, 0, 0);
+  context.restore();
 }
 
 function streamRowsPerSecond(stream) {
@@ -970,7 +1006,7 @@ function logicStep() {
 }
 
 function createGlyph(char, styleName, palette) {
-  const key = `${cellWidth}:${cellHeight}:${fontSize}:${dpr}:${styleName}:${settings.glow}:${palette.name}:${palette.body}:${char}`;
+  const key = `${cellWidth}:${cellHeight}:${fontSize}:${glyphScaleX}:${glyphScaleY}:${dpr}:${styleName}:${settings.glow}:${palette.name}:${palette.body}:${char}`;
   const cached = glyphCache.get(key);
 
   if (cached) {
@@ -1002,7 +1038,7 @@ function createGlyph(char, styleName, palette) {
       sctx.shadowColor = palette.glow;
       sctx.shadowBlur = fontSize * 0.28;
       sctx.fillStyle = palette.bright;
-      sctx.fillText(char, centerX, centerY);
+      fillFittedText(sctx, char, centerX, centerY);
     } else if (styleName === "bright") {
       sctx.shadowColor = palette.glow;
       sctx.shadowBlur = fontSize * 0.1;
@@ -1018,7 +1054,7 @@ function createGlyph(char, styleName, palette) {
   sctx.shadowBlur = 0;
   sctx.shadowColor = "transparent";
   sctx.fillStyle = color;
-  sctx.fillText(char, centerX, centerY);
+  fillFittedText(sctx, char, centerX, centerY);
   glyphCache.set(key, sprite);
   return sprite;
 }
@@ -1134,6 +1170,9 @@ function resize() {
     clamp(Math.round(cellHeight - layout.rowGapPx - layout.fontInsetPx + layout.fontOversizePx), 9, 72),
     Math.max(1, cellWidth - layout.columnGapPx)
   );
+  const glyphBounds = measureMedianGlyphBounds(fontSize);
+  glyphScaleX = clamp((layout.glyphTargetWidthPx * layoutScale) / glyphBounds.width, 0.72, 1.35);
+  glyphScaleY = clamp((layout.glyphTargetHeightPx * layoutScale) / glyphBounds.height, 0.72, 1.35);
   gridColumns = Math.ceil(width / cellWidth) + 2;
 
   canvas.width = Math.ceil(width * dpr);
@@ -1161,6 +1200,8 @@ function collectMatrixRainState() {
     cellWidth,
     cellHeight,
     fontSize,
+    glyphScaleX,
+    glyphScaleY,
     dpr,
     layout: DEFAULT_PRESET.layout,
     speedRowsPerSecond: DEFAULT_PRESET.speedRowsPerSecond,

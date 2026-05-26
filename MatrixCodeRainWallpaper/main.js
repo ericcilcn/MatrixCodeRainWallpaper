@@ -121,9 +121,18 @@ const DEFAULT_PRESET = {
   ambientGrid: {
     topChance: 0.43,
     midChance: 0.27,
-    bottomChance: 0.04,
+    bottomChance: 0.018,
     columnVariance: 0.34,
     replenishRate: 0.00012,
+    lowerSingletonStart: 0.48,
+    lowerSingletonKeepChance: 0.72,
+    deepLowerSingletonKeepChance: 0.06,
+    lowerSingletonColumnizeChance: 0.46,
+    deepLowerSingletonColumnizeChance: 0.18,
+    lowerReplenishSingletonKeepChance: 0.36,
+    deepLowerReplenishSingletonKeepChance: 0.02,
+    lowerSingleBirthKeepChance: 0.4,
+    deepLowerSingleBirthKeepChance: 0.04,
     charRefreshChance: 0.003,
     brightFlipChance: 0.018,
     brightChance: 0.94,
@@ -152,8 +161,8 @@ const DEFAULT_PRESET = {
     tripleChance: 0,
     rotatingChance: 1,
     upperBiasPower: 1.68,
-    unrestrictedChance: 0.16,
-    lowerScreenKeepChance: 0.42,
+    unrestrictedChance: 0.05,
+    lowerScreenKeepChance: 0.12,
     minLifeTicks: 260,
     maxLifeTicks: 640,
     minAlpha: 0.24,
@@ -522,6 +531,112 @@ function hasAdjacentCell(column, rowIndex) {
   );
 }
 
+function hasVerticalCell(column, rowIndex) {
+  return Boolean(
+    (rowIndex > 0 && column.cells[rowIndex - 1]) ||
+    (rowIndex < rows - 1 && column.cells[rowIndex + 1])
+  );
+}
+
+function cellVisibleEnough(cell, rowIndex) {
+  if (!cell || cell.negative) {
+    return false;
+  }
+
+  const brightness = clamp(settings.brightness / 72, 0.45, 1.32);
+  const glowBoost = cell.head || cell.glowHead ? 1.24 : 1;
+  return cell.baseAlpha * rowVisibility(rowIndex) * brightness * glowBoost > 0.22;
+}
+
+function hasVisibleVerticalCell(column, rowIndex) {
+  return Boolean(
+    (rowIndex > 0 && cellVisibleEnough(column.cells[rowIndex - 1], rowIndex - 1)) ||
+    (rowIndex < rows - 1 && cellVisibleEnough(column.cells[rowIndex + 1], rowIndex + 1))
+  );
+}
+
+function isLowerSingletonRow(rowIndex) {
+  return rowIndex / Math.max(1, rows - 1) >= DEFAULT_PRESET.ambientGrid.lowerSingletonStart;
+}
+
+function lowerDepthValue(rowIndex, startValue, deepValue = startValue) {
+  const ambient = DEFAULT_PRESET.ambientGrid;
+  const rowUnit = rowIndex / Math.max(1, rows - 1);
+  const depth = clamp((rowUnit - ambient.lowerSingletonStart) / (1 - ambient.lowerSingletonStart), 0, 1);
+  return startValue * (1 - depth) + deepValue * depth;
+}
+
+function shouldCullLowerSingleton(seed, rowIndex, keepChance, deepKeepChance = keepChance) {
+  if (!isLowerSingletonRow(rowIndex)) {
+    return false;
+  }
+
+  return hashUnit(seed ^ Math.imul(rowIndex + 11, 668265263)) > lowerDepthValue(rowIndex, keepChance, deepKeepChance);
+}
+
+function lowerSingletonNeighborRow(seed, rowIndex) {
+  if (rowIndex >= rows - 1) {
+    return rowIndex - 1;
+  }
+  if (rowIndex <= 0) {
+    return rowIndex + 1;
+  }
+
+  return hashUnit(seed ^ 0xb93d) < 0.74 ? rowIndex - 1 : rowIndex + 1;
+}
+
+function maybeColumnizeLowerSingleton(column, rowIndex, seed, options = {}) {
+  if (!isLowerSingletonRow(rowIndex)) {
+    return false;
+  }
+
+  const ambient = DEFAULT_PRESET.ambientGrid;
+  const chance = lowerDepthValue(rowIndex, ambient.lowerSingletonColumnizeChance, ambient.deepLowerSingletonColumnizeChance);
+  if (hashUnit(seed ^ 0x3bd1) > chance) {
+    return false;
+  }
+
+  const neighborRow = lowerSingletonNeighborRow(seed, rowIndex);
+  if (neighborRow < 0 || neighborRow >= rows || column.cells[neighborRow]) {
+    return false;
+  }
+
+  return Boolean(placeAmbientCell(column, neighborRow, hashInt(seed ^ Math.imul(neighborRow + 1, 0xa531)), {
+    bright: Object.prototype.hasOwnProperty.call(options, "bright")
+      ? options.bright
+      : hashUnit(seed ^ 0x77ac) < ambient.brightChance,
+    lifeMin: options.lifeMin || ambient.smallColumnLifeMinTicks,
+    lifeMax: options.lifeMax || ambient.smallColumnLifeMaxTicks
+  }));
+}
+
+function shapeLowerColumnSingletons(column) {
+  const ambient = DEFAULT_PRESET.ambientGrid;
+  const startRow = Math.floor(rows * ambient.lowerSingletonStart);
+
+  for (let pass = 0; pass < 2; pass += 1) {
+    for (let rowIndex = startRow; rowIndex < rows; rowIndex += 1) {
+      const cell = column.cells[rowIndex];
+      if (!cell || cell.negative || !cellVisibleEnough(cell, rowIndex) || hasVisibleVerticalCell(column, rowIndex)) {
+        continue;
+      }
+
+      const seed = hashInt((cell.salt || column.seed) ^ Math.imul(rowIndex + 37 + pass * 113, 1597334677));
+      if (!shouldCullLowerSingleton(seed, rowIndex, ambient.lowerSingletonKeepChance, ambient.deepLowerSingletonKeepChance)) {
+        continue;
+      }
+
+      if (!maybeColumnizeLowerSingleton(column, rowIndex, seed, {
+        bright: cell.head || cell.glowHead,
+        lifeMin: Math.max(ambient.smallColumnLifeMinTicks, cell.life - cell.age),
+        lifeMax: Math.max(ambient.smallColumnLifeMaxTicks, cell.life - cell.age + 1)
+      })) {
+        column.cells[rowIndex] = null;
+      }
+    }
+  }
+}
+
 function ambientAlpha(seed, column, bright) {
   const ambient = DEFAULT_PRESET.ambientGrid;
   const min = bright ? ambient.brightAlphaMin : ambient.bodyAlphaMin;
@@ -588,6 +703,27 @@ function seedAmbientColumn(column) {
       column.cells[rowIndex] = cell;
     }
   }
+
+  const ambient = DEFAULT_PRESET.ambientGrid;
+  for (let pass = 0; pass < 3; pass += 1) {
+    for (let rowIndex = Math.floor(rows * ambient.lowerSingletonStart); rowIndex < rows; rowIndex += 1) {
+      const cell = column.cells[rowIndex];
+      if (!cell || !cell.staticCell || hasVisibleVerticalCell(column, rowIndex)) {
+        continue;
+      }
+
+      const seed = hashInt(column.seed ^ Math.imul(rowIndex + 29 + pass * 101, 2246822519));
+      if (shouldCullLowerSingleton(seed, rowIndex, ambient.lowerSingletonKeepChance, ambient.deepLowerSingletonKeepChance)) {
+        if (!maybeColumnizeLowerSingleton(column, rowIndex, seed, {
+          bright: cell.glowHead,
+          lifeMin: Math.max(ambient.smallColumnLifeMinTicks, cell.life - cell.age),
+          lifeMax: Math.max(ambient.smallColumnLifeMaxTicks, cell.life - cell.age + 1)
+        })) {
+          column.cells[rowIndex] = null;
+        }
+      }
+    }
+  }
 }
 
 function updateAmbientCell(column, rowIndex, cell) {
@@ -636,6 +772,18 @@ function maybeReplenishAmbientCell(column, rowIndex) {
   const seed = hashInt(column.seed ^ Math.imul(logicalTick + 1, 374761393) ^ Math.imul(rowIndex + 4099, 668265263));
   const chance = ambientCellChance(column, rowIndex) * ambient.replenishRate;
   if (hashUnit(seed) < chance) {
+    if (!hasVisibleVerticalCell(column, rowIndex) && shouldCullLowerSingleton(seed, rowIndex, ambient.lowerReplenishSingletonKeepChance, ambient.deepLowerReplenishSingletonKeepChance)) {
+      const placed = placeAmbientCell(column, rowIndex, seed);
+      if (placed && !maybeColumnizeLowerSingleton(column, rowIndex, seed, {
+        bright: placed.glowHead,
+        lifeMin: ambient.smallColumnLifeMinTicks,
+        lifeMax: ambient.smallColumnLifeMaxTicks
+      })) {
+        column.cells[rowIndex] = null;
+      }
+      return;
+    }
+
     placeAmbientCell(column, rowIndex, seed);
   }
 }
@@ -1009,6 +1157,10 @@ function releaseAmbientSingles() {
       }
 
       const row = Math.floor(hashUnit(seed ^ 0x9301) * rows);
+      if (shouldCullLowerSingleton(seed, row, ambient.lowerSingleBirthKeepChance, ambient.deepLowerSingleBirthKeepChance)) {
+        continue;
+      }
+
       if (column.cells[row] || hasAdjacentCell(column, row)) {
         continue;
       }
@@ -1316,6 +1468,10 @@ function logicStep() {
   releaseAmbientSmallColumns();
   releaseStandaloneRotators();
   releaseLowerFragments();
+
+  for (const column of activeColumns) {
+    shapeLowerColumnSingletons(column);
+  }
 }
 
 function createGlyph(char, styleName, palette) {

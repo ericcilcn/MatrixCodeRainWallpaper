@@ -45,6 +45,15 @@ const DEFAULT_PRESET = {
   speedVariability: 90,
   colorVariance: 100,
   intensityVariance: 66,
+  streamTone: {
+    dimChance: 0.28,
+    normalChance: 0.44,
+    paleChance: 0.2,
+    dimMultiplier: 0.68,
+    normalMultiplier: 0.96,
+    paleMultiplier: 1.14,
+    accentMultiplier: 1.34
+  },
   positiveAlpha: {
     base: 0.98,
     variance: 0.32
@@ -284,6 +293,37 @@ function paletteForColumn(seed) {
   return palettes[3];
 }
 
+function paletteByName(name) {
+  return palettes.find((palette) => palette.name === name) || palettes[1] || palettes[0];
+}
+
+function toneForSeed(seed) {
+  const tone = DEFAULT_PRESET.streamTone;
+  const roll = hashUnit(seed ^ 0x6d2b79f5);
+  if (roll < tone.dimChance) {
+    return {
+      paletteName: "dim",
+      multiplier: tone.dimMultiplier
+    };
+  }
+  if (roll < tone.dimChance + tone.normalChance) {
+    return {
+      paletteName: "normal",
+      multiplier: tone.normalMultiplier
+    };
+  }
+  if (roll < tone.dimChance + tone.normalChance + tone.paleChance) {
+    return {
+      paletteName: "pale",
+      multiplier: tone.paleMultiplier
+    };
+  }
+  return {
+    paletteName: "accent",
+    multiplier: tone.accentMultiplier
+  };
+}
+
 function tickRate() {
   return 24;
 }
@@ -351,6 +391,7 @@ function createCell(column, stream, rowIndex, age = 0) {
   const alphaPreset = stream.negative ? DEFAULT_PRESET.negativeAlpha : DEFAULT_PRESET.positiveAlpha;
   const alphaBase = alphaPreset.base + alphaUnit * alphaPreset.variance;
   const glowHead = !stream.negative && hashUnit(stream.seed ^ Math.imul(rowIndex + 17, 1597334677)) < stream.headChance;
+  const streamIntensity = stream.toneMultiplier || 1;
 
   return {
     char: stableChar,
@@ -360,7 +401,8 @@ function createCell(column, stream, rowIndex, age = 0) {
     life: stream.length,
     alpha: 0,
     target: 0,
-    baseAlpha: alphaBase * column.intensity,
+    baseAlpha: alphaBase * column.intensity * streamIntensity,
+    paletteName: stream.paletteName || column.palette.name,
     rotator,
     nextRotateTick: logicalTick + 40 + Math.floor(hashUnit(stream.seed ^ rowIndex) * 110),
     streamId: stream.id,
@@ -397,6 +439,9 @@ function resetStream(stream, column, initial = false) {
   const cycleSeed = hashInt(stream.seed ^ Math.imul(logicalTick + 1, 2246822519));
   stream.progress = hashUnit(cycleSeed ^ 0x423f) * 0.9;
   stream.patternSalt = DEFAULT_PRESET.samePattern ? stream.seed : cycleSeed;
+  const tone = toneForSeed(cycleSeed);
+  stream.paletteName = tone.paletteName;
+  stream.toneMultiplier = tone.multiplier;
   stream.length = streamLength(stream, cycleSeed);
   if (stream.mode === "fragment") {
     stream.length = Math.max(6, Math.floor(stream.length * seededRange(cycleSeed ^ 0xb38d, 0.48, 0.78)));
@@ -464,6 +509,8 @@ function createStream(column, ordinal, initial, mode = "normal") {
     density: 0,
     rotatorRate: 0,
     headChance: 0,
+    paletteName: "normal",
+    toneMultiplier: 1,
     speed: 0,
     endRow: rows
   };
@@ -481,11 +528,7 @@ function makeColumn(index, seed) {
       : streamRoll < 0.56 + densityBias * 0.1
         ? 3
         : 2;
-  const intensity = clamp(
-    0.86 + hashUnit(seed ^ 0x99103) * (DEFAULT_PRESET.intensityVariance / 100) + (profile.name === "pale" ? 0.18 : 0) - (profile.name === "dim" ? 0.1 : 0),
-    0.42,
-    1.72
-  );
+  const intensity = clamp(0.88 + hashUnit(seed ^ 0x99103) * 0.26, 0.82, 1.16);
   const column = {
     index,
     seed,
@@ -648,7 +691,8 @@ function releaseStandaloneRotators() {
     const groupSize = sizeRoll < rotators.tripleChance ? 3 : sizeRoll < rotators.tripleChance + rotators.pairChance ? 2 : 1;
     const startRow = Math.min(row, rows - groupSize);
     const life = Math.floor(seededRange(seed ^ 0x44f1, rotators.minLifeTicks, rotators.maxLifeTicks));
-    const baseAlpha = seededRange(seed ^ 0x9e3d, rotators.minAlpha, rotators.maxAlpha) * column.intensity;
+    const tone = toneForSeed(seed);
+    const baseAlpha = seededRange(seed ^ 0x9e3d, rotators.minAlpha, rotators.maxAlpha) * column.intensity * tone.multiplier;
     const rotates = hashUnit(seed ^ 0x71dd) < rotators.rotatingChance;
 
     for (let offset = 0; offset < groupSize; offset += 1) {
@@ -669,6 +713,7 @@ function releaseStandaloneRotators() {
         alpha: baseAlpha,
         target: baseAlpha,
         baseAlpha,
+        paletteName: tone.paletteName,
         rotator: rotates,
         nextRotateTick: logicalTick + Math.floor(seededRange(charSalt ^ 0x148d, rotators.minRotateTicks, rotators.maxRotateTicks)),
         streamId: `solo:${column.index}:${targetRow}:${seed}`,
@@ -740,7 +785,8 @@ function releaseLowerFragments() {
     }
 
     const life = Math.floor(seededRange(seed ^ 0x44f1, fragments.minLifeTicks, fragments.maxLifeTicks));
-    const baseAlpha = seededRange(seed ^ 0x9e3d, fragments.minAlpha, fragments.maxAlpha) * column.intensity;
+    const tone = toneForSeed(seed);
+    const baseAlpha = seededRange(seed ^ 0x9e3d, fragments.minAlpha, fragments.maxAlpha) * column.intensity * tone.multiplier;
     const rotates = hashUnit(seed ^ 0x71dd) < fragments.rotatingChance;
 
     for (let offset = 0; offset < length; offset += 1) {
@@ -757,6 +803,7 @@ function releaseLowerFragments() {
         alpha: rowAlpha,
         target: rowAlpha,
         baseAlpha: rowAlpha,
+        paletteName: tone.paletteName,
         rotator: rotates && hashUnit(charSalt ^ 0x1e7a) < 0.58,
         nextRotateTick: logicalTick + Math.floor(seededRange(charSalt ^ 0x148d, fragments.minRotateTicks, fragments.maxRotateTicks)),
         streamId: `lower:${column.index}:${rowIndex}:${seed}`,
@@ -876,7 +923,8 @@ function drawGlyph(cell, column, rowIndex) {
     return;
   }
 
-  const sprite = createGlyph(cell.char, styleName, column.palette);
+  const palette = paletteByName(cell.paletteName) || column.palette;
+  const sprite = createGlyph(cell.char, styleName, palette);
   const x = column.x;
   const y = (rowIndex + 0.5) * cellHeight;
   ctx.globalAlpha = clamp(alpha * rowVisibility(rowIndex) * clamp(settings.brightness / 72, 0.45, 1.32), 0, 1);

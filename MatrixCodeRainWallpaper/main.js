@@ -79,13 +79,14 @@ const DEFAULT_PRESET = {
     amount: 0.16
   },
   layout: {
-    referenceWidth: 1920,
-    referenceHeight: 1080,
-    columnPitch1080: 14,
-    rowPitch1080: 17,
+    referenceWidth: 3840,
+    referenceHeight: 2160,
+    columnPitchPx: 28,
+    rowPitchPx: 37,
     columnGapPx: 1,
     rowGapPx: 1,
-    fontInsetPx: 1
+    fontInsetPx: 1,
+    fontOversizePx: 4
   },
   rotatingCells: {
     minRotateTicks: 3,
@@ -1126,11 +1127,11 @@ function resize() {
   dpr = Math.min(window.devicePixelRatio || 1, DPR_LIMIT);
   const layout = DEFAULT_PRESET.layout;
   const layoutScale = referenceLayoutScale();
-  cellHeight = Math.max(10, Math.round(layout.rowPitch1080 * layoutScale));
-  cellWidth = Math.max(8, Math.round(layout.columnPitch1080 * layoutScale));
+  cellHeight = Math.max(10, Math.round(layout.rowPitchPx * layoutScale));
+  cellWidth = Math.max(8, Math.round(layout.columnPitchPx * layoutScale));
   rows = clamp(Math.ceil(height / cellHeight), 36, 96);
   fontSize = fitFontSizeForPitch(
-    clamp(Math.round(cellHeight - layout.rowGapPx - layout.fontInsetPx), 9, 72),
+    clamp(Math.round(cellHeight - layout.rowGapPx - layout.fontInsetPx + layout.fontOversizePx), 9, 72),
     Math.max(1, cellWidth - layout.columnGapPx)
   );
   gridColumns = Math.ceil(width / cellWidth) + 2;

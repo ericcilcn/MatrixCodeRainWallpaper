@@ -20,6 +20,9 @@
 /.DS_Store
 /新建 文本文档.txt
 /current-preview-*.png
+/matrix-current-*.png
+/matrix-gridfit-*.png
 /matrix-spacing-preview-*.png
 /reference-video-frame.png
+/reference-video-frame-4k-*.png
 node_modules/

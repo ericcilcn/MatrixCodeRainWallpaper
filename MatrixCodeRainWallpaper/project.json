@@ -26,7 +26,7 @@
       "brightness": {
         "text": "Brightness",
         "type": "slider",
-        "value": 75,
+        "value": 100,
         "min": 35,
         "max": 100,
         "editable": true,
@@ -50,7 +50,7 @@
       "color": {
         "text": "Color",
         "type": "color",
-        "value": "0.14 0.85 0.41",
+        "value": "0.21 0.85 0.41",
         "order": 60
       }
     },

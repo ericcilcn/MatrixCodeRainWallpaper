@@ -5,7 +5,7 @@ const ctx = canvas.getContext("2d", { alpha: false });
 
 const FONT_FAMILY = "\"Matrix Code\", monospace";
 const DPR_LIMIT = 2;
-const BASE_COLOR = { r: 35, g: 217, b: 104 };
+const BASE_COLOR = { r: 54, g: 217, b: 105 };
 const PATTERN_SEED = 0x4d415452;
 const DEBUG_STATE_ENABLED = new URLSearchParams(window.location.search).has("debugstate");
 const CHAR_POOL = "012345789+*<>:|\\";
@@ -38,11 +38,11 @@ const DEFAULT_PRESET = {
   fadeBottom: true,
   samePattern: true,
   glowingTracers: {
-    occurrence: 24,
+    occurrence: 28,
     variance: 14,
     negativeOccurrence: 0.4,
     intensity: 90,
-    fallingHeadChance: 0.64
+    fallingHeadChance: 0.72
   },
   speedVariability: 90,
   colorVariance: 100,
@@ -57,8 +57,8 @@ const DEFAULT_PRESET = {
     accentMultiplier: 1.34
   },
   positiveAlpha: {
-    base: 0.86,
-    variance: 0.06
+    base: 1.05,
+    variance: 0.08
   },
   negativeAlpha: {
     base: 0.58,
@@ -72,7 +72,7 @@ const DEFAULT_PRESET = {
     start: 0.27,
     power: 1,
     amount: 0.68,
-    minVisibility: 0.24,
+    minVisibility: 0.32,
     maxVisibility: 1.1
   },
   entryBoost: {
@@ -124,6 +124,9 @@ const DEFAULT_PRESET = {
     columnVariance: 0.34,
     quietColumnChance: 0.24,
     quietColumnMultiplier: 0.04,
+    topCapChance: 0.94,
+    topCapQuietChance: 0.34,
+    topCapSecondRowChance: 0.64,
     runStartFactor: 0.24,
     runContinueMin: 0.61,
     runContinueByDensity: 0.1,
@@ -144,20 +147,20 @@ const DEFAULT_PRESET = {
     deepLowerSingleBirthKeepChance: 0.01,
     charRefreshChance: 0.003,
     brightFlipChance: 0.008,
-    brightChance: 0.58,
-    brightAlphaMin: 1.15,
-    brightAlphaMax: 1.45,
-    bodyAlphaMin: 0.4,
-    bodyAlphaMax: 0.64,
+    brightChance: 0.68,
+    brightAlphaMin: 1.14,
+    brightAlphaMax: 1.42,
+    bodyAlphaMin: 0.98,
+    bodyAlphaMax: 1.28,
     lifeMinTicks: 1500,
     lifeMaxTicks: 3600,
-    singleBirthChancePerTick: 0.24,
+    singleBirthChancePerTick: 0.16,
     singleBirthsPerTick: 1,
     singleBirthAttempts: 10,
     singleLifeMinTicks: 70,
     singleLifeMaxTicks: 220,
-    singleBrightChance: 0.52,
-    smallColumnChancePerTick: 0.024,
+    singleBrightChance: 0.58,
+    smallColumnChancePerTick: 0.012,
     smallColumnAttempts: 12,
     smallColumnMinRows: 3,
     smallColumnMaxRows: 5,
@@ -166,7 +169,7 @@ const DEFAULT_PRESET = {
     smallColumnLifeMaxTicks: 120
   },
   standaloneRotators: {
-    chancePerTick: 0.014,
+    chancePerTick: 0.008,
     maxPerTick: 1,
     pairChance: 0,
     tripleChance: 0,
@@ -182,7 +185,7 @@ const DEFAULT_PRESET = {
     maxRotateTicks: 9
   },
   lowerFragments: {
-    chancePerTick: 0.045,
+    chancePerTick: 0.032,
     maxPerTick: 1,
     startMinRows: 0.45,
     startMaxRows: 0.86,
@@ -191,8 +194,8 @@ const DEFAULT_PRESET = {
     maxLengthRows: 6,
     quietGapRows: 7,
     rotatingChance: 0.32,
-    brightHeadChance: 0.38,
-    brightCellChance: 0.08,
+    brightHeadChance: 0.45,
+    brightCellChance: 0.12,
     minLifeTicks: 5,
     maxLifeTicks: 10,
     minAlpha: 0.44,
@@ -215,7 +218,7 @@ const DEFAULT_PRESET = {
   wallpaperProperties: {
     density: 62,
     speed: 76,
-    brightness: 75,
+    brightness: 100,
     glyphscale: 100,
     glow: true
   },
@@ -340,8 +343,8 @@ function buildPalettes() {
     const pale = variant.pale * colorVariance;
     const body = mixColor(scaleColor(settings.color, variant.body * brightness), white, pale);
     const dim = mixColor(scaleColor(settings.color, variant.dim * brightness), white, pale * 0.35);
-    const bright = mixColor(scaleColor(settings.color, variant.body * 1.16 * brightness), white, Math.max(variant.head * 0.28, 0.24));
-    const head = mixColor(scaleColor(settings.color, 1.38 * brightness), white, 0.54);
+    const bright = mixColor(scaleColor(settings.color, variant.body * brightness), white, Math.max(variant.head * 0.06, 0.045));
+    const head = mixColor(scaleColor(settings.color, 0.94 * brightness), white, 0.08);
     const glowBase = mixColor(head, settings.color, 0.24);
 
     return {
@@ -805,6 +808,34 @@ function seedAmbientColumn(column) {
   }
 
   shapeColumnSingletons(column);
+  seedTopCapCells(column);
+}
+
+function seedTopCapCells(column) {
+  const ambient = DEFAULT_PRESET.ambientGrid;
+  const quietColumn = hashUnit(column.seed ^ 0x4c171) < ambient.quietColumnChance;
+  const capChance = quietColumn ? ambient.topCapQuietChance : ambient.topCapChance;
+
+  if (hashUnit(column.seed ^ 0x6f24) > capChance) {
+    return;
+  }
+
+  const seed = hashInt(column.seed ^ 0x7bb51);
+  if (!column.cells[0]) {
+    column.cells[0] = createAmbientCell(column, 0, seed, {
+      bright: hashUnit(seed ^ 0x3c1d) < ambient.brightChance,
+      lifeMin: ambient.lifeMinTicks,
+      lifeMax: ambient.lifeMaxTicks
+    });
+  }
+
+  if (rows > 1 && !column.cells[1] && hashUnit(seed ^ 0x924d) < ambient.topCapSecondRowChance) {
+    column.cells[1] = createAmbientCell(column, 1, hashInt(seed ^ 0x4f91), {
+      bright: hashUnit(seed ^ 0x51db) < ambient.brightChance,
+      lifeMin: ambient.lifeMinTicks,
+      lifeMax: ambient.lifeMaxTicks
+    });
+  }
 }
 
 function updateAmbientCell(column, rowIndex, cell) {
@@ -893,8 +924,8 @@ function createCell(column, stream, rowIndex, age = 0, forceVisible = false) {
     life: stream.cellLifeTicks || Math.max(stream.length + 1, Math.round(stream.length * DEFAULT_PRESET.cellLifetimeScale)),
     alpha: 0,
     target: 0,
-    baseAlpha: alphaBase * column.intensity,
-    paletteName: column.paletteName,
+    baseAlpha: alphaBase * column.intensity * stream.toneMultiplier,
+    paletteName: stream.paletteName,
     rotator,
     head: false,
     headPreviousGlowHead: false,
@@ -966,6 +997,7 @@ function createLowerFragmentStream(column, seed, startRow, length) {
   const ordinal = column.nextStreamOrdinal;
   column.nextStreamOrdinal += 1;
   const endRow = Math.min(rows - 1, startRow + length - 1);
+  const tone = toneForSeed(seed ^ 0x19a37);
 
   return {
     id: `lower:${column.index}:${ordinal}:${seed}`,
@@ -983,8 +1015,8 @@ function createLowerFragmentStream(column, seed, startRow, length) {
     headChance: fragments.brightCellChance,
     brightHead: hashUnit(seed ^ 0xd82f) < fragments.brightHeadChance,
     cooldownTicks: 0,
-    paletteName: column.paletteName,
-    toneMultiplier: 1,
+    paletteName: tone.paletteName,
+    toneMultiplier: tone.multiplier,
     speed: seededRange(seed ^ 0x53fa, fragments.minSpeedRowsPerSecond, fragments.maxSpeedRowsPerSecond),
     endRow,
     finished: false,
@@ -996,13 +1028,14 @@ function createLowerFragmentStream(column, seed, startRow, length) {
 
 function resetStream(stream, column, initial = false) {
   const cycleSeed = hashInt(stream.seed ^ Math.imul(logicalTick + 1, 2246822519));
+  const tone = toneForSeed(cycleSeed ^ 0x5ed91);
   demoteStreamHead(column, stream);
   stream.finished = false;
   stream.cooldownTicks = 0;
   stream.progress = hashUnit(cycleSeed ^ 0x423f) * 0.9;
   stream.patternSalt = DEFAULT_PRESET.samePattern ? stream.seed : cycleSeed;
-  stream.paletteName = column.paletteName;
-  stream.toneMultiplier = 1;
+  stream.paletteName = tone.paletteName;
+  stream.toneMultiplier = tone.multiplier;
   stream.length = streamLength(stream, cycleSeed);
   if (stream.mode === "fragment") {
     stream.length = Math.max(6, Math.floor(stream.length * seededRange(cycleSeed ^ 0xb38d, 0.48, 0.78)));
@@ -1667,7 +1700,7 @@ function drawGlyph(cell, column, rowIndex) {
   if (!cell.negative && (cell.head || cell.glowHead)) {
     const rowUnit = rowIndex / Math.max(1, rows - 1);
     const upperFloor = cell.head ? 0.74 : 0.66;
-    const lowerFloor = cell.head ? 0.28 : 0.18;
+    const lowerFloor = cell.head ? 0.5 : 0.36;
     const floorMix = clamp((0.68 - rowUnit) / 0.2, 0, 1);
     visibility = Math.max(visibility, lowerFloor * (1 - floorMix) + upperFloor * floorMix);
   }

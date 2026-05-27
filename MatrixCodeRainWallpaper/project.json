@@ -17,7 +17,7 @@
       "speed": {
         "text": "Speed",
         "type": "slider",
-        "value": 76,
+        "value": 68,
         "min": 20,
         "max": 100,
         "editable": true,

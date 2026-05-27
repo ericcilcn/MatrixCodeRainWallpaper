@@ -22,7 +22,7 @@ const REFERENCE_SCORE_MEAN = REFERENCE_ROW_PROFILE.mean.reduce((sum, value) => s
 const DEFAULT_PRESET = {
   name: "Default preset",
   source: "TheMatrixTrilogy.scr Basic code metrics / Code appearance",
-  speedRowsPerSecond: 50,
+  speedRowsPerSecond: 44,
   releaseEveryTicks: 360,
   maxReleaseTracers: 1,
   splashEveryReleases: 0,
@@ -59,13 +59,13 @@ const DEFAULT_PRESET = {
     dimChance: 0.3,
     normalChance: 0.4,
     paleChance: 0.2,
-    dimMultiplier: 0.56,
-    normalMultiplier: 0.84,
-    paleMultiplier: 1.08,
-    accentMultiplier: 1.82
+    dimMultiplier: 0.68,
+    normalMultiplier: 0.92,
+    paleMultiplier: 1.16,
+    accentMultiplier: 1.9
   },
   positiveAlpha: {
-    base: 0.82,
+    base: 0.9,
     variance: 0.12
   },
   negativeAlpha: {
@@ -74,7 +74,7 @@ const DEFAULT_PRESET = {
   },
   characterSize: 100,
   maxConcurrentStreamsPerColumn: 2,
-  initialWarmupSeconds: 5,
+  initialWarmupSeconds: 7,
   bottomFade: {
     baseVisibility: 1,
     start: 0.27,
@@ -132,9 +132,6 @@ const DEFAULT_PRESET = {
     columnVariance: 0.34,
     quietColumnChance: 0.24,
     quietColumnMultiplier: 0.04,
-    topCapChance: 0.94,
-    topCapQuietChance: 0.34,
-    topCapSecondRowChance: 0.64,
     runStartFactor: 0.24,
     runContinueMin: 0.61,
     runContinueByDensity: 0.1,
@@ -156,10 +153,10 @@ const DEFAULT_PRESET = {
     charRefreshChance: 0.003,
     brightFlipChance: 0.008,
     brightChance: 0.68,
-    brightAlphaMin: 1.24,
-    brightAlphaMax: 1.58,
-    bodyAlphaMin: 0.66,
-    bodyAlphaMax: 0.96,
+    brightAlphaMin: 1.35,
+    brightAlphaMax: 1.72,
+    bodyAlphaMin: 0.78,
+    bodyAlphaMax: 1.08,
     lifeMinTicks: 1500,
     lifeMaxTicks: 3600,
     singleBirthChancePerTick: 0.16,
@@ -225,7 +222,7 @@ const DEFAULT_PRESET = {
   },
   wallpaperProperties: {
     density: 62,
-    speed: 76,
+    speed: 68,
     brightness: 100,
     glyphscale: 100,
     glow: true
@@ -381,11 +378,11 @@ function buildPalettes() {
   const glowIntensity = DEFAULT_PRESET.glowingTracers.intensity / 100;
   const white = { r: 255, g: 255, b: 255 };
   const variants = [
-    { name: "dim", body: 0.42, dim: 0.12, pale: 0.01, signal: 0.04, brightSignal: 0.38, glow: 0.1 },
-    { name: "normal", body: 0.76, dim: 0.22, pale: 0.03, signal: 0.08, brightSignal: 0.5, glow: 0.18 },
-    { name: "pale", body: 0.92, dim: 0.3, pale: 0.12, signal: 0.28, brightSignal: 0.62, glow: 0.25 },
-    { name: "accent", body: 1.04, dim: 0.36, pale: 0.08, signal: 0.68, brightSignal: 0.78, glow: 0.36 },
-    { name: "negative", body: 0.28, dim: 0.08, pale: 0, signal: 0, brightSignal: 0.22, glow: 0.05 }
+    { name: "dim", body: 0.5, dim: 0.16, pale: 0.03, signal: 0.08, brightSignal: 0.42, glow: 0.12 },
+    { name: "normal", body: 0.86, dim: 0.26, pale: 0.06, signal: 0.12, brightSignal: 0.56, glow: 0.2 },
+    { name: "pale", body: 1, dim: 0.34, pale: 0.2, signal: 0.3, brightSignal: 0.68, glow: 0.28 },
+    { name: "accent", body: 1.1, dim: 0.42, pale: 0.22, signal: 0.72, brightSignal: 0.86, glow: 0.42 },
+    { name: "negative", body: 0.38, dim: 0.12, pale: 0.02, signal: 0.03, brightSignal: 0.3, glow: 0.08 }
   ];
 
   palettes = variants.map((variant) => {
@@ -396,8 +393,10 @@ function buildPalettes() {
     const dim = mixColor(scaleColor(settings.color, variant.dim * brightness), white, pale * 0.35);
     const brightSignal = vividMatrixSignal(settings.color, 0.86, 1.1, 0.99);
     const headSignal = vividMatrixSignal(settings.color, 0.66, 1.14, 0.92);
-    const bright = mixColor(scaleColor(settings.color, variant.body * brightness), brightSignal, variant.brightSignal);
-    const head = mixColor(scaleColor(settings.color, 0.92 * brightness), headSignal, 0.82);
+    const brightTarget = mixColor(brightSignal, white, pale * 0.7);
+    const headTarget = mixColor(headSignal, white, 0.2);
+    const bright = mixColor(scaleColor(settings.color, variant.body * brightness), brightTarget, variant.brightSignal);
+    const head = mixColor(scaleColor(settings.color, 0.98 * brightness), headTarget, 0.88);
     const glowBase = mixColor(head, settings.color, 0.24);
 
     return {
@@ -847,34 +846,6 @@ function seedAmbientColumn(column) {
   }
 
   shapeColumnSingletons(column);
-  seedTopCapCells(column);
-}
-
-function seedTopCapCells(column) {
-  const ambient = DEFAULT_PRESET.ambientGrid;
-  const quietColumn = hashUnit(column.seed ^ 0x4c171) < ambient.quietColumnChance;
-  const capChance = quietColumn ? ambient.topCapQuietChance : ambient.topCapChance;
-
-  if (hashUnit(column.seed ^ 0x6f24) > capChance) {
-    return;
-  }
-
-  const seed = hashInt(column.seed ^ 0x7bb51);
-  if (!column.cells[0]) {
-    column.cells[0] = createAmbientCell(column, 0, seed, {
-      bright: hashUnit(seed ^ 0x3c1d) < referenceBrightChance(0, ambient.brightChance),
-      lifeMin: ambient.lifeMinTicks,
-      lifeMax: ambient.lifeMaxTicks
-    });
-  }
-
-  if (rows > 1 && !column.cells[1] && hashUnit(seed ^ 0x924d) < ambient.topCapSecondRowChance) {
-    column.cells[1] = createAmbientCell(column, 1, hashInt(seed ^ 0x4f91), {
-      bright: hashUnit(seed ^ 0x51db) < referenceBrightChance(1, ambient.brightChance),
-      lifeMin: ambient.lifeMinTicks,
-      lifeMax: ambient.lifeMaxTicks
-    });
-  }
 }
 
 function updateAmbientCell(column, rowIndex, cell) {

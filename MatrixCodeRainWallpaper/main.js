@@ -48,17 +48,17 @@ const DEFAULT_PRESET = {
   colorVariance: 100,
   intensityVariance: 66,
   streamTone: {
-    dimChance: 0.28,
-    normalChance: 0.44,
+    dimChance: 0.3,
+    normalChance: 0.4,
     paleChance: 0.2,
-    dimMultiplier: 0.68,
-    normalMultiplier: 0.96,
-    paleMultiplier: 1.14,
-    accentMultiplier: 1.34
+    dimMultiplier: 0.56,
+    normalMultiplier: 0.84,
+    paleMultiplier: 1.08,
+    accentMultiplier: 1.82
   },
   positiveAlpha: {
-    base: 1.05,
-    variance: 0.08
+    base: 0.82,
+    variance: 0.12
   },
   negativeAlpha: {
     base: 0.58,
@@ -148,10 +148,10 @@ const DEFAULT_PRESET = {
     charRefreshChance: 0.003,
     brightFlipChance: 0.008,
     brightChance: 0.68,
-    brightAlphaMin: 1.14,
-    brightAlphaMax: 1.42,
-    bodyAlphaMin: 0.98,
-    bodyAlphaMax: 1.28,
+    brightAlphaMin: 1.24,
+    brightAlphaMax: 1.58,
+    bodyAlphaMin: 0.66,
+    bodyAlphaMax: 0.96,
     lifeMinTicks: 1500,
     lifeMaxTicks: 3600,
     singleBirthChancePerTick: 0.16,
@@ -286,6 +286,14 @@ function scaleColor(color, multiplier) {
   };
 }
 
+function vividMatrixSignal(color, redFactor, greenFactor, blueFactor) {
+  return {
+    r: clamp(Math.round(color.r * redFactor), 0, 255),
+    g: clamp(Math.round(color.g * greenFactor), 0, 255),
+    b: clamp(Math.round(color.b * blueFactor), 0, 255)
+  };
+}
+
 function mixColor(a, b, amount) {
   const inverse = 1 - amount;
   return {
@@ -332,19 +340,23 @@ function buildPalettes() {
   const glowIntensity = DEFAULT_PRESET.glowingTracers.intensity / 100;
   const white = { r: 255, g: 255, b: 255 };
   const variants = [
-    { name: "dim", body: 0.45, dim: 0.13, pale: 0.01, head: 0.42, glow: 0.1 },
-    { name: "normal", body: 0.82, dim: 0.24, pale: 0.04, head: 0.62, glow: 0.18 },
-    { name: "pale", body: 0.98, dim: 0.34, pale: 0.24, head: 0.8, glow: 0.24 },
-    { name: "accent", body: 1.22, dim: 0.44, pale: 0.16, head: 0.94, glow: 0.32 },
-    { name: "negative", body: 0.32, dim: 0.09, pale: 0, head: 0.28, glow: 0.05 }
+    { name: "dim", body: 0.42, dim: 0.12, pale: 0.01, signal: 0.04, brightSignal: 0.38, glow: 0.1 },
+    { name: "normal", body: 0.76, dim: 0.22, pale: 0.03, signal: 0.08, brightSignal: 0.5, glow: 0.18 },
+    { name: "pale", body: 0.92, dim: 0.3, pale: 0.12, signal: 0.28, brightSignal: 0.62, glow: 0.25 },
+    { name: "accent", body: 1.04, dim: 0.36, pale: 0.08, signal: 0.68, brightSignal: 0.78, glow: 0.36 },
+    { name: "negative", body: 0.28, dim: 0.08, pale: 0, signal: 0, brightSignal: 0.22, glow: 0.05 }
   ];
 
   palettes = variants.map((variant) => {
     const pale = variant.pale * colorVariance;
-    const body = mixColor(scaleColor(settings.color, variant.body * brightness), white, pale);
+    const bodyBase = mixColor(scaleColor(settings.color, variant.body * brightness), white, pale);
+    const bodySignal = vividMatrixSignal(settings.color, 0.76, 1.12, 0.94);
+    const body = mixColor(bodyBase, bodySignal, variant.signal);
     const dim = mixColor(scaleColor(settings.color, variant.dim * brightness), white, pale * 0.35);
-    const bright = mixColor(scaleColor(settings.color, variant.body * brightness), white, Math.max(variant.head * 0.06, 0.045));
-    const head = mixColor(scaleColor(settings.color, 0.94 * brightness), white, 0.08);
+    const brightSignal = vividMatrixSignal(settings.color, 0.86, 1.1, 0.99);
+    const headSignal = vividMatrixSignal(settings.color, 0.66, 1.14, 0.92);
+    const bright = mixColor(scaleColor(settings.color, variant.body * brightness), brightSignal, variant.brightSignal);
+    const head = mixColor(scaleColor(settings.color, 0.92 * brightness), headSignal, 0.82);
     const glowBase = mixColor(head, settings.color, 0.24);
 
     return {
@@ -1679,7 +1691,7 @@ function drawGlyph(cell, column, rowIndex) {
 
   if (cell.head) {
     styleName = "head";
-    alpha *= 1.18 + 0.08 * glowIntensity;
+    alpha *= 1.38 + 0.12 * glowIntensity;
   } else if (cell.negative || alpha < 0.2) {
     styleName = "dim";
     alpha *= cell.negative ? 0.62 : 0.82;
@@ -1699,8 +1711,8 @@ function drawGlyph(cell, column, rowIndex) {
   let visibility = rowVisibility(rowIndex);
   if (!cell.negative && (cell.head || cell.glowHead)) {
     const rowUnit = rowIndex / Math.max(1, rows - 1);
-    const upperFloor = cell.head ? 0.74 : 0.66;
-    const lowerFloor = cell.head ? 0.5 : 0.36;
+    const upperFloor = cell.head ? 0.88 : 0.66;
+    const lowerFloor = cell.head ? 0.64 : 0.36;
     const floorMix = clamp((0.68 - rowUnit) / 0.2, 0, 1);
     visibility = Math.max(visibility, lowerFloor * (1 - floorMix) + upperFloor * floorMix);
   }

@@ -8,8 +8,16 @@ const DPR_LIMIT = 2;
 const BASE_COLOR = { r: 54, g: 217, b: 105 };
 const PATTERN_SEED = 0x4d415452;
 const DEBUG_STATE_ENABLED = new URLSearchParams(window.location.search).has("debugstate");
-const CHAR_POOL = "012345789+*<>:|\\";
+const CHAR_POOL = `"*+012345789:<>z|¦©╌▪アウエオカキケコサシスセソタツテナニヌネハヒホマミムメモヤヨラリワー꞊\uE937`;
 const GLYPH_MEASURE_POOL = CHAR_POOL;
+
+const REFERENCE_ROW_PROFILE = {
+  active: [0.464, 0.464, 0.536, 0.507, 0.421, 0.464, 0.443, 0.45, 0.514, 0.457, 0.493, 0.471, 0.493, 0.471, 0.5, 0.471, 0.5, 0.493, 0.436, 0.429, 0.4, 0.429, 0.421, 0.386, 0.35, 0.371, 0.379, 0.329, 0.35, 0.336, 0.336, 0.35, 0.357, 0.314, 0.329, 0.279, 0.257, 0.257, 0.221, 0.2, 0.2, 0.207, 0.214, 0.221, 0.214, 0.186, 0.157, 0.207, 0.2, 0.193, 0.186, 0.15, 0.107, 0.05, 0.079, 0.071, 0.057, 0.036, 0.021],
+  bright: [0.938, 0.831, 0.76, 0.817, 0.78, 0.785, 0.806, 0.794, 0.667, 0.641, 0.812, 0.758, 0.826, 0.803, 0.786, 0.773, 0.729, 0.725, 0.721, 0.8, 0.804, 0.767, 0.847, 0.833, 0.837, 0.827, 0.792, 0.891, 0.898, 0.83, 0.83, 0.816, 0.8, 0.795, 0.783, 0.718, 0.778, 0.694, 0.839, 0.857, 0.893, 0.828, 0.8, 0.806, 0.8, 0.923, 0.955, 0.621, 0.714, 0.815, 0.731, 0.714, 0.867, 0.857, 0.636, 0.9, 0.625, 0.6, 0],
+  mean: [159.315, 152.069, 146.505, 150.868, 144.878, 144.559, 149.753, 145.853, 132.962, 130.798, 147.12, 141.361, 141.319, 146.213, 145.43, 142.614, 139.137, 138.165, 142.957, 143.106, 142.568, 139.477, 147.161, 147.757, 147.745, 147.766, 145.848, 153.237, 152.096, 149.033, 150.737, 147.003, 145.323, 141.381, 142.566, 139.692, 142.111, 134.225, 152.837, 149.109, 145.546, 144.841, 143.51, 141.327, 147.757, 153.14, 154.868, 123.971, 132.23, 145.189, 141.798, 134.405, 153.627, 132.764, 137.923, 161.675, 133.806, 136.93, 59.217]
+};
+const REFERENCE_ACTIVE_MEAN = REFERENCE_ROW_PROFILE.active.reduce((sum, value) => sum + value, 0) / REFERENCE_ROW_PROFILE.active.length;
+const REFERENCE_SCORE_MEAN = REFERENCE_ROW_PROFILE.mean.reduce((sum, value) => sum + value, 0) / REFERENCE_ROW_PROFILE.mean.length;
 
 const DEFAULT_PRESET = {
   name: "Default preset",
@@ -267,6 +275,39 @@ function seededRange(seed, min, max) {
   return min + hashUnit(seed) * (max - min);
 }
 
+function sampleReferenceRow(values, rowIndex) {
+  if (values.length === 0) {
+    return 0;
+  }
+
+  if (rows <= 1) {
+    return values[0];
+  }
+
+  const position = clamp(rowIndex / (rows - 1), 0, 1) * (values.length - 1);
+  const lower = Math.floor(position);
+  const upper = Math.min(values.length - 1, lower + 1);
+  const mix = position - lower;
+  return values[lower] * (1 - mix) + values[upper] * mix;
+}
+
+function referenceActiveFactor(rowIndex) {
+  return clamp(sampleReferenceRow(REFERENCE_ROW_PROFILE.active, rowIndex) / REFERENCE_ACTIVE_MEAN, 0.06, 1.55);
+}
+
+function referenceBrightnessFactor(rowIndex) {
+  return clamp(sampleReferenceRow(REFERENCE_ROW_PROFILE.mean, rowIndex) / REFERENCE_SCORE_MEAN, 0.32, 1.24);
+}
+
+function referenceBrightChance(rowIndex, baseChance) {
+  const referenceBright = sampleReferenceRow(REFERENCE_ROW_PROFILE.bright, rowIndex);
+  return clamp(baseChance * (0.56 + referenceBright * 0.95), 0.015, 0.96);
+}
+
+function referenceGlyphDensity(rowIndex, density) {
+  return clamp(density * referenceActiveFactor(rowIndex), 0.04, 1);
+}
+
 function hashInt(value) {
   let n = value | 0;
   n = Math.imul(n ^ (n >>> 15), 2246822519);
@@ -505,7 +546,7 @@ function streamLength(stream, seed) {
 
 function rowVisibility(rowIndex) {
   if (!DEFAULT_PRESET.fadeBottom) {
-    return 1;
+    return referenceBrightnessFactor(rowIndex);
   }
 
   const fade = DEFAULT_PRESET.bottomFade;
@@ -514,25 +555,11 @@ function rowVisibility(rowIndex) {
   const falloff = clamp((t - fade.start) / (1 - fade.start), 0, 1);
   const base = fade.baseVisibility - Math.pow(falloff, fade.power) * fade.amount;
   const entryBoost = 1 + clamp((boost.portion - t) / boost.portion, 0, 1) * boost.amount;
-  return clamp(base * entryBoost, fade.minVisibility, fade.maxVisibility);
+  return clamp(base * entryBoost * referenceBrightnessFactor(rowIndex), fade.minVisibility, fade.maxVisibility);
 }
 
 function ambientRegionChance(rowIndex) {
-  const ambient = DEFAULT_PRESET.ambientGrid;
-  const t = rowIndex / Math.max(1, rows - 1);
-
-  if (t < 1 / 3) {
-    const local = t * 3;
-    return ambient.topChance * (1 - local) + ambient.midChance * local;
-  }
-
-  if (t < 2 / 3) {
-    const local = (t - 1 / 3) * 3;
-    return ambient.midChance * (1 - local) + ambient.bottomChance * local;
-  }
-
-  const local = (t - 2 / 3) * 3;
-  return ambient.bottomChance * (1 - local) + ambient.bottomChance * 0.58 * local;
+  return clamp(sampleReferenceRow(REFERENCE_ROW_PROFILE.active, rowIndex) * 0.38, 0.006, 0.24);
 }
 
 function ambientColumnMultiplier(column) {
@@ -673,7 +700,7 @@ function maybeColumnizeSingleton(column, rowIndex, seed, options = {}) {
   return Boolean(placeAmbientCell(column, neighborRow, hashInt(seed ^ Math.imul(neighborRow + 1, 0xa531)), {
     bright: Object.prototype.hasOwnProperty.call(options, "bright")
       ? options.bright
-      : hashUnit(seed ^ 0x77ac) < ambient.brightChance,
+      : hashUnit(seed ^ 0x77ac) < referenceBrightChance(neighborRow, ambient.brightChance),
     lifeMin: options.lifeMin || ambient.smallColumnLifeMinTicks,
     lifeMax: options.lifeMax || ambient.smallColumnLifeMaxTicks
   }));
@@ -705,7 +732,7 @@ function bridgeSingleCellGaps(column) {
     }
 
     placeAmbientCell(column, rowIndex, seed, {
-      bright: hashUnit(seed ^ 0x77ac) < ambient.brightChance,
+      bright: hashUnit(seed ^ 0x77ac) < referenceBrightChance(rowIndex, ambient.brightChance),
       lifeMin: ambient.lifeMinTicks,
       lifeMax: ambient.lifeMaxTicks
     });
@@ -743,23 +770,23 @@ function shapeColumnSingletons(column) {
   bridgeSingleCellGaps(column);
 }
 
-function ambientAlpha(seed, column, bright) {
+function ambientAlpha(seed, column, rowIndex, bright) {
   const ambient = DEFAULT_PRESET.ambientGrid;
   const min = bright ? ambient.brightAlphaMin : ambient.bodyAlphaMin;
   const max = bright ? ambient.brightAlphaMax : ambient.bodyAlphaMax;
-  return seededRange(seed ^ 0x5a1fc9, min, max) * column.intensity;
+  return seededRange(seed ^ 0x5a1fc9, min, max) * column.intensity * referenceBrightnessFactor(rowIndex);
 }
 
 function createAmbientCell(column, rowIndex, seed, options = {}) {
   const ambient = DEFAULT_PRESET.ambientGrid;
   const bright = Object.prototype.hasOwnProperty.call(options, "bright")
     ? options.bright
-    : hashUnit(seed ^ 0x296d) < ambient.brightChance;
+    : hashUnit(seed ^ 0x296d) < referenceBrightChance(rowIndex, ambient.brightChance);
   const lifeMin = options.lifeMin || ambient.lifeMinTicks;
   const lifeMax = options.lifeMax || ambient.lifeMaxTicks;
   const charSalt = hashInt(seed ^ Math.imul(rowIndex + 1, 0x85ebca6b));
   const char = chooseStableChar(column.seed, column.index, rowIndex, charSalt);
-  const baseAlpha = ambientAlpha(seed, column, bright);
+  const baseAlpha = ambientAlpha(seed, column, rowIndex, bright);
 
   return {
     char,
@@ -835,7 +862,7 @@ function seedTopCapCells(column) {
   const seed = hashInt(column.seed ^ 0x7bb51);
   if (!column.cells[0]) {
     column.cells[0] = createAmbientCell(column, 0, seed, {
-      bright: hashUnit(seed ^ 0x3c1d) < ambient.brightChance,
+      bright: hashUnit(seed ^ 0x3c1d) < referenceBrightChance(0, ambient.brightChance),
       lifeMin: ambient.lifeMinTicks,
       lifeMax: ambient.lifeMaxTicks
     });
@@ -843,7 +870,7 @@ function seedTopCapCells(column) {
 
   if (rows > 1 && !column.cells[1] && hashUnit(seed ^ 0x924d) < ambient.topCapSecondRowChance) {
     column.cells[1] = createAmbientCell(column, 1, hashInt(seed ^ 0x4f91), {
-      bright: hashUnit(seed ^ 0x51db) < ambient.brightChance,
+      bright: hashUnit(seed ^ 0x51db) < referenceBrightChance(1, ambient.brightChance),
       lifeMin: ambient.lifeMinTicks,
       lifeMax: ambient.lifeMaxTicks
     });
@@ -860,7 +887,7 @@ function updateAmbientCell(column, rowIndex, cell) {
       const dimSeed = hashInt(cell.salt ^ Math.imul(logicalTick + rowIndex + 3, 1597334677));
       cell.demotedBeforeClear = true;
       cell.glowHead = false;
-      cell.baseAlpha = ambientAlpha(dimSeed, column, false);
+      cell.baseAlpha = ambientAlpha(dimSeed, column, rowIndex, false);
       cell.target = cell.baseAlpha;
       cell.alpha = cell.baseAlpha;
       cell.life = cell.age + Math.floor(seededRange(dimSeed ^ 0x38d1, 80, 180));
@@ -879,8 +906,8 @@ function updateAmbientCell(column, rowIndex, cell) {
   }
 
   if (hashUnit(tickSeed ^ 0x81e3) < ambient.brightFlipChance) {
-    cell.glowHead = hashUnit(tickSeed ^ 0xc2d1) < ambient.brightChance;
-    cell.baseAlpha = ambientAlpha(tickSeed, column, cell.glowHead);
+    cell.glowHead = hashUnit(tickSeed ^ 0xc2d1) < referenceBrightChance(rowIndex, ambient.brightChance);
+    cell.baseAlpha = ambientAlpha(tickSeed, column, rowIndex, cell.glowHead);
   }
 
   cell.target = cell.baseAlpha;
@@ -913,7 +940,7 @@ function maybeReplenishAmbientCell(column, rowIndex) {
 }
 
 function createCell(column, stream, rowIndex, age = 0, forceVisible = false) {
-  const visible = forceVisible || hashUnit(stream.seed ^ Math.imul(rowIndex + 8191, 1103515245)) <= stream.density;
+  const visible = forceVisible || hashUnit(stream.seed ^ Math.imul(rowIndex + 8191, 1103515245)) <= referenceGlyphDensity(rowIndex, stream.density);
 
   if (!visible) {
     return null;
@@ -926,7 +953,7 @@ function createCell(column, stream, rowIndex, age = 0, forceVisible = false) {
   const alphaBase = Number.isFinite(stream.alphaBase)
     ? stream.alphaBase
     : alphaPreset.base + alphaUnit * alphaPreset.variance;
-  const glowHead = !stream.negative && hashUnit(stream.seed ^ Math.imul(rowIndex + 17, 1597334677)) < stream.headChance;
+  const glowHead = !stream.negative && hashUnit(stream.seed ^ Math.imul(rowIndex + 17, 1597334677)) < referenceBrightChance(rowIndex, stream.headChance);
 
   return {
     char: stableChar,
@@ -936,7 +963,7 @@ function createCell(column, stream, rowIndex, age = 0, forceVisible = false) {
     life: stream.cellLifeTicks || Math.max(stream.length + 1, Math.round(stream.length * DEFAULT_PRESET.cellLifetimeScale)),
     alpha: 0,
     target: 0,
-    baseAlpha: alphaBase * column.intensity * stream.toneMultiplier,
+    baseAlpha: alphaBase * column.intensity * stream.toneMultiplier * referenceBrightnessFactor(rowIndex),
     paletteName: stream.paletteName,
     rotator,
     head: false,
@@ -1289,7 +1316,7 @@ function updateCell(column, rowIndex) {
       cell.headStreamId = null;
       cell.headPreviousGlowHead = false;
       cell.glowHead = false;
-      cell.baseAlpha = seededRange(dimSeed ^ 0x4a91, 0.34, 0.62) * column.intensity;
+      cell.baseAlpha = seededRange(dimSeed ^ 0x4a91, 0.34, 0.62) * column.intensity * referenceBrightnessFactor(rowIndex);
       cell.target = cell.baseAlpha;
       cell.alpha = cell.baseAlpha;
       cell.life = cell.age + Math.floor(seededRange(dimSeed ^ 0x2c5f, 70, 160));
@@ -1335,7 +1362,7 @@ function releaseAmbientSingles() {
       }
 
       placeAmbientCell(column, row, seed, {
-        bright: hashUnit(seed ^ 0xc31a) < ambient.singleBrightChance,
+        bright: hashUnit(seed ^ 0xc31a) < referenceBrightChance(row, ambient.singleBrightChance),
         lifeMin: ambient.singleLifeMinTicks,
         lifeMax: ambient.singleLifeMaxTicks
       });
@@ -1375,11 +1402,11 @@ function releaseAmbientSmallColumns() {
       continue;
     }
 
-    const brightHead = hashUnit(seed ^ 0x77ac) < ambient.singleBrightChance;
+    const brightHead = hashUnit(seed ^ 0x77ac) < referenceBrightChance(startRow, ambient.singleBrightChance);
     for (let offset = 0; offset < length; offset += 1) {
       const rowIndex = startRow + offset;
       placeAmbientCell(column, rowIndex, hashInt(seed ^ Math.imul(offset + 1, 0xa531)), {
-        bright: offset === 0 ? brightHead : hashUnit(seed ^ Math.imul(offset + 3, 0x9e37)) < ambient.brightChance,
+        bright: offset === 0 ? brightHead : hashUnit(seed ^ Math.imul(offset + 3, 0x9e37)) < referenceBrightChance(rowIndex, ambient.brightChance),
         lifeMin: ambient.smallColumnLifeMinTicks,
         lifeMax: ambient.smallColumnLifeMaxTicks
       });
@@ -1485,7 +1512,7 @@ function releaseStandaloneRotators() {
     const groupSize = sizeRoll < rotators.tripleChance ? 3 : sizeRoll < rotators.tripleChance + rotators.pairChance ? 2 : 1;
     const startRow = Math.min(row, rows - groupSize);
     const life = Math.floor(seededRange(seed ^ 0x44f1, rotators.minLifeTicks, rotators.maxLifeTicks));
-    const baseAlpha = seededRange(seed ^ 0x9e3d, rotators.minAlpha, rotators.maxAlpha) * column.intensity;
+    const baseAlpha = seededRange(seed ^ 0x9e3d, rotators.minAlpha, rotators.maxAlpha) * column.intensity * referenceBrightnessFactor(startRow);
     const rotates = hashUnit(seed ^ 0x71dd) < rotators.rotatingChance;
 
     for (let offset = 0; offset < groupSize; offset += 1) {
@@ -1697,7 +1724,7 @@ function drawGlyph(cell, column, rowIndex) {
     alpha *= cell.negative ? 0.62 : 0.82;
   } else if (cell.rotator && cell.glowHead) {
     styleName = "bright";
-    alpha *= 0.92 + 0.04 * glowIntensity;
+    alpha *= 1.04 + 0.08 * glowIntensity;
   }
 
   if (alpha <= 0.012) {
@@ -1711,8 +1738,8 @@ function drawGlyph(cell, column, rowIndex) {
   let visibility = rowVisibility(rowIndex);
   if (!cell.negative && (cell.head || cell.glowHead)) {
     const rowUnit = rowIndex / Math.max(1, rows - 1);
-    const upperFloor = cell.head ? 0.88 : 0.66;
-    const lowerFloor = cell.head ? 0.64 : 0.36;
+    const upperFloor = cell.head ? 0.88 : 0.74;
+    const lowerFloor = cell.head ? 0.64 : 0.5;
     const floorMix = clamp((0.68 - rowUnit) / 0.2, 0, 1);
     visibility = Math.max(visibility, lowerFloor * (1 - floorMix) + upperFloor * floorMix);
   }

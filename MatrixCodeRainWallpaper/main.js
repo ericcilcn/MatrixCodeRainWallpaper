@@ -103,7 +103,8 @@ const DEFAULT_PRESET = {
     columnGapPx: 1,
     rowGapPx: 1,
     fontInsetPx: 1,
-    fontOversizePx: 4
+    fontOversizePx: 4,
+    glyphAspectRatio: 0.8
   },
   rotatingCells: {
     minRotateTicks: 3,
@@ -1942,8 +1943,10 @@ function resize() {
     Math.max(1, cellWidth - layout.columnGapPx)
   );
   const glyphBounds = measureMedianGlyphBounds(fontSize);
-  glyphScaleX = clamp(((cellWidth - layout.columnGapPx - layout.fontInsetPx) * glyphAdjust) / glyphBounds.width, 0.72, 1.35);
   glyphScaleY = clamp(((cellHeight - layout.rowGapPx - layout.fontInsetPx) * glyphAdjust) / glyphBounds.height, 0.72, 1.35);
+  const fittedGlyphScaleX = ((cellWidth - layout.columnGapPx - layout.fontInsetPx) * glyphAdjust) / glyphBounds.width;
+  const aspectGlyphScaleX = (glyphScaleY * (layout.glyphAspectRatio || 0.8) * glyphBounds.height) / glyphBounds.width;
+  glyphScaleX = clamp(Math.min(fittedGlyphScaleX, aspectGlyphScaleX), 0.72, 1.35);
   gridColumns = targetColumns;
 
   canvas.width = Math.ceil(width * dpr);

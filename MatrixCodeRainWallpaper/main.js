@@ -379,17 +379,19 @@ function buildPalettes() {
   const white = { r: 255, g: 255, b: 255 };
   const whiteGreenHead = { r: 252, g: 255, b: 247 };
   const variants = [
-    { name: "dim", body: 0.94, pale: 0.08, signal: 0.42, brightSignal: 0.76, brightWhite: 0.38, glow: 0.24 },
-    { name: "normal", body: 1, pale: 0.1, signal: 0.48, brightSignal: 0.84, brightWhite: 0.46, glow: 0.32 },
-    { name: "pale", body: 1.06, pale: 0.2, signal: 0.56, brightSignal: 0.9, brightWhite: 0.62, glow: 0.42 },
-    { name: "accent", body: 1.1, pale: 0.24, signal: 0.66, brightSignal: 0.98, brightWhite: 0.82, glow: 0.6 },
-    { name: "negative", body: 0.94, pale: 0.08, signal: 0.42, brightSignal: 0.76, brightWhite: 0.38, glow: 0.24 }
+    { name: "dim", body: 0.94, pale: 0.08, signal: 0.42, bodyWhite: 0, brightSignal: 0.76, brightWhite: 0.38, glow: 0.24 },
+    { name: "normal", body: 1, pale: 0.1, signal: 0.48, bodyWhite: 0, brightSignal: 0.84, brightWhite: 0.46, glow: 0.32 },
+    { name: "pale", body: 1.06, pale: 0.2, signal: 0.56, bodyWhite: 0.34, brightSignal: 0.9, brightWhite: 0.62, glow: 0.42 },
+    { name: "accent", body: 1.1, pale: 0.24, signal: 0.66, bodyWhite: 0.58, brightSignal: 0.98, brightWhite: 0.82, glow: 0.6 },
+    { name: "negative", body: 0.94, pale: 0.08, signal: 0.42, bodyWhite: 0, brightSignal: 0.76, brightWhite: 0.38, glow: 0.24 }
   ];
 
   palettes = variants.map((variant) => {
     const pale = variant.pale * colorVariance;
     const bodyBase = mixColor(scaleColor(settings.color, variant.body * brightness), white, pale);
-    const bodySignal = vividMatrixSignal(settings.color, 0.92, 1.16, 1.04);
+    const bodySignal = variant.bodyWhite > 0
+      ? mixColor(vividMatrixSignal(settings.color, 1.4, 1.2, 1.55), white, variant.bodyWhite)
+      : vividMatrixSignal(settings.color, 0.92, 1.16, 1.04);
     const body = mixColor(bodyBase, bodySignal, variant.signal);
     const dim = mixColor(scaleColor(body, 0.68), bodySignal, 0.28);
     const brightSignal = vividMatrixSignal(settings.color, 1.45, 1.22, 1.55);

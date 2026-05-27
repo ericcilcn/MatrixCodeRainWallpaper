@@ -93,7 +93,7 @@ const DEFAULT_PRESET = {
     referenceHeight: 2160,
     columnPitchPx: 28,
     rowPitchPx: 37,
-    glyphTargetWidthPx: 19,
+    glyphTargetWidthPx: 18.5,
     glyphTargetHeightPx: 25,
     columnGapPx: 1,
     rowGapPx: 1,
@@ -1656,18 +1656,20 @@ function createGlyph(char, styleName, palette) {
   if (settings.glow) {
     if (styleName === "head") {
       sctx.shadowColor = palette.glow;
-      sctx.shadowBlur = fontSize * 0.28;
+      sctx.shadowBlur = fontSize * 0.22;
       sctx.fillStyle = palette.bright;
+      sctx.globalAlpha = 0.72;
       fillFittedText(sctx, char, centerX, centerY);
+      sctx.globalAlpha = 1;
     } else if (styleName === "bright") {
       sctx.shadowColor = palette.glow;
-      sctx.shadowBlur = fontSize * 0.1;
+      sctx.shadowBlur = fontSize * 0.075;
     } else if (styleName === "body") {
       sctx.shadowColor = palette.glow;
-      sctx.shadowBlur = fontSize * 0.025;
+      sctx.shadowBlur = fontSize * 0.015;
     } else {
       sctx.shadowColor = "rgba(0, 180, 70, 0.08)";
-      sctx.shadowBlur = fontSize * 0.015;
+      sctx.shadowBlur = fontSize * 0.01;
     }
   }
 

@@ -22,7 +22,8 @@ const REFERENCE_SCORE_MEAN = REFERENCE_ROW_PROFILE.mean.reduce((sum, value) => s
 const DEFAULT_PRESET = {
   name: "Default preset",
   source: "TheMatrixTrilogy.scr Basic code metrics / Code appearance",
-  speedRowsPerSecond: 44,
+  // Reference video motion: about 3-3.5 fixed grid rows per 6 frames at 60fps.
+  speedRowsPerSecond: 34,
   releaseEveryTicks: 360,
   maxReleaseTracers: 1,
   splashEveryReleases: 0,
@@ -33,10 +34,10 @@ const DEFAULT_PRESET = {
   negativeRotatorVariance: 0,
   streamLength: {
     longChance: 48,
-    shortMinRows: 0.38,
-    shortMaxRows: 0.72,
-    longMinRows: 0.78,
-    longMaxRows: 1.45
+    shortMinRows: 0.34,
+    shortMaxRows: 0.65,
+    longMinRows: 0.7,
+    longMaxRows: 1.3
   },
   cellLifetimeScale: 1.65,
   positiveDensity: 74,
@@ -133,9 +134,9 @@ const DEFAULT_PRESET = {
     quietColumnChance: 0.24,
     quietColumnMultiplier: 0.04,
     runStartFactor: 0.24,
-    runContinueMin: 0.61,
-    runContinueByDensity: 0.1,
-    runContinueMax: 0.76,
+    runContinueMin: 0.58,
+    runContinueByDensity: 0.09,
+    runContinueMax: 0.72,
     singletonKeepChance: 0.18,
     singletonColumnizeChance: 0.36,
     bridgeSingleGapChance: 0.22,
@@ -222,7 +223,7 @@ const DEFAULT_PRESET = {
   },
   wallpaperProperties: {
     density: 62,
-    speed: 68,
+    speed: 55,
     brightness: 100,
     glyphscale: 100,
     glow: true
@@ -391,7 +392,7 @@ function buildPalettes() {
     const bodyBase = mixColor(scaleColor(settings.color, variant.body * brightness), white, pale);
     const bodySignal = variant.bodyWhite > 0
       ? mixColor(vividMatrixSignal(settings.color, 1.4, 1.2, 1.55), white, variant.bodyWhite)
-      : vividMatrixSignal(settings.color, 0.92, 1.16, 1.04);
+      : vividMatrixSignal(settings.color, 0.86, 1.08, 0.96);
     const body = mixColor(bodyBase, bodySignal, variant.signal);
     const dim = mixColor(scaleColor(body, 0.68), bodySignal, 0.28);
     const brightSignal = vividMatrixSignal(settings.color, 1.45, 1.22, 1.55);

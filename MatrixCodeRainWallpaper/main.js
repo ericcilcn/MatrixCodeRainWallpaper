@@ -60,12 +60,12 @@ const DEFAULT_PRESET = {
   colorVariance: 100,
   intensityVariance: 66,
   streamTone: {
-    dimChance: 0.18,
-    normalChance: 0.48,
-    paleChance: 0.22,
-    dimMultiplier: 0.9,
-    normalMultiplier: 1,
-    paleMultiplier: 1.14,
+    dimChance: 0.25,
+    normalChance: 0.35,
+    paleChance: 0.25,
+    dimMultiplier: 0.82,
+    normalMultiplier: 0.92,
+    paleMultiplier: 1.08,
     accentMultiplier: 1.62
   },
   positiveAlpha: {
@@ -94,6 +94,8 @@ const DEFAULT_PRESET = {
   layout: {
     referenceWidth: 3840,
     referenceHeight: 2160,
+    visibleColumns: 134,
+    visibleRows: 58,
     columnPitchPx: 28,
     rowPitchPx: 37,
     glyphTargetWidthPx: 18,
@@ -380,31 +382,55 @@ function chooseStableChar(seed, columnIndex, rowIndex, salt = 0) {
   return CHAR_POOL[mixed % CHAR_POOL.length];
 }
 
+function referenceToneColor(referenceColor, brightness) {
+  const baseColor = DEFAULT_PRESET.baseColor;
+  const tinted = {
+    r: referenceColor.r * (settings.color.r / baseColor.r),
+    g: referenceColor.g * (settings.color.g / baseColor.g),
+    b: referenceColor.b * (settings.color.b / baseColor.b)
+  };
+
+  return scaleColor(tinted, brightness);
+}
+
 function buildPalettes() {
   const brightness = clamp(settings.brightness / 72, 0.48, 1.38);
+  const referenceBrightness = clamp(settings.brightness / 100, 0.45, 1);
   const colorVariance = DEFAULT_PRESET.colorVariance / 100;
   const glowIntensity = DEFAULT_PRESET.glowingTracers.intensity / 100;
   const white = { r: 255, g: 255, b: 255 };
   const whiteGreenHead = { r: 252, g: 255, b: 247 };
   const variants = [
-    { name: "dim", body: 0.94, pale: 0.08, signal: 0.42, bodyWhite: 0, brightSignal: 0.76, brightWhite: 0.38, glow: 0.24 },
-    { name: "normal", body: 1, pale: 0.1, signal: 0.48, bodyWhite: 0, brightSignal: 0.84, brightWhite: 0.46, glow: 0.32 },
-    { name: "pale", body: 1.06, pale: 0.2, signal: 0.56, bodyWhite: 0.34, brightSignal: 0.9, brightWhite: 0.62, glow: 0.42 },
+    { name: "dim", bodyColor: { r: 25, g: 121, b: 54 }, brightColor: { r: 64, g: 182, b: 98 }, glow: 0.18 },
+    { name: "normal", bodyColor: { r: 34, g: 176, b: 75 }, brightColor: { r: 92, g: 220, b: 130 }, glow: 0.26 },
+    { name: "pale", bodyColor: { r: 61, g: 224, b: 110 }, brightColor: { r: 145, g: 244, b: 176 }, glow: 0.38 },
     { name: "accent", body: 1.1, pale: 0.24, signal: 0.66, bodyWhite: 0.58, brightSignal: 0.98, brightWhite: 0.82, glow: 0.6 },
-    { name: "negative", body: 0.94, pale: 0.08, signal: 0.42, bodyWhite: 0, brightSignal: 0.76, brightWhite: 0.38, glow: 0.24 }
+    { name: "negative", bodyColor: { r: 25, g: 121, b: 54 }, brightColor: { r: 64, g: 182, b: 98 }, glow: 0.18 }
   ];
 
   palettes = variants.map((variant) => {
-    const pale = variant.pale * colorVariance;
-    const bodyBase = mixColor(scaleColor(settings.color, variant.body * brightness), white, pale);
-    const bodySignal = variant.bodyWhite > 0
-      ? mixColor(vividMatrixSignal(settings.color, 1.4, 1.2, 1.55), white, variant.bodyWhite)
-      : vividMatrixSignal(settings.color, 0.86, 1.08, 0.96);
-    const body = mixColor(bodyBase, bodySignal, variant.signal);
-    const dim = mixColor(scaleColor(body, 0.68), bodySignal, 0.28);
-    const brightSignal = vividMatrixSignal(settings.color, 1.45, 1.22, 1.55);
-    const brightTarget = mixColor(brightSignal, white, variant.brightWhite);
-    const bright = mixColor(scaleColor(settings.color, variant.body * brightness), brightTarget, variant.brightSignal);
+    let body;
+    let bright;
+    let dimSignal;
+
+    if (variant.bodyColor) {
+      body = referenceToneColor(variant.bodyColor, referenceBrightness);
+      bright = referenceToneColor(variant.brightColor, referenceBrightness);
+      dimSignal = body;
+    } else {
+      const pale = variant.pale * colorVariance;
+      const bodyBase = mixColor(scaleColor(settings.color, variant.body * brightness), white, pale);
+      const bodySignal = variant.bodyWhite > 0
+        ? mixColor(vividMatrixSignal(settings.color, 1.4, 1.2, 1.55), white, variant.bodyWhite)
+        : vividMatrixSignal(settings.color, 0.86, 1.08, 0.96);
+      body = mixColor(bodyBase, bodySignal, variant.signal);
+      dimSignal = bodySignal;
+      const brightSignal = vividMatrixSignal(settings.color, 1.45, 1.22, 1.55);
+      const brightTarget = mixColor(brightSignal, white, variant.brightWhite);
+      bright = mixColor(scaleColor(settings.color, variant.body * brightness), brightTarget, variant.brightSignal);
+    }
+
+    const dim = mixColor(scaleColor(body, 0.68), dimSignal, 0.28);
     const head = mixColor(whiteGreenHead, settings.color, 0.012);
     const glowBase = mixColor(head, settings.color, 0.24);
 
@@ -423,9 +449,9 @@ function buildPalettes() {
 
 function paletteForColumn(seed) {
   const value = hashUnit(seed);
-  if (value < 0.36) return palettes[0];
-  if (value < 0.7) return palettes[1];
-  if (value < 0.9) return palettes[2];
+  if (value < 0.28) return palettes[0];
+  if (value < 0.56) return palettes[1];
+  if (value < 0.84) return palettes[2];
   return palettes[3];
 }
 
@@ -466,10 +492,6 @@ function rotateDelay(seed, rowIndex, preset = DEFAULT_PRESET.rotatingCells) {
 
 function tickRate() {
   return 24;
-}
-
-function referenceLayoutScale() {
-  return Math.max(0.42, (height / DEFAULT_PRESET.layout.referenceHeight) * (settings.glyphscale / 100));
 }
 
 function measureMaxGlyphWidth(size) {
@@ -1909,18 +1931,20 @@ function resize() {
   height = window.innerHeight;
   dpr = Math.min(window.devicePixelRatio || 1, DPR_LIMIT);
   const layout = DEFAULT_PRESET.layout;
-  const layoutScale = referenceLayoutScale();
-  cellHeight = Math.max(10, Math.round(layout.rowPitchPx * layoutScale));
-  cellWidth = Math.max(8, Math.round(layout.columnPitchPx * layoutScale));
-  rows = clamp(Math.ceil(height / cellHeight), 36, 96);
+  const targetRows = layout.visibleRows || Math.round(layout.referenceHeight / layout.rowPitchPx);
+  const targetColumns = layout.visibleColumns || Math.round(layout.referenceWidth / layout.columnPitchPx);
+  cellHeight = height / targetRows;
+  cellWidth = width / targetColumns;
+  rows = targetRows;
+  const glyphAdjust = settings.glyphscale / 100;
   fontSize = fitFontSizeForPitch(
-    clamp(Math.round(cellHeight - layout.rowGapPx - layout.fontInsetPx + layout.fontOversizePx), 9, 72),
+    clamp(Math.round((cellHeight - layout.rowGapPx - layout.fontInsetPx + layout.fontOversizePx) * glyphAdjust), 9, 72),
     Math.max(1, cellWidth - layout.columnGapPx)
   );
   const glyphBounds = measureMedianGlyphBounds(fontSize);
-  glyphScaleX = clamp((layout.glyphTargetWidthPx * layoutScale) / glyphBounds.width, 0.72, 1.35);
-  glyphScaleY = clamp((layout.glyphTargetHeightPx * layoutScale) / glyphBounds.height, 0.72, 1.35);
-  gridColumns = Math.ceil(width / cellWidth) + 2;
+  glyphScaleX = clamp(((cellWidth - layout.columnGapPx - layout.fontInsetPx) * glyphAdjust) / glyphBounds.width, 0.72, 1.35);
+  glyphScaleY = clamp(((cellHeight - layout.rowGapPx - layout.fontInsetPx) * glyphAdjust) / glyphBounds.height, 0.72, 1.35);
+  gridColumns = targetColumns;
 
   canvas.width = Math.ceil(width * dpr);
   canvas.height = Math.ceil(height * dpr);

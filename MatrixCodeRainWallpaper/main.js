@@ -94,20 +94,22 @@ const DEFAULT_PRESET = {
   layout: {
     referenceWidth: 3840,
     referenceHeight: 2160,
-    visibleColumns: 134,
-    visibleRows: 58,
-    columnPitchPx: 28,
-    rowPitchPx: 37,
+    columnPitchPx: 27.7,
+    rowPitchPx: 36.2,
     glyphTargetWidthPx: 18,
     glyphTargetHeightPx: 25,
     columnGapPx: 1,
     rowGapPx: 1,
     fontInsetPx: 1,
-    fontOversizePx: 4
+    fontOversizePx: 4,
+    glyphAspectScaleX: 1.28,
+    glyphAspectScaleY: 1.75,
+    glyphScaleMaxX: 1.75,
+    glyphScaleMaxY: 2.3
   },
   rotatingCells: {
-    minRotateTicks: 5,
-    maxRotateTicks: 12
+    minRotateTicks: 3,
+    maxRotateTicks: 8
   },
   topOrigin: {
     initialTopChance: 0.82,
@@ -197,7 +199,7 @@ const DEFAULT_PRESET = {
     minAlpha: 0.32,
     maxAlpha: 0.68,
     minRotateTicks: 3,
-    maxRotateTicks: 9
+    maxRotateTicks: 8
   },
   lowerFragments: {
     chancePerTick: 0.032,
@@ -217,8 +219,8 @@ const DEFAULT_PRESET = {
     maxAlpha: 0.76,
     minSpeedRowsPerSecond: 22,
     maxSpeedRowsPerSecond: 34,
-    minRotateTicks: 7,
-    maxRotateTicks: 18
+    minRotateTicks: 4,
+    maxRotateTicks: 10
   },
   columnActivity: {
     initialActiveChance: 0.03,
@@ -1931,8 +1933,9 @@ function resize() {
   height = window.innerHeight;
   dpr = Math.min(window.devicePixelRatio || 1, DPR_LIMIT);
   const layout = DEFAULT_PRESET.layout;
-  const targetRows = layout.visibleRows || Math.round(layout.referenceHeight / layout.rowPitchPx);
-  const targetColumns = layout.visibleColumns || Math.round(layout.referenceWidth / layout.columnPitchPx);
+  const referenceScale = Math.max(0.3, Math.min(width / layout.referenceWidth, height / layout.referenceHeight));
+  const targetRows = Math.max(1, Math.round(height / (layout.rowPitchPx * referenceScale)));
+  const targetColumns = Math.max(1, Math.round(width / (layout.columnPitchPx * referenceScale)));
   cellHeight = height / targetRows;
   cellWidth = width / targetColumns;
   rows = targetRows;
@@ -1942,8 +1945,16 @@ function resize() {
     Math.max(1, cellWidth - layout.columnGapPx)
   );
   const glyphBounds = measureMedianGlyphBounds(fontSize);
-  glyphScaleX = clamp(((cellWidth - layout.columnGapPx - layout.fontInsetPx) * glyphAdjust) / glyphBounds.width, 0.72, 1.35);
-  glyphScaleY = clamp(((cellHeight - layout.rowGapPx - layout.fontInsetPx) * glyphAdjust) / glyphBounds.height, 0.72, 1.35);
+  glyphScaleX = clamp(
+    (((cellWidth - layout.columnGapPx - layout.fontInsetPx) * glyphAdjust) / glyphBounds.width) * (layout.glyphAspectScaleX || 1),
+    0.72,
+    layout.glyphScaleMaxX || 1.35
+  );
+  glyphScaleY = clamp(
+    (((cellHeight - layout.rowGapPx - layout.fontInsetPx) * glyphAdjust) / glyphBounds.height) * (layout.glyphAspectScaleY || 1),
+    0.72,
+    layout.glyphScaleMaxY || 1.35
+  );
   gridColumns = targetColumns;
 
   canvas.width = Math.ceil(width * dpr);

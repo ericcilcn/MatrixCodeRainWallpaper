@@ -10,7 +10,10 @@ const GLYPH_EDGE_ALPHA = 0.72;
 const PATTERN_SEED = 0x4d415452;
 const DEBUG_STATE_ENABLED = new URLSearchParams(window.location.search).has("debugstate");
 const CHAR_POOL = `"*+012345789:<>z|¦©╌▪アウエオカキケコサシスセソタツテナニヌネハヒホマミムメモヤヨラリワー꞊\uE937`;
+const CHAR_LIST = Array.from(CHAR_POOL);
+const GLYPH_INDEX = new Map(CHAR_LIST.map((char, index) => [char, index]));
 const GLYPH_MEASURE_POOL = CHAR_POOL;
+const GLYPH_STYLES = ["dim", "body", "bright", "head"];
 
 const REFERENCE_ROW_PROFILE = {
   active: [0.464, 0.464, 0.536, 0.507, 0.421, 0.464, 0.443, 0.45, 0.514, 0.457, 0.493, 0.471, 0.493, 0.471, 0.5, 0.471, 0.5, 0.493, 0.436, 0.429, 0.4, 0.429, 0.421, 0.386, 0.35, 0.371, 0.379, 0.329, 0.35, 0.336, 0.336, 0.35, 0.357, 0.314, 0.329, 0.279, 0.257, 0.257, 0.221, 0.2, 0.2, 0.207, 0.214, 0.221, 0.214, 0.186, 0.157, 0.207, 0.2, 0.193, 0.186, 0.15, 0.107, 0.05, 0.079, 0.071, 0.057, 0.036, 0.021],
@@ -60,13 +63,13 @@ const DEFAULT_PRESET = {
   colorVariance: 100,
   intensityVariance: 66,
   streamTone: {
-    dimChance: 0.25,
-    normalChance: 0.35,
-    paleChance: 0.25,
-    dimMultiplier: 0.82,
-    normalMultiplier: 0.92,
-    paleMultiplier: 1.08,
-    accentMultiplier: 1.62
+    dimChance: 0.28,
+    normalChance: 0.42,
+    paleChance: 0.22,
+    dimMultiplier: 0.78,
+    normalMultiplier: 0.9,
+    paleMultiplier: 1.06,
+    accentMultiplier: 1.22
   },
   positiveAlpha: {
     base: 0.98,
@@ -78,7 +81,11 @@ const DEFAULT_PRESET = {
   },
   characterSize: 100,
   maxConcurrentStreamsPerColumn: 2,
-  initialWarmupSeconds: 8.5,
+  startup: {
+    prewarmSeconds: 12.5,
+    seedInitialBodies: false
+  },
+  initialWarmupSeconds: 12.5,
   bottomFade: {
     baseVisibility: 1,
     start: 0.27,
@@ -335,14 +342,6 @@ function scaleColor(color, multiplier) {
   };
 }
 
-function vividMatrixSignal(color, redFactor, greenFactor, blueFactor) {
-  return {
-    r: clamp(Math.round(color.r * redFactor), 0, 255),
-    g: clamp(Math.round(color.g * greenFactor), 0, 255),
-    b: clamp(Math.round(color.b * blueFactor), 0, 255)
-  };
-}
-
 function mixColor(a, b, amount) {
   const inverse = 1 - amount;
   return {
@@ -395,44 +394,22 @@ function referenceToneColor(referenceColor, brightness) {
 }
 
 function buildPalettes() {
-  const brightness = clamp(settings.brightness / 72, 0.48, 1.38);
   const referenceBrightness = clamp(settings.brightness / 100, 0.45, 1);
-  const colorVariance = DEFAULT_PRESET.colorVariance / 100;
   const glowIntensity = DEFAULT_PRESET.glowingTracers.intensity / 100;
-  const white = { r: 255, g: 255, b: 255 };
-  const whiteGreenHead = { r: 252, g: 255, b: 247 };
+  const whiteGreenHead = { r: 253, g: 255, b: 244 };
   const variants = [
-    { name: "dim", bodyColor: { r: 25, g: 121, b: 54 }, brightColor: { r: 64, g: 182, b: 98 }, glow: 0.18 },
-    { name: "normal", bodyColor: { r: 34, g: 176, b: 75 }, brightColor: { r: 92, g: 220, b: 130 }, glow: 0.26 },
-    { name: "pale", bodyColor: { r: 61, g: 224, b: 110 }, brightColor: { r: 145, g: 244, b: 176 }, glow: 0.38 },
-    { name: "accent", body: 1.1, pale: 0.24, signal: 0.66, bodyWhite: 0.58, brightSignal: 0.98, brightWhite: 0.82, glow: 0.6 },
-    { name: "negative", bodyColor: { r: 25, g: 121, b: 54 }, brightColor: { r: 64, g: 182, b: 98 }, glow: 0.18 }
+    { name: "dim", bodyColor: { r: 29, g: 138, b: 59 }, brightColor: { r: 64, g: 196, b: 100 }, glow: 0.18 },
+    { name: "normal", bodyColor: { r: 36, g: 176, b: 75 }, brightColor: { r: 96, g: 228, b: 132 }, glow: 0.28 },
+    { name: "pale", bodyColor: { r: 82, g: 226, b: 124 }, brightColor: { r: 156, g: 255, b: 186 }, glow: 0.42 },
+    { name: "accent", bodyColor: { r: 135, g: 255, b: 168 }, brightColor: { r: 210, g: 255, b: 220 }, glow: 0.64 },
+    { name: "negative", bodyColor: { r: 24, g: 112, b: 50 }, brightColor: { r: 50, g: 166, b: 85 }, glow: 0.14 }
   ];
 
   palettes = variants.map((variant) => {
-    let body;
-    let bright;
-    let dimSignal;
-
-    if (variant.bodyColor) {
-      body = referenceToneColor(variant.bodyColor, referenceBrightness);
-      bright = referenceToneColor(variant.brightColor, referenceBrightness);
-      dimSignal = body;
-    } else {
-      const pale = variant.pale * colorVariance;
-      const bodyBase = mixColor(scaleColor(settings.color, variant.body * brightness), white, pale);
-      const bodySignal = variant.bodyWhite > 0
-        ? mixColor(vividMatrixSignal(settings.color, 1.4, 1.2, 1.55), white, variant.bodyWhite)
-        : vividMatrixSignal(settings.color, 0.86, 1.08, 0.96);
-      body = mixColor(bodyBase, bodySignal, variant.signal);
-      dimSignal = bodySignal;
-      const brightSignal = vividMatrixSignal(settings.color, 1.45, 1.22, 1.55);
-      const brightTarget = mixColor(brightSignal, white, variant.brightWhite);
-      bright = mixColor(scaleColor(settings.color, variant.body * brightness), brightTarget, variant.brightSignal);
-    }
-
-    const dim = mixColor(scaleColor(body, 0.68), dimSignal, 0.28);
-    const head = mixColor(whiteGreenHead, settings.color, 0.012);
+    const body = referenceToneColor(variant.bodyColor, referenceBrightness);
+    const bright = referenceToneColor(variant.brightColor, referenceBrightness);
+    const dim = referenceToneColor(scaleColor(variant.bodyColor, 0.58), referenceBrightness);
+    const head = mixColor(whiteGreenHead, settings.color, 0.008);
     const glowBase = mixColor(head, settings.color, 0.24);
 
     return {
@@ -485,6 +462,33 @@ function toneForSeed(seed) {
     paletteName: "accent",
     multiplier: tone.accentMultiplier
   };
+}
+
+function applyColumnTone(column, seed, updateExistingCells = false) {
+  const tone = toneForSeed(seed);
+  const previousIntensity = Number.isFinite(column.intensity) ? column.intensity : 1;
+  const toneJitter = seededRange(seed ^ 0x99103, 0.96, 1.06);
+  const nextIntensity = clamp(tone.multiplier * toneJitter, 0.56, 1.34);
+
+  column.paletteName = tone.paletteName;
+  column.palette = paletteByName(tone.paletteName) || paletteForColumn(seed);
+  column.intensity = nextIntensity;
+
+  if (!updateExistingCells || previousIntensity <= 0) {
+    return;
+  }
+
+  const ratio = nextIntensity / previousIntensity;
+  for (const cell of column.cells) {
+    if (!cell || cell.negative) {
+      continue;
+    }
+
+    cell.paletteName = tone.paletteName;
+    cell.baseAlpha = clamp(cell.baseAlpha * ratio, 0.08, 2.2);
+    cell.target = cell.baseAlpha;
+    cell.alpha = cell.baseAlpha;
+  }
 }
 
 function rotateDelay(seed, rowIndex, preset = DEFAULT_PRESET.rotatingCells) {
@@ -1084,18 +1088,17 @@ function createCell(column, stream, rowIndex, age = 0, forceVisible = false) {
 
 function writeCell(column, stream, rowIndex, age = 0, options = {}) {
   if (rowIndex < 0 || rowIndex >= rows) {
-    return;
+    return null;
   }
 
   if (stream.negative) {
     column.cells[rowIndex] = null;
-    return;
+    return null;
   }
 
   const next = createCell(column, stream, rowIndex, age, options.forceVisible);
   if (!next) {
-    const current = column.cells[rowIndex];
-    if (current && current.transient && !current.head) {
+    if (options.coverExisting !== false) {
       column.cells[rowIndex] = null;
     }
     return null;
@@ -1104,7 +1107,7 @@ function writeCell(column, stream, rowIndex, age = 0, options = {}) {
   next.target = next.baseAlpha;
   next.alpha = next.target;
   next.head = Boolean(options.head);
-  next.headPreviousGlowHead = false;
+  next.headPreviousGlowHead = next.glowHead;
   next.headStreamId = options.head ? stream.id : null;
   next.glowHead = next.glowHead || next.head;
   column.cells[rowIndex] = next;
@@ -1132,7 +1135,6 @@ function createLowerFragmentStream(column, seed, startRow, length) {
   const ordinal = column.nextStreamOrdinal;
   column.nextStreamOrdinal += 1;
   const endRow = Math.min(rows - 1, startRow + length - 1);
-  const tone = toneForSeed(seed ^ 0x19a37);
 
   return {
     id: `lower:${column.index}:${ordinal}:${seed}`,
@@ -1150,8 +1152,8 @@ function createLowerFragmentStream(column, seed, startRow, length) {
     headChance: fragments.brightCellChance,
     brightHead: hashUnit(seed ^ 0xd82f) < fragments.brightHeadChance,
     cooldownTicks: 0,
-    paletteName: tone.paletteName,
-    toneMultiplier: tone.multiplier,
+    paletteName: column.paletteName,
+    toneMultiplier: 1,
     speed: seededRange(seed ^ 0x53fa, fragments.minSpeedRowsPerSecond, fragments.maxSpeedRowsPerSecond),
     endRow,
     finished: false,
@@ -1163,14 +1165,13 @@ function createLowerFragmentStream(column, seed, startRow, length) {
 
 function resetStream(stream, column, initial = false) {
   const cycleSeed = hashInt(stream.seed ^ Math.imul(logicalTick + 1, 2246822519));
-  const tone = toneForSeed(cycleSeed ^ 0x5ed91);
   demoteStreamHead(column, stream);
   stream.finished = false;
   stream.cooldownTicks = 0;
   stream.progress = hashUnit(cycleSeed ^ 0x423f) * 0.9;
   stream.patternSalt = DEFAULT_PRESET.samePattern ? stream.seed : cycleSeed;
-  stream.paletteName = tone.paletteName;
-  stream.toneMultiplier = tone.multiplier;
+  stream.paletteName = column.paletteName;
+  stream.toneMultiplier = 1;
   stream.length = streamLength(stream, cycleSeed);
   if (stream.mode === "fragment") {
     stream.length = Math.max(6, Math.floor(stream.length * seededRange(cycleSeed ^ 0xb38d, 0.48, 0.78)));
@@ -1215,7 +1216,7 @@ function resetStream(stream, column, initial = false) {
     stream.headRow = Math.floor(seededRange(cycleSeed ^ 0x5d7f, origin.resetStartMin, origin.resetStartMax));
   }
 
-  if (initial) {
+  if (initial && DEFAULT_PRESET.startup.seedInitialBodies) {
     for (let offset = 0; offset < stream.length; offset += 1) {
       const written = writeCell(column, stream, stream.headRow - offset, offset, {
         forceVisible: offset === 0,
@@ -1262,19 +1263,16 @@ function createStream(column, ordinal, initial, mode = "normal") {
 }
 
 function makeColumn(index, seed) {
-  const tone = toneForSeed(seed);
-  const profile = paletteByName(tone.paletteName) || paletteForColumn(seed);
   const streamCount = desiredStreamCount(seed);
   const active = hashUnit(seed ^ 0x4d23a) < DEFAULT_PRESET.columnActivity.initialActiveChance;
   const activitySeed = hashInt(seed ^ 0x359ac);
-  const intensity = clamp(tone.multiplier * seededRange(seed ^ 0x99103, 0.94, 1.08), 0.58, 1.38);
   const column = {
     index,
     seed,
     x: (index + 0.5) * cellWidth,
-    palette: profile,
-    paletteName: tone.paletteName,
-    intensity,
+    palette: null,
+    paletteName: "normal",
+    intensity: 1,
     streamTarget: streamCount,
     nextStreamOrdinal: 0,
     active: false,
@@ -1284,6 +1282,7 @@ function makeColumn(index, seed) {
     streams: []
   };
 
+  applyColumnTone(column, seed, false);
   seedAmbientColumn(column);
   setColumnActivity(column, active, activitySeed, true);
   return column;
@@ -1359,6 +1358,9 @@ function setColumnActivity(column, active, seed, initial = false) {
   column.nextActivityTick = logicalTick + columnActivityDuration(seed, active);
 
   if (active) {
+    if (!initial) {
+      applyColumnTone(column, seed, true);
+    }
     ensureColumnStreams(column, initial);
   } else if (!initial) {
     retireColumn(column);
@@ -1643,6 +1645,9 @@ function releaseStandaloneRotators() {
         nextRotateTick: logicalTick + rotateDelay(charSalt, targetRow, rotators),
         streamId: `solo:${column.index}:${targetRow}:${seed}`,
         negative: false,
+        head: false,
+        headPreviousGlowHead: false,
+        headStreamId: null,
         transient: true,
         glowHead: false,
         justWritten: true
@@ -1763,61 +1768,109 @@ function logicStep() {
   }
 }
 
-function createGlyph(char, styleName, palette) {
-  const key = `${cellWidth}:${cellHeight}:${fontSize}:${glyphScaleX}:${glyphScaleY}:${dpr}:${styleName}:${settings.glow}:${GLYPH_EDGE_ALPHA}:${palette.name}:${palette.body}:${char}`;
-  const cached = glyphCache.get(key);
+function paintGlyph(context, char, styleName, palette, x, y) {
+  const color = palette[styleName] || palette.body;
 
+  context.shadowBlur = 0;
+  context.shadowColor = "transparent";
+  context.globalAlpha = 1;
+
+  if (settings.glow) {
+    if (styleName === "head") {
+      context.shadowColor = palette.glow;
+      context.shadowBlur = fontSize * 0.18;
+    } else if (styleName === "bright") {
+      context.shadowColor = palette.glow;
+      context.shadowBlur = fontSize * 0.06;
+    } else if (styleName === "body") {
+      context.shadowColor = palette.glow;
+      context.shadowBlur = fontSize * 0.012;
+    }
+  }
+
+  context.fillStyle = color;
+  fillFittedText(context, char, x, y);
+  context.shadowBlur = 0;
+  context.shadowColor = "transparent";
+}
+
+function glyphAtlasKey(styleName, palette) {
+  return `${cellWidth}:${cellHeight}:${fontSize}:${glyphScaleX}:${glyphScaleY}:${dpr}:${styleName}:${settings.glow}:${GLYPH_EDGE_ALPHA}:${palette.name}:${palette.dim}:${palette.body}:${palette.bright}:${palette.head}`;
+}
+
+function createGlyphAtlas(styleName, palette) {
+  const key = glyphAtlasKey(styleName, palette);
+  const cached = glyphCache.get(key);
   if (cached) {
     return cached;
   }
 
-  const sprite = document.createElement("canvas");
   const cssWidth = Math.max(1, Math.floor(cellWidth));
   const cssHeight = Math.max(1, Math.floor(cellHeight));
-  sprite.width = Math.ceil(cssWidth * dpr);
-  sprite.height = Math.ceil(cssHeight * dpr);
-  sprite.cssWidth = cssWidth;
-  sprite.cssHeight = cssHeight;
+  const sourceWidth = Math.ceil(cssWidth * dpr);
+  const sourceHeight = Math.ceil(cssHeight * dpr);
+  const atlasColumns = Math.ceil(Math.sqrt(CHAR_LIST.length));
+  const atlasRows = Math.ceil(CHAR_LIST.length / atlasColumns);
+  const atlas = document.createElement("canvas");
+  atlas.width = sourceWidth * atlasColumns;
+  atlas.height = sourceHeight * atlasRows;
+  atlas.cssWidth = cssWidth;
+  atlas.cssHeight = cssHeight;
+  atlas.sourceWidth = sourceWidth;
+  atlas.sourceHeight = sourceHeight;
+  atlas.columns = atlasColumns;
 
-  const sctx = sprite.getContext("2d");
+  const sctx = atlas.getContext("2d");
   sctx.imageSmoothingEnabled = false;
   sctx.scale(dpr, dpr);
-  sctx.clearRect(0, 0, cssWidth, cssHeight);
+  sctx.clearRect(0, 0, cssWidth * atlasColumns, cssHeight * atlasRows);
   sctx.font = `${fontSize}px ${FONT_FAMILY}`;
   sctx.textAlign = "center";
   sctx.textBaseline = "middle";
 
   const centerX = Math.round(cssWidth / 2);
   const centerY = Math.round(cssHeight / 2 + fontSize * 0.03);
-  const color = palette[styleName] || palette.body;
 
-  if (settings.glow) {
-    if (styleName === "head") {
-      sctx.shadowColor = palette.glow;
-      sctx.shadowBlur = fontSize * 0.22;
-      sctx.fillStyle = palette.bright;
-      sctx.globalAlpha = 0.72;
-      fillFittedText(sctx, char, centerX, centerY);
-      sctx.globalAlpha = 1;
-    } else if (styleName === "bright") {
-      sctx.shadowColor = palette.glow;
-      sctx.shadowBlur = fontSize * 0.075;
-    } else if (styleName === "body") {
-      sctx.shadowColor = palette.glow;
-      sctx.shadowBlur = fontSize * 0.015;
-    } else {
-      sctx.shadowColor = "rgba(0, 180, 70, 0.08)";
-      sctx.shadowBlur = fontSize * 0.01;
-    }
+  for (let index = 0; index < CHAR_LIST.length; index += 1) {
+    const atlasX = (index % atlasColumns) * cssWidth;
+    const atlasY = Math.floor(index / atlasColumns) * cssHeight;
+    sctx.save();
+    sctx.beginPath();
+    sctx.rect(atlasX, atlasY, cssWidth, cssHeight);
+    sctx.clip();
+    paintGlyph(sctx, CHAR_LIST[index], styleName, palette, atlasX + centerX, atlasY + centerY);
+    sctx.restore();
   }
 
-  sctx.shadowBlur = 0;
-  sctx.shadowColor = "transparent";
-  sctx.fillStyle = color;
-  fillFittedText(sctx, char, centerX, centerY);
-  softenGlyphEdges(sprite);
-  glyphCache.set(key, sprite);
-  return sprite;
+  softenGlyphEdges(atlas);
+  glyphCache.set(key, atlas);
+  return atlas;
+}
+
+function prebuildGlyphAtlases() {
+  if (palettes.length === 0 || cellWidth <= 0 || cellHeight <= 0 || fontSize <= 0) {
+    return;
+  }
+
+  for (const palette of palettes) {
+    for (const styleName of GLYPH_STYLES) {
+      createGlyphAtlas(styleName, palette);
+    }
+  }
+}
+
+function createGlyph(char, styleName, palette) {
+  const atlas = createGlyphAtlas(styleName, palette);
+  const index = GLYPH_INDEX.has(char) ? GLYPH_INDEX.get(char) : 0;
+  return {
+    canvas: atlas,
+    sx: (index % atlas.columns) * atlas.sourceWidth,
+    sy: Math.floor(index / atlas.columns) * atlas.sourceHeight,
+    sw: atlas.sourceWidth,
+    sh: atlas.sourceHeight,
+    cssWidth: atlas.cssWidth,
+    cssHeight: atlas.cssHeight
+  };
 }
 
 function drawGlyph(cell, column, rowIndex) {
@@ -1831,9 +1884,9 @@ function drawGlyph(cell, column, rowIndex) {
   } else if (cell.negative || alpha < 0.2) {
     styleName = "dim";
     alpha *= cell.negative ? 0.62 : 0.82;
-  } else if (cell.rotator && cell.glowHead) {
+  } else if (cell.glowHead) {
     styleName = "bright";
-    alpha *= 1.04 + 0.08 * glowIntensity;
+    alpha *= (cell.rotator ? 1.08 : 1.0) + 0.08 * glowIntensity;
   }
 
   if (alpha <= 0.012) {
@@ -1855,7 +1908,11 @@ function drawGlyph(cell, column, rowIndex) {
 
   ctx.globalAlpha = clamp(alpha * visibility * clamp(settings.brightness / 72, 0.45, 1.32), 0, 1);
   ctx.drawImage(
-    sprite,
+    sprite.canvas,
+    sprite.sx,
+    sprite.sy,
+    sprite.sw,
+    sprite.sh,
     Math.round(x - sprite.cssWidth / 2),
     Math.round(y - sprite.cssHeight / 2),
     sprite.cssWidth,
@@ -1957,17 +2014,88 @@ function resize() {
   ctx.imageSmoothingEnabled = false;
 
   glyphCache = new Map();
+  prebuildGlyphAtlases();
   logicalTick = 0;
   releaseCounter = 0;
   tickAccumulator = 0;
   buildColumns();
-  for (let i = 0; i < Math.round(tickRate() * DEFAULT_PRESET.initialWarmupSeconds); i += 1) {
+  const prewarmSeconds = DEFAULT_PRESET.startup.prewarmSeconds || DEFAULT_PRESET.initialWarmupSeconds;
+  for (let i = 0; i < Math.round(tickRate() * prewarmSeconds); i += 1) {
     logicStep();
   }
   render(performance.now());
 }
 
 function collectMatrixRainState() {
+  const metrics = activeColumns.reduce((summary, column) => {
+    let columnCells = 0;
+    let columnHeads = 0;
+    let columnBright = 0;
+    let columnRotators = 0;
+
+    for (const cell of column.cells) {
+      if (!cell) {
+        continue;
+      }
+
+      columnCells += 1;
+      summary.visibleCells += 1;
+      if (cell.head) {
+        columnHeads += 1;
+        summary.headCells += 1;
+      }
+      if (cell.glowHead || cell.head) {
+        columnBright += 1;
+        summary.brightCells += 1;
+      }
+      if (cell.rotator) {
+        columnRotators += 1;
+        summary.rotatingCells += 1;
+      }
+    }
+
+    if (columnCells > 0) {
+      summary.visibleColumns += 1;
+      summary.maxColumnLength = Math.max(summary.maxColumnLength, columnCells);
+      summary.columnLengthSum += columnCells;
+    }
+    if (columnHeads > 0) {
+      summary.columnsWithHeads += 1;
+    }
+    if (columnBright > 0) {
+      summary.columnsWithBright += 1;
+    }
+    if (columnRotators > 0) {
+      summary.columnsWithRotators += 1;
+    }
+
+    return summary;
+  }, {
+    visibleCells: 0,
+    brightCells: 0,
+    headCells: 0,
+    rotatingCells: 0,
+    visibleColumns: 0,
+    columnsWithHeads: 0,
+    columnsWithBright: 0,
+    columnsWithRotators: 0,
+    columnLengthSum: 0,
+    maxColumnLength: 0
+  });
+
+  metrics.averageColumnLength = metrics.visibleColumns > 0
+    ? metrics.columnLengthSum / metrics.visibleColumns
+    : 0;
+  metrics.brightCellRatio = metrics.visibleCells > 0
+    ? metrics.brightCells / metrics.visibleCells
+    : 0;
+  metrics.headCellRatio = metrics.visibleCells > 0
+    ? metrics.headCells / metrics.visibleCells
+    : 0;
+  metrics.rotatingCellRatio = metrics.visibleCells > 0
+    ? metrics.rotatingCells / metrics.visibleCells
+    : 0;
+
   return {
     rows,
     gridColumns,
@@ -1980,9 +2108,12 @@ function collectMatrixRainState() {
     layout: DEFAULT_PRESET.layout,
     speedRowsPerSecond: DEFAULT_PRESET.speedRowsPerSecond,
     settingsSpeed: settings.speed,
+    startup: DEFAULT_PRESET.startup,
+    metrics,
     columns: activeColumns.map((column) => ({
       index: column.index,
       active: column.active,
+      paletteName: column.paletteName,
       streams: column.streams.map((stream) => {
         const cell = Number.isInteger(stream.headCellRow) ? column.cells[stream.headCellRow] : null;
         return {
@@ -2026,6 +2157,7 @@ window.__matrixRainState = collectMatrixRainState;
 
 function refreshAppearance() {
   buildPalettes();
+  prebuildGlyphAtlases();
 
   for (const column of activeColumns) {
     column.palette = paletteByName(column.paletteName) || paletteForColumn(column.seed);

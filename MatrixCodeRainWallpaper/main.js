@@ -6,6 +6,7 @@ const ctx = canvas.getContext("2d", { alpha: false });
 const FONT_FAMILY = "\"Matrix Code\", monospace";
 const DPR_LIMIT = 2;
 const BASE_COLOR = { r: 54, g: 217, b: 105 };
+const GLYPH_EDGE_ALPHA = 0.72;
 const PATTERN_SEED = 0x4d415452;
 const DEBUG_STATE_ENABLED = new URLSearchParams(window.location.search).has("debugstate");
 const CHAR_POOL = `"*+012345789:<>z|¦©╌▪アウエオカキケコサシスセソタツテナニヌネハヒホマミムメモヤヨラリワー꞊\uE937`;
@@ -93,7 +94,7 @@ const DEFAULT_PRESET = {
     referenceHeight: 2160,
     columnPitchPx: 28,
     rowPitchPx: 37,
-    glyphTargetWidthPx: 18.5,
+    glyphTargetWidthPx: 18,
     glyphTargetHeightPx: 25,
     columnGapPx: 1,
     rowGapPx: 1,
@@ -515,6 +516,46 @@ function fillFittedText(context, text, x, y) {
   context.scale(glyphScaleX, glyphScaleY);
   context.fillText(text, 0, 0);
   context.restore();
+}
+
+function softenGlyphEdges(sprite) {
+  if (GLYPH_EDGE_ALPHA >= 1) {
+    return;
+  }
+
+  const sctx = sprite.getContext("2d", { willReadFrequently: true });
+  const widthPx = sprite.width;
+  const heightPx = sprite.height;
+  const image = sctx.getImageData(0, 0, widthPx, heightPx);
+  const data = image.data;
+  const alpha = new Uint8ClampedArray(widthPx * heightPx);
+
+  for (let i = 0; i < alpha.length; i += 1) {
+    alpha[i] = data[i * 4 + 3];
+  }
+
+  for (let y = 1; y < heightPx - 1; y += 1) {
+    for (let x = 1; x < widthPx - 1; x += 1) {
+      const index = y * widthPx + x;
+      const current = alpha[index];
+      if (current === 0) {
+        continue;
+      }
+
+      const edge =
+        alpha[index - 1] < 24 ||
+        alpha[index + 1] < 24 ||
+        alpha[index - widthPx] < 24 ||
+        alpha[index + widthPx] < 24;
+      if (!edge) {
+        continue;
+      }
+
+      data[index * 4 + 3] = Math.round(current * GLYPH_EDGE_ALPHA);
+    }
+  }
+
+  sctx.putImageData(image, 0, 0);
 }
 
 function streamRowsPerSecond(stream) {
@@ -1626,7 +1667,7 @@ function logicStep() {
 }
 
 function createGlyph(char, styleName, palette) {
-  const key = `${cellWidth}:${cellHeight}:${fontSize}:${glyphScaleX}:${glyphScaleY}:${dpr}:${styleName}:${settings.glow}:${palette.name}:${palette.body}:${char}`;
+  const key = `${cellWidth}:${cellHeight}:${fontSize}:${glyphScaleX}:${glyphScaleY}:${dpr}:${styleName}:${settings.glow}:${GLYPH_EDGE_ALPHA}:${palette.name}:${palette.body}:${char}`;
   const cached = glyphCache.get(key);
 
   if (cached) {
@@ -1677,6 +1718,7 @@ function createGlyph(char, styleName, palette) {
   sctx.shadowColor = "transparent";
   sctx.fillStyle = color;
   fillFittedText(sctx, char, centerX, centerY);
+  softenGlyphEdges(sprite);
   glyphCache.set(key, sprite);
   return sprite;
 }

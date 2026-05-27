@@ -29,8 +29,10 @@ const DEFAULT_PRESET = {
   maxReleaseTracers: 1,
   splashEveryReleases: 0,
   maxSplashTracers: 0,
-  rotatorOccurrence: 7.2,
-  rotatorVariance: 45,
+  rotatorOccurrence: 14,
+  rotatorVariance: 30,
+  streamRotatorLaneEveryRows: 8,
+  streamRotatorLaneChance: 0.72,
   negativeRotatorOccurrence: 0,
   negativeRotatorVariance: 0,
   streamLength: {
@@ -76,7 +78,7 @@ const DEFAULT_PRESET = {
   },
   characterSize: 100,
   maxConcurrentStreamsPerColumn: 2,
-  initialWarmupSeconds: 2.5,
+  initialWarmupSeconds: 8.5,
   bottomFade: {
     baseVisibility: 1,
     start: 0.27,
@@ -102,8 +104,8 @@ const DEFAULT_PRESET = {
     fontOversizePx: 4
   },
   rotatingCells: {
-    minRotateTicks: 12,
-    maxRotateTicks: 24
+    minRotateTicks: 5,
+    maxRotateTicks: 12
   },
   topOrigin: {
     initialTopChance: 0.82,
@@ -152,9 +154,11 @@ const DEFAULT_PRESET = {
     deepLowerReplenishSingletonKeepChance: 0.005,
     lowerSingleBirthKeepChance: 0.15,
     deepLowerSingleBirthKeepChance: 0.01,
-    // Reference clips: persistent column glyphs change about 6-7% over 0.1s.
-    rotatorChance: 0.16,
-    charRefreshChance: 0.0007,
+    // Keep several fast-changing glyphs distributed through most established columns.
+    rotatorChance: 0.26,
+    rotatorLaneEveryRows: 7,
+    rotatorLaneChance: 0.9,
+    charRefreshChance: 0.0011,
     brightFlipChance: 0.008,
     brightChance: 0.68,
     brightAlphaMin: 1.48,
@@ -669,6 +673,27 @@ function hasVisibleVerticalCell(column, rowIndex) {
   );
 }
 
+function isMiddleScreenRow(rowIndex) {
+  const rowUnit = rowIndex / Math.max(1, rows - 1);
+  return rowUnit >= 0.18 && rowUnit <= 0.84;
+}
+
+function demoteUnsupportedBrightCell(column, rowIndex, cell, seed, extraLifeTicks) {
+  if (!isMiddleScreenRow(rowIndex) || hasVisibleVerticalCell(column, rowIndex)) {
+    return false;
+  }
+
+  cell.head = false;
+  cell.headStreamId = null;
+  cell.headPreviousGlowHead = false;
+  cell.glowHead = false;
+  cell.baseAlpha = seededRange(seed ^ 0x4a91, 0.34, 0.62) * column.intensity * referenceBrightnessFactor(rowIndex);
+  cell.target = cell.baseAlpha;
+  cell.alpha = cell.baseAlpha;
+  cell.life = Math.min(cell.life, cell.age + extraLifeTicks);
+  return true;
+}
+
 function isLowerSingletonRow(rowIndex) {
   return rowIndex / Math.max(1, rows - 1) >= DEFAULT_PRESET.ambientGrid.lowerSingletonStart;
 }
@@ -757,6 +782,35 @@ function maybeColumnizeLowerSingleton(column, rowIndex, seed, options = {}) {
   return maybeColumnizeSingleton(column, rowIndex, seed, options);
 }
 
+function ambientRotatorForCell(column, rowIndex, seed, options = {}) {
+  if (Object.prototype.hasOwnProperty.call(options, "rotator")) {
+    return options.rotator;
+  }
+
+  const ambient = DEFAULT_PRESET.ambientGrid;
+  const laneEvery = Math.max(1, ambient.rotatorLaneEveryRows || 1);
+  const lanePhase = Math.floor(hashUnit(column.seed ^ 0x4d3f) * laneEvery);
+  const laneRotator =
+    (rowIndex + lanePhase) % laneEvery === 0 &&
+    hashUnit(seed ^ 0x70bb) < ambient.rotatorLaneChance;
+  const randomRotator = hashUnit(seed ^ 0x4f3a) < ambient.rotatorChance;
+  return laneRotator || randomRotator;
+}
+
+function streamRotatorForCell(column, stream, rowIndex) {
+  if (stream.negative) {
+    return false;
+  }
+
+  const laneEvery = Math.max(1, DEFAULT_PRESET.streamRotatorLaneEveryRows || 1);
+  const lanePhase = Math.floor(hashUnit(stream.seed ^ column.seed ^ 0x2b77) * laneEvery);
+  const laneRotator =
+    (rowIndex + lanePhase) % laneEvery === 0 &&
+    hashUnit(stream.seed ^ Math.imul(rowIndex + 131, 1103515245)) < DEFAULT_PRESET.streamRotatorLaneChance;
+  const randomRotator = hashUnit(stream.seed ^ Math.imul(rowIndex + 41, 2654435761)) < stream.rotatorRate;
+  return laneRotator || randomRotator;
+}
+
 function bridgeSingleCellGaps(column) {
   const ambient = DEFAULT_PRESET.ambientGrid;
 
@@ -831,9 +885,7 @@ function createAmbientCell(column, rowIndex, seed, options = {}) {
   const charSalt = hashInt(seed ^ Math.imul(rowIndex + 1, 0x85ebca6b));
   const char = chooseStableChar(column.seed, column.index, rowIndex, charSalt);
   const baseAlpha = ambientAlpha(seed, column, rowIndex, bright);
-  const rotator = Object.prototype.hasOwnProperty.call(options, "rotator")
-    ? options.rotator
-    : hashUnit(seed ^ 0x4f3a) < ambient.rotatorChance;
+  const rotator = ambientRotatorForCell(column, rowIndex, seed, options);
 
   return {
     char,
@@ -921,6 +973,10 @@ function updateAmbientCell(column, rowIndex, cell) {
   }
 
   const tickSeed = hashInt(cell.salt ^ Math.imul(logicalTick + rowIndex + 1, 2246822519));
+  if (cell.glowHead && cell.age > 6 && demoteUnsupportedBrightCell(column, rowIndex, cell, tickSeed, 42)) {
+    return;
+  }
+
   const scheduledRotate = cell.rotator && logicalTick >= cell.nextRotateTick;
   const randomRefresh = hashUnit(tickSeed ^ 0x31b9) < ambient.charRefreshChance;
   if (scheduledRotate || randomRefresh) {
@@ -973,7 +1029,7 @@ function createCell(column, stream, rowIndex, age = 0, forceVisible = false) {
   }
 
   const stableChar = chooseStableChar(column.seed, column.index, rowIndex, stream.patternSalt);
-  const rotator = hashUnit(stream.seed ^ Math.imul(rowIndex + 41, 2654435761)) < stream.rotatorRate;
+  const rotator = streamRotatorForCell(column, stream, rowIndex);
   const alphaUnit = hashUnit(stream.patternSalt ^ Math.imul(rowIndex + 37, 2246822519));
   const alphaPreset = stream.negative ? DEFAULT_PRESET.negativeAlpha : DEFAULT_PRESET.positiveAlpha;
   const alphaBase = Number.isFinite(stream.alphaBase)
@@ -1342,6 +1398,13 @@ function updateCell(column, rowIndex) {
 
     column.cells[rowIndex] = null;
     return;
+  }
+
+  if ((cell.head || cell.glowHead) && cell.age > 4) {
+    const dimSeed = hashInt(cell.salt ^ Math.imul(logicalTick + rowIndex + 5, 668265263));
+    if (demoteUnsupportedBrightCell(column, rowIndex, cell, dimSeed, 30)) {
+      return;
+    }
   }
 
   if (cell.rotator && logicalTick >= cell.nextRotateTick) {

@@ -94,18 +94,16 @@ const DEFAULT_PRESET = {
   layout: {
     referenceWidth: 3840,
     referenceHeight: 2160,
-    columnPitchPx: 36,
-    rowPitchPx: 45,
+    visibleColumns: 134,
+    visibleRows: 58,
+    columnPitchPx: 28,
+    rowPitchPx: 37,
     glyphTargetWidthPx: 18,
     glyphTargetHeightPx: 25,
     columnGapPx: 1,
     rowGapPx: 1,
     fontInsetPx: 1,
-    fontOversizePx: 4,
-    glyphAspectScaleX: 1.05,
-    glyphAspectScaleY: 1.42,
-    glyphScaleMaxX: 1.42,
-    glyphScaleMaxY: 1.9
+    fontOversizePx: 4
   },
   rotatingCells: {
     minRotateTicks: 3,
@@ -1933,9 +1931,8 @@ function resize() {
   height = window.innerHeight;
   dpr = Math.min(window.devicePixelRatio || 1, DPR_LIMIT);
   const layout = DEFAULT_PRESET.layout;
-  const referenceScale = Math.max(0.3, Math.min(width / layout.referenceWidth, height / layout.referenceHeight));
-  const targetRows = Math.max(1, Math.round(height / (layout.rowPitchPx * referenceScale)));
-  const targetColumns = Math.max(1, Math.round(width / (layout.columnPitchPx * referenceScale)));
+  const targetRows = layout.visibleRows || Math.round(layout.referenceHeight / layout.rowPitchPx);
+  const targetColumns = layout.visibleColumns || Math.round(layout.referenceWidth / layout.columnPitchPx);
   cellHeight = height / targetRows;
   cellWidth = width / targetColumns;
   rows = targetRows;
@@ -1945,16 +1942,8 @@ function resize() {
     Math.max(1, cellWidth - layout.columnGapPx)
   );
   const glyphBounds = measureMedianGlyphBounds(fontSize);
-  glyphScaleX = clamp(
-    (((cellWidth - layout.columnGapPx - layout.fontInsetPx) * glyphAdjust) / glyphBounds.width) * (layout.glyphAspectScaleX || 1),
-    0.72,
-    layout.glyphScaleMaxX || 1.35
-  );
-  glyphScaleY = clamp(
-    (((cellHeight - layout.rowGapPx - layout.fontInsetPx) * glyphAdjust) / glyphBounds.height) * (layout.glyphAspectScaleY || 1),
-    0.72,
-    layout.glyphScaleMaxY || 1.35
-  );
+  glyphScaleX = clamp(((cellWidth - layout.columnGapPx - layout.fontInsetPx) * glyphAdjust) / glyphBounds.width, 0.72, 1.35);
+  glyphScaleY = clamp(((cellHeight - layout.rowGapPx - layout.fontInsetPx) * glyphAdjust) / glyphBounds.height, 0.72, 1.35);
   gridColumns = targetColumns;
 
   canvas.width = Math.ceil(width * dpr);

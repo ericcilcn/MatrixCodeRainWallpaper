@@ -152,7 +152,9 @@ const DEFAULT_PRESET = {
     deepLowerReplenishSingletonKeepChance: 0.005,
     lowerSingleBirthKeepChance: 0.15,
     deepLowerSingleBirthKeepChance: 0.01,
-    charRefreshChance: 0.003,
+    // Reference clips: persistent column glyphs change about 6-7% over 0.1s.
+    rotatorChance: 0.16,
+    charRefreshChance: 0.0007,
     brightFlipChance: 0.008,
     brightChance: 0.68,
     brightAlphaMin: 1.48,
@@ -829,6 +831,9 @@ function createAmbientCell(column, rowIndex, seed, options = {}) {
   const charSalt = hashInt(seed ^ Math.imul(rowIndex + 1, 0x85ebca6b));
   const char = chooseStableChar(column.seed, column.index, rowIndex, charSalt);
   const baseAlpha = ambientAlpha(seed, column, rowIndex, bright);
+  const rotator = Object.prototype.hasOwnProperty.call(options, "rotator")
+    ? options.rotator
+    : hashUnit(seed ^ 0x4f3a) < ambient.rotatorChance;
 
   return {
     char,
@@ -840,11 +845,13 @@ function createAmbientCell(column, rowIndex, seed, options = {}) {
     target: baseAlpha,
     baseAlpha,
     paletteName: column.paletteName,
-    rotator: true,
+    rotator,
     head: false,
     headPreviousGlowHead: false,
     headStreamId: null,
-    nextRotateTick: logicalTick + rotateDelay(charSalt, rowIndex, DEFAULT_PRESET.rotatingCells),
+    nextRotateTick: rotator
+      ? logicalTick + rotateDelay(charSalt, rowIndex, DEFAULT_PRESET.rotatingCells)
+      : Number.POSITIVE_INFINITY,
     streamId: `ambient:${column.index}:${rowIndex}:${seed}`,
     negative: false,
     glowHead: bright,
@@ -914,10 +921,14 @@ function updateAmbientCell(column, rowIndex, cell) {
   }
 
   const tickSeed = hashInt(cell.salt ^ Math.imul(logicalTick + rowIndex + 1, 2246822519));
-  if (hashUnit(tickSeed ^ 0x31b9) < ambient.charRefreshChance || logicalTick >= cell.nextRotateTick) {
+  const scheduledRotate = cell.rotator && logicalTick >= cell.nextRotateTick;
+  const randomRefresh = hashUnit(tickSeed ^ 0x31b9) < ambient.charRefreshChance;
+  if (scheduledRotate || randomRefresh) {
     cell.salt = hashInt(cell.salt ^ tickSeed ^ logicalTick);
     cell.char = chooseStableChar(column.seed, column.index, rowIndex, cell.salt);
-    cell.nextRotateTick = logicalTick + rotateDelay(cell.salt, rowIndex, DEFAULT_PRESET.rotatingCells);
+    cell.nextRotateTick = cell.rotator
+      ? logicalTick + rotateDelay(cell.salt, rowIndex, DEFAULT_PRESET.rotatingCells)
+      : Number.POSITIVE_INFINITY;
   }
 
   if (hashUnit(tickSeed ^ 0x81e3) < ambient.brightFlipChance) {

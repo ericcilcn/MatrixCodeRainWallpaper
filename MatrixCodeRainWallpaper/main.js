@@ -94,18 +94,18 @@ const DEFAULT_PRESET = {
   layout: {
     referenceWidth: 3840,
     referenceHeight: 2160,
-    columnPitchPx: 27.7,
-    rowPitchPx: 36.2,
+    columnPitchPx: 36,
+    rowPitchPx: 45,
     glyphTargetWidthPx: 18,
     glyphTargetHeightPx: 25,
     columnGapPx: 1,
     rowGapPx: 1,
     fontInsetPx: 1,
     fontOversizePx: 4,
-    glyphAspectScaleX: 1.28,
-    glyphAspectScaleY: 1.75,
-    glyphScaleMaxX: 1.75,
-    glyphScaleMaxY: 2.3
+    glyphAspectScaleX: 1.05,
+    glyphAspectScaleY: 1.42,
+    glyphScaleMaxX: 1.42,
+    glyphScaleMaxY: 1.9
   },
   rotatingCells: {
     minRotateTicks: 3,

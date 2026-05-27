@@ -56,17 +56,17 @@ const DEFAULT_PRESET = {
   colorVariance: 100,
   intensityVariance: 66,
   streamTone: {
-    dimChance: 0.3,
-    normalChance: 0.4,
-    paleChance: 0.2,
-    dimMultiplier: 0.68,
-    normalMultiplier: 0.92,
-    paleMultiplier: 1.16,
-    accentMultiplier: 1.9
+    dimChance: 0.18,
+    normalChance: 0.48,
+    paleChance: 0.22,
+    dimMultiplier: 0.9,
+    normalMultiplier: 1,
+    paleMultiplier: 1.14,
+    accentMultiplier: 1.62
   },
   positiveAlpha: {
-    base: 0.9,
-    variance: 0.12
+    base: 0.98,
+    variance: 0.08
   },
   negativeAlpha: {
     base: 0.58,
@@ -74,7 +74,7 @@ const DEFAULT_PRESET = {
   },
   characterSize: 100,
   maxConcurrentStreamsPerColumn: 2,
-  initialWarmupSeconds: 7,
+  initialWarmupSeconds: 2.5,
   bottomFade: {
     baseVisibility: 1,
     start: 0.27,
@@ -153,28 +153,28 @@ const DEFAULT_PRESET = {
     charRefreshChance: 0.003,
     brightFlipChance: 0.008,
     brightChance: 0.68,
-    brightAlphaMin: 1.35,
-    brightAlphaMax: 1.72,
-    bodyAlphaMin: 0.78,
-    bodyAlphaMax: 1.08,
+    brightAlphaMin: 1.48,
+    brightAlphaMax: 1.86,
+    bodyAlphaMin: 0.95,
+    bodyAlphaMax: 1.18,
     lifeMinTicks: 1500,
     lifeMaxTicks: 3600,
-    singleBirthChancePerTick: 0.16,
+    singleBirthChancePerTick: 0.09,
     singleBirthsPerTick: 1,
     singleBirthAttempts: 10,
-    singleLifeMinTicks: 70,
-    singleLifeMaxTicks: 220,
+    singleLifeMinTicks: 42,
+    singleLifeMaxTicks: 120,
     singleBrightChance: 0.58,
-    smallColumnChancePerTick: 0.012,
-    smallColumnAttempts: 12,
-    smallColumnMinRows: 3,
-    smallColumnMaxRows: 5,
+    smallColumnChancePerTick: 0.006,
+    smallColumnAttempts: 8,
+    smallColumnMinRows: 2,
+    smallColumnMaxRows: 3,
     lowerSmallColumnKeepChance: 0.08,
-    smallColumnLifeMinTicks: 48,
-    smallColumnLifeMaxTicks: 120
+    smallColumnLifeMinTicks: 18,
+    smallColumnLifeMaxTicks: 42
   },
   standaloneRotators: {
-    chancePerTick: 0.008,
+    chancePerTick: 0.004,
     maxPerTick: 1,
     pairChance: 0,
     tripleChance: 0,
@@ -182,10 +182,10 @@ const DEFAULT_PRESET = {
     upperBiasPower: 1.68,
     unrestrictedChance: 0.03,
     lowerScreenKeepChance: 0.05,
-    minLifeTicks: 260,
-    maxLifeTicks: 640,
-    minAlpha: 0.24,
-    maxAlpha: 0.52,
+    minLifeTicks: 80,
+    maxLifeTicks: 210,
+    minAlpha: 0.32,
+    maxAlpha: 0.68,
     minRotateTicks: 3,
     maxRotateTicks: 9
   },
@@ -377,26 +377,25 @@ function buildPalettes() {
   const colorVariance = DEFAULT_PRESET.colorVariance / 100;
   const glowIntensity = DEFAULT_PRESET.glowingTracers.intensity / 100;
   const white = { r: 255, g: 255, b: 255 };
+  const whiteGreenHead = { r: 248, g: 255, b: 250 };
   const variants = [
-    { name: "dim", body: 0.5, dim: 0.16, pale: 0.03, signal: 0.08, brightSignal: 0.42, glow: 0.12 },
-    { name: "normal", body: 0.86, dim: 0.26, pale: 0.06, signal: 0.12, brightSignal: 0.56, glow: 0.2 },
-    { name: "pale", body: 1, dim: 0.34, pale: 0.2, signal: 0.3, brightSignal: 0.68, glow: 0.28 },
-    { name: "accent", body: 1.1, dim: 0.42, pale: 0.22, signal: 0.72, brightSignal: 0.86, glow: 0.42 },
-    { name: "negative", body: 0.38, dim: 0.12, pale: 0.02, signal: 0.03, brightSignal: 0.3, glow: 0.08 }
+    { name: "dim", body: 0.94, pale: 0.08, signal: 0.42, brightSignal: 0.68, brightWhite: 0.24, glow: 0.22 },
+    { name: "normal", body: 1, pale: 0.1, signal: 0.48, brightSignal: 0.76, brightWhite: 0.32, glow: 0.28 },
+    { name: "pale", body: 1.06, pale: 0.2, signal: 0.56, brightSignal: 0.84, brightWhite: 0.46, glow: 0.36 },
+    { name: "accent", body: 1.1, pale: 0.24, signal: 0.66, brightSignal: 0.94, brightWhite: 0.66, glow: 0.52 },
+    { name: "negative", body: 0.94, pale: 0.08, signal: 0.42, brightSignal: 0.68, brightWhite: 0.24, glow: 0.22 }
   ];
 
   palettes = variants.map((variant) => {
     const pale = variant.pale * colorVariance;
     const bodyBase = mixColor(scaleColor(settings.color, variant.body * brightness), white, pale);
-    const bodySignal = vividMatrixSignal(settings.color, 0.76, 1.12, 0.94);
+    const bodySignal = vividMatrixSignal(settings.color, 0.92, 1.16, 1.04);
     const body = mixColor(bodyBase, bodySignal, variant.signal);
-    const dim = mixColor(scaleColor(settings.color, variant.dim * brightness), white, pale * 0.35);
-    const brightSignal = vividMatrixSignal(settings.color, 0.86, 1.1, 0.99);
-    const headSignal = vividMatrixSignal(settings.color, 0.66, 1.14, 0.92);
-    const brightTarget = mixColor(brightSignal, white, pale * 0.7);
-    const headTarget = mixColor(headSignal, white, 0.2);
+    const dim = mixColor(scaleColor(body, 0.68), bodySignal, 0.28);
+    const brightSignal = vividMatrixSignal(settings.color, 1.16, 1.18, 1.38);
+    const brightTarget = mixColor(brightSignal, white, variant.brightWhite);
     const bright = mixColor(scaleColor(settings.color, variant.body * brightness), brightTarget, variant.brightSignal);
-    const head = mixColor(scaleColor(settings.color, 0.98 * brightness), headTarget, 0.88);
+    const head = mixColor(whiteGreenHead, settings.color, 0.035);
     const glowBase = mixColor(head, settings.color, 0.24);
 
     return {
@@ -414,9 +413,8 @@ function buildPalettes() {
 
 function paletteForColumn(seed) {
   const value = hashUnit(seed);
-  if (value < 0.16) return palettes[4];
-  if (value < 0.43) return palettes[0];
-  if (value < 0.72) return palettes[1];
+  if (value < 0.36) return palettes[0];
+  if (value < 0.7) return palettes[1];
   if (value < 0.9) return palettes[2];
   return palettes[3];
 }
@@ -778,6 +776,7 @@ function ambientAlpha(seed, column, rowIndex, bright) {
 
 function createAmbientCell(column, rowIndex, seed, options = {}) {
   const ambient = DEFAULT_PRESET.ambientGrid;
+  const transient = Boolean(options.transient);
   const bright = Object.prototype.hasOwnProperty.call(options, "bright")
     ? options.bright
     : hashUnit(seed ^ 0x296d) < referenceBrightChance(rowIndex, ambient.brightChance);
@@ -805,7 +804,8 @@ function createAmbientCell(column, rowIndex, seed, options = {}) {
     streamId: `ambient:${column.index}:${rowIndex}:${seed}`,
     negative: false,
     glowHead: bright,
-    staticCell: true,
+    transient,
+    staticCell: !transient,
     justWritten: true
   };
 }
@@ -960,20 +960,11 @@ function writeCell(column, stream, rowIndex, age = 0, options = {}) {
 
   const next = createCell(column, stream, rowIndex, age, options.forceVisible);
   if (!next) {
-    return;
-  }
-
-  const current = column.cells[rowIndex];
-  if (current && !current.negative && current.target > 0.12) {
-    if (options.head) {
-      if (!current.head) {
-        current.headPreviousGlowHead = current.glowHead;
-      }
-      current.head = true;
-      current.headStreamId = stream.id;
-      current.glowHead = true;
+    const current = column.cells[rowIndex];
+    if (current && current.transient && !current.head) {
+      column.cells[rowIndex] = null;
     }
-    return current;
+    return null;
   }
 
   next.target = next.baseAlpha;
@@ -1335,7 +1326,8 @@ function releaseAmbientSingles() {
       placeAmbientCell(column, row, seed, {
         bright: hashUnit(seed ^ 0xc31a) < referenceBrightChance(row, ambient.singleBrightChance),
         lifeMin: ambient.singleLifeMinTicks,
-        lifeMax: ambient.singleLifeMaxTicks
+        lifeMax: ambient.singleLifeMaxTicks,
+        transient: true
       });
       break;
     }
@@ -1379,7 +1371,8 @@ function releaseAmbientSmallColumns() {
       placeAmbientCell(column, rowIndex, hashInt(seed ^ Math.imul(offset + 1, 0xa531)), {
         bright: offset === 0 ? brightHead : hashUnit(seed ^ Math.imul(offset + 3, 0x9e37)) < referenceBrightChance(rowIndex, ambient.brightChance),
         lifeMin: ambient.smallColumnLifeMinTicks,
-        lifeMax: ambient.smallColumnLifeMaxTicks
+        lifeMax: ambient.smallColumnLifeMaxTicks,
+        transient: true
       });
     }
     break;
@@ -1509,6 +1502,7 @@ function releaseStandaloneRotators() {
         nextRotateTick: logicalTick + rotateDelay(charSalt, targetRow, rotators),
         streamId: `solo:${column.index}:${targetRow}:${seed}`,
         negative: false,
+        transient: true,
         glowHead: false,
         justWritten: true
       };

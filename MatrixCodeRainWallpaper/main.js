@@ -377,13 +377,13 @@ function buildPalettes() {
   const colorVariance = DEFAULT_PRESET.colorVariance / 100;
   const glowIntensity = DEFAULT_PRESET.glowingTracers.intensity / 100;
   const white = { r: 255, g: 255, b: 255 };
-  const whiteGreenHead = { r: 248, g: 255, b: 250 };
+  const whiteGreenHead = { r: 252, g: 255, b: 247 };
   const variants = [
-    { name: "dim", body: 0.94, pale: 0.08, signal: 0.42, brightSignal: 0.68, brightWhite: 0.24, glow: 0.22 },
-    { name: "normal", body: 1, pale: 0.1, signal: 0.48, brightSignal: 0.76, brightWhite: 0.32, glow: 0.28 },
-    { name: "pale", body: 1.06, pale: 0.2, signal: 0.56, brightSignal: 0.84, brightWhite: 0.46, glow: 0.36 },
-    { name: "accent", body: 1.1, pale: 0.24, signal: 0.66, brightSignal: 0.94, brightWhite: 0.66, glow: 0.52 },
-    { name: "negative", body: 0.94, pale: 0.08, signal: 0.42, brightSignal: 0.68, brightWhite: 0.24, glow: 0.22 }
+    { name: "dim", body: 0.94, pale: 0.08, signal: 0.42, brightSignal: 0.76, brightWhite: 0.38, glow: 0.24 },
+    { name: "normal", body: 1, pale: 0.1, signal: 0.48, brightSignal: 0.84, brightWhite: 0.46, glow: 0.32 },
+    { name: "pale", body: 1.06, pale: 0.2, signal: 0.56, brightSignal: 0.9, brightWhite: 0.62, glow: 0.42 },
+    { name: "accent", body: 1.1, pale: 0.24, signal: 0.66, brightSignal: 0.98, brightWhite: 0.82, glow: 0.6 },
+    { name: "negative", body: 0.94, pale: 0.08, signal: 0.42, brightSignal: 0.76, brightWhite: 0.38, glow: 0.24 }
   ];
 
   palettes = variants.map((variant) => {
@@ -392,10 +392,10 @@ function buildPalettes() {
     const bodySignal = vividMatrixSignal(settings.color, 0.92, 1.16, 1.04);
     const body = mixColor(bodyBase, bodySignal, variant.signal);
     const dim = mixColor(scaleColor(body, 0.68), bodySignal, 0.28);
-    const brightSignal = vividMatrixSignal(settings.color, 1.16, 1.18, 1.38);
+    const brightSignal = vividMatrixSignal(settings.color, 1.45, 1.22, 1.55);
     const brightTarget = mixColor(brightSignal, white, variant.brightWhite);
     const bright = mixColor(scaleColor(settings.color, variant.body * brightness), brightTarget, variant.brightSignal);
-    const head = mixColor(whiteGreenHead, settings.color, 0.035);
+    const head = mixColor(whiteGreenHead, settings.color, 0.012);
     const glowBase = mixColor(head, settings.color, 0.24);
 
     return {

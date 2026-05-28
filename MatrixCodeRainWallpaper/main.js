@@ -17,7 +17,7 @@ const DEBUG_STATE_ENABLED = URL_PARAMS.has("debugstate");
 const CONTROLS_ENABLED = parseBooleanParam(URL_PARAMS.get("controls")) ?? URL_PARAMS.has("controls");
 const LAYOUT_OVERRIDE = normalizeLayoutMode(URL_PARAMS.get("layout"));
 const CLOCK_OVERRIDE = parseBooleanParam(URL_PARAMS.get("clock"));
-const CLOCK_STYLES = new Set(["sevensegment", "lcdsegment", "matrixfont"]);
+const CLOCK_STYLES = new Set(["dotmatrix", "matrixfont"]);
 const AUDIO_COLOR_MODES = new Set(["spectrum", "neon", "matrix_tint"]);
 const CLOCK_STYLE_OVERRIDE = normalizeClockStyle(URL_PARAMS.get("clockstyle"));
 const FONT_STYLE_OVERRIDE = normalizeFontStyle(URL_PARAMS.get("fontstyle"));
@@ -40,18 +40,128 @@ let CHAR_LIST = Array.from(CHAR_POOL);
 let GLYPH_INDEX = new Map(CHAR_LIST.map((char, index) => [char, index]));
 let GLYPH_MEASURE_POOL = CHAR_POOL;
 const GLYPH_STYLES = ["dim", "body", "bright", "head"];
-const CLOCK_GLYPHS = {
-  "0": ["11111", "10001", "10011", "10101", "11001", "10001", "11111"],
-  "1": ["00100", "01100", "00100", "00100", "00100", "00100", "01110"],
-  "2": ["11111", "00001", "00001", "11111", "10000", "10000", "11111"],
-  "3": ["11111", "00001", "00001", "11111", "00001", "00001", "11111"],
-  "4": ["10001", "10001", "10001", "11111", "00001", "00001", "00001"],
-  "5": ["11111", "10000", "10000", "11111", "00001", "00001", "11111"],
-  "6": ["11111", "10000", "10000", "11111", "10001", "10001", "11111"],
-  "7": ["11111", "00001", "00010", "00100", "01000", "01000", "01000"],
-  "8": ["11111", "10001", "10001", "11111", "10001", "10001", "11111"],
-  "9": ["11111", "10001", "10001", "11111", "00001", "00001", "11111"],
-  ":": ["0", "1", "1", "0", "1", "1", "0"]
+const DOT_CLOCK_GLYPHS = {
+  "0": [
+    "0111110",
+    "1000001",
+    "1000011",
+    "1000101",
+    "1001001",
+    "1010001",
+    "1100001",
+    "1000001",
+    "0111110"
+  ],
+  "1": [
+    "0011000",
+    "0111000",
+    "0011000",
+    "0011000",
+    "0011000",
+    "0011000",
+    "0011000",
+    "0011000",
+    "0111110"
+  ],
+  "2": [
+    "0111110",
+    "1000001",
+    "0000001",
+    "0000010",
+    "0000100",
+    "0001000",
+    "0010000",
+    "0100000",
+    "1111111"
+  ],
+  "3": [
+    "0111110",
+    "1000001",
+    "0000001",
+    "0000010",
+    "0011100",
+    "0000010",
+    "0000001",
+    "1000001",
+    "0111110"
+  ],
+  "4": [
+    "0000110",
+    "0001110",
+    "0010110",
+    "0100110",
+    "1000110",
+    "1111111",
+    "0000110",
+    "0000110",
+    "0000110"
+  ],
+  "5": [
+    "1111111",
+    "1000000",
+    "1000000",
+    "1111110",
+    "0000001",
+    "0000001",
+    "0000001",
+    "1000001",
+    "0111110"
+  ],
+  "6": [
+    "0011110",
+    "0100000",
+    "1000000",
+    "1111110",
+    "1000001",
+    "1000001",
+    "1000001",
+    "1000001",
+    "0111110"
+  ],
+  "7": [
+    "1111111",
+    "0000001",
+    "0000010",
+    "0000100",
+    "0001000",
+    "0010000",
+    "0010000",
+    "0010000",
+    "0010000"
+  ],
+  "8": [
+    "0111110",
+    "1000001",
+    "1000001",
+    "1000001",
+    "0111110",
+    "1000001",
+    "1000001",
+    "1000001",
+    "0111110"
+  ],
+  "9": [
+    "0111110",
+    "1000001",
+    "1000001",
+    "1000001",
+    "0111111",
+    "0000001",
+    "0000001",
+    "0000010",
+    "0111100"
+  ],
+  ":": [
+    "0",
+    "0",
+    "1",
+    "0",
+    "0",
+    "1",
+    "0",
+    "0",
+    "0"
+  ]
 };
 
 const REFERENCE_ROW_PROFILE = {
@@ -330,13 +440,13 @@ const DEFAULT_PRESET = {
   clock: {
     enabled: true,
     verticalCenter: 0.43,
-    maxWidthPortion: 0.72,
-    maxHeightPortion: 0.27,
+    maxWidthPortion: 0.66,
+    maxHeightPortion: 0.23,
     gapColumns: 1,
     visibilityFloor: 0.92,
     alphaFloor: 1.18,
     fallbackAlpha: 0.86,
-    fallbackRotateTicks: 42,
+    fallbackRotateTicks: Number.MAX_SAFE_INTEGER,
     maskSampleScale: 4,
     digitGapColumns: 1,
     colonWidthRatio: 0.18,
@@ -386,7 +496,7 @@ const DEFAULT_PRESET = {
     fontstyle: "trilogy",
     glow: true,
     clock: true,
-    clockstyle: "sevensegment",
+    clockstyle: "dotmatrix",
     clockbrightness: 110,
     audioenabled: false,
     audiointensity: 65,
@@ -501,11 +611,14 @@ function normalizeClockStyle(value) {
   }
 
   const normalized = value.trim().toLowerCase().replace(/[-_\s]/g, "");
+  if (["dot", "dots", "dotmatrix", "7x9", "7×9"].includes(normalized)) {
+    return "dotmatrix";
+  }
   if (normalized === "seven" || normalized === "sevensegment" || normalized === "segments") {
-    return "sevensegment";
+    return "dotmatrix";
   }
   if (["lcd", "lcdsegment", "lcdsegments", "liquidcrystal", "sevensegmentlcd"].includes(normalized)) {
-    return "lcdsegment";
+    return "dotmatrix";
   }
   if (normalized === "matrix" || normalized === "matrixfont" || normalized === "77054" || normalized === "77054db") {
     return "matrixfont";
@@ -2438,7 +2551,7 @@ function clockTextBaseWidth(text) {
   let widthUnits = 0;
 
   for (let index = 0; index < text.length; index += 1) {
-    const glyph = CLOCK_GLYPHS[text[index]];
+    const glyph = DOT_CLOCK_GLYPHS[text[index]];
     if (!glyph) {
       continue;
     }
@@ -2596,13 +2709,13 @@ function thinClockMask(sourceMask) {
   return nextMask;
 }
 
-function buildClockMaskFromSevenSegments(text) {
+function buildClockMaskFromDotMatrix(text) {
   const clock = DEFAULT_PRESET.clock;
   const nextMask = new Uint8Array(rows * gridColumns);
   const nextEmphasisMask = new Uint8Array(rows * gridColumns);
   const nextHighlightMask = new Uint8Array(rows * gridColumns);
   const nextCells = [];
-  const baseHeight = 7;
+  const baseHeight = 9;
   const baseWidth = clockTextBaseWidth(text);
   const maxWidth = Math.max(1, gridColumns * clock.maxWidthPortion);
   const maxHeight = Math.max(1, rows * clock.maxHeightPortion);
@@ -2614,7 +2727,7 @@ function buildClockMaskFromSevenSegments(text) {
   let cursorColumn = startColumn;
 
   for (let textIndex = 0; textIndex < text.length; textIndex += 1) {
-    const glyph = CLOCK_GLYPHS[text[textIndex]];
+    const glyph = DOT_CLOCK_GLYPHS[text[textIndex]];
     if (!glyph) {
       continue;
     }
@@ -2638,122 +2751,6 @@ function buildClockMaskFromSevenSegments(text) {
     }
 
     cursorColumn += (glyph[0].length + clock.gapColumns) * scale;
-  }
-
-  return {
-    nextMask,
-    nextEmphasisMask,
-    nextHighlightMask,
-    nextCells
-  };
-}
-
-const LCD_SEGMENTS = {
-  "0": "abcfed",
-  "1": "bc",
-  "2": "abged",
-  "3": "abgcd",
-  "4": "fgbc",
-  "5": "afgcd",
-  "6": "afgecd",
-  "7": "abc",
-  "8": "abcdefg",
-  "9": "abfgcd"
-};
-
-function markClockCellGroup(nextMask, nextCells, nextEmphasisMask, nextHighlightMask, columnIndex, rowIndex) {
-  markClockMaskCell(nextMask, nextCells, columnIndex, rowIndex);
-  markClockMaskCell(nextHighlightMask, null, columnIndex, rowIndex);
-  markClockMaskCell(nextEmphasisMask, null, columnIndex, rowIndex);
-}
-
-const LCD_DIGIT_WIDTH = 10;
-const LCD_DIGIT_HEIGHT = 14;
-const LCD_COLON_WIDTH = 3;
-const LCD_SEGMENT_CELLS = {
-  a: [[2, 0], [3, 0], [4, 0], [5, 0], [6, 0], [7, 0], [1, 1], [2, 1], [3, 1], [4, 1], [5, 1], [6, 1], [7, 1], [8, 1]],
-  g: [[2, 6], [3, 6], [4, 6], [5, 6], [6, 6], [7, 6], [1, 7], [2, 7], [3, 7], [4, 7], [5, 7], [6, 7], [7, 7], [8, 7]],
-  d: [[1, 12], [2, 12], [3, 12], [4, 12], [5, 12], [6, 12], [7, 12], [8, 12], [2, 13], [3, 13], [4, 13], [5, 13], [6, 13], [7, 13]],
-  f: [[1, 2], [0, 3], [1, 3], [0, 4], [1, 4], [1, 5]],
-  b: [[8, 2], [8, 3], [9, 3], [8, 4], [9, 4], [8, 5]],
-  e: [[1, 8], [0, 9], [1, 9], [0, 10], [1, 10], [1, 11]],
-  c: [[8, 8], [8, 9], [9, 9], [8, 10], [9, 10], [8, 11]]
-};
-
-function markClockScaledCell(nextMask, nextCells, nextEmphasisMask, nextHighlightMask, startColumn, startRow, scale, cellColumn, cellRow) {
-  for (let rowOffset = 0; rowOffset < scale; rowOffset += 1) {
-    for (let columnOffset = 0; columnOffset < scale; columnOffset += 1) {
-      markClockCellGroup(
-        nextMask,
-        nextCells,
-        nextEmphasisMask,
-        nextHighlightMask,
-        startColumn + cellColumn * scale + columnOffset,
-        startRow + cellRow * scale + rowOffset
-      );
-    }
-  }
-}
-
-function markClockLcdSegment(nextMask, nextCells, nextEmphasisMask, nextHighlightMask, startColumn, startRow, scale, segment) {
-  const cells = LCD_SEGMENT_CELLS[segment] || [];
-  for (const [cellColumn, cellRow] of cells) {
-    markClockScaledCell(nextMask, nextCells, nextEmphasisMask, nextHighlightMask, startColumn, startRow, scale, cellColumn, cellRow);
-  }
-}
-
-function markClockLcdColon(nextMask, nextCells, nextEmphasisMask, nextHighlightMask, startColumn, startRow, scale) {
-  const colonCells = [[1, 4], [1, 9]];
-  for (const [cellColumn, cellRow] of colonCells) {
-    markClockScaledCell(nextMask, nextCells, nextEmphasisMask, nextHighlightMask, startColumn, startRow, scale, cellColumn, cellRow);
-  }
-}
-
-function buildClockMaskFromLcdSegments(text) {
-  const clock = DEFAULT_PRESET.clock;
-  const nextMask = new Uint8Array(rows * gridColumns);
-  const nextEmphasisMask = new Uint8Array(rows * gridColumns);
-  const nextHighlightMask = new Uint8Array(rows * gridColumns);
-  const nextCells = [];
-  const digitWidth = LCD_DIGIT_WIDTH;
-  const digitHeight = LCD_DIGIT_HEIGHT;
-  const colonWidth = LCD_COLON_WIDTH;
-  const gap = 2;
-  const baseWidth = Array.from(text).reduce((sum, char, index) => {
-    const charWidth = char === ":" ? colonWidth : digitWidth;
-    return sum + charWidth + (index < text.length - 1 ? gap : 0);
-  }, 0);
-  const maxWidth = Math.max(1, gridColumns * clock.maxWidthPortion);
-  const maxHeight = Math.max(1, rows * clock.maxHeightPortion);
-  const scale = Math.max(1, Math.floor(Math.min(maxWidth / baseWidth, maxHeight / digitHeight)));
-  const totalWidth = baseWidth * scale;
-  const totalHeight = digitHeight * scale;
-  const startColumn = clampInt((gridColumns - totalWidth) / 2, 0, Math.max(0, gridColumns - totalWidth));
-  const startRow = clampInt((rows * clock.verticalCenter) - (totalHeight / 2), 0, Math.max(0, rows - totalHeight));
-  let cursorColumn = startColumn;
-
-  for (const char of text) {
-    if (char === ":") {
-      markClockLcdColon(nextMask, nextCells, nextEmphasisMask, nextHighlightMask, cursorColumn, startRow, scale);
-      cursorColumn += (colonWidth + gap) * scale;
-      continue;
-    }
-
-    const segments = LCD_SEGMENTS[char] || "";
-    for (const segment of segments) {
-      markClockLcdSegment(
-        nextMask,
-        nextCells,
-        nextEmphasisMask,
-        nextHighlightMask,
-        cursorColumn,
-        startRow,
-        scale,
-        segment
-      );
-    }
-
-    cursorColumn += (digitWidth + gap) * scale;
   }
 
   return {
@@ -2904,9 +2901,7 @@ function updateClockMask() {
 
   const builder = settings.clockstyle === "matrixfont"
     ? buildClockMaskFromMatrixDigits
-    : settings.clockstyle === "lcdsegment"
-      ? buildClockMaskFromLcdSegments
-      : buildClockMaskFromSevenSegments;
+    : buildClockMaskFromDotMatrix;
   const { nextMask, nextEmphasisMask, nextHighlightMask, nextCells } = builder(text);
 
   clockMask = nextMask;
@@ -2973,6 +2968,10 @@ function clearAudioRain() {
   }
 }
 
+function clockGlyphChar(columnIndex, rowIndex, salt) {
+  return chooseStableChar(PATTERN_SEED ^ 0x61c10c, columnIndex, rowIndex, salt);
+}
+
 function clockCellBaseAlpha(columnIndex, rowIndex) {
   const clock = DEFAULT_PRESET.clock;
   const floor = isClockEmphasisCell(columnIndex, rowIndex)
@@ -2991,12 +2990,6 @@ function updateClockCell(column, rowIndex, cell) {
   cell.age += 1;
   cell.justWritten = false;
 
-  if (logicalTick >= cell.nextRotateTick) {
-    cell.salt = hashInt(cell.salt ^ Math.imul(logicalTick + rowIndex + 3, 1597334677));
-    cell.char = chooseStableChar(PATTERN_SEED ^ 0x61c10c, column.index, rowIndex, cell.salt);
-    cell.nextRotateTick = logicalTick + clock.fallbackRotateTicks;
-  }
-
   cell.life = Number.MAX_SAFE_INTEGER;
   cell.negative = false;
   cell.head = false;
@@ -3004,6 +2997,8 @@ function updateClockCell(column, rowIndex, cell) {
   cell.headPreviousGlowHead = false;
   cell.glowHead = isClockEmphasisCell(column.index, rowIndex);
   cell.paletteName = "clock";
+  cell.rotator = false;
+  cell.nextRotateTick = clock.fallbackRotateTicks;
   cell.baseAlpha = clockCellBaseAlpha(column.index, rowIndex);
   cell.target = cell.baseAlpha;
   cell.alpha = cell.baseAlpha;
@@ -3023,26 +3018,29 @@ function ensureClockGridCells() {
     const rowIndex = clockCell.rowIndex;
     const emphasis = isClockEmphasisCell(column.index, rowIndex);
     const baseAlpha = clockCellBaseAlpha(column.index, rowIndex);
+    const stableChar = clockGlyphChar(column.index, rowIndex, clockCell.salt);
     const current = column.cells[rowIndex];
     if (current && !current.negative) {
       const nextAlpha = current.clockCell ? baseAlpha : Math.max(current.baseAlpha || 0, baseAlpha);
+      current.char = stableChar;
+      current.stableChar = stableChar;
+      current.salt = clockCell.salt;
       current.clockCell = true;
       current.staticCell = false;
       current.transient = false;
       current.paletteName = "clock";
+      current.rotator = false;
       current.glowHead = emphasis;
       current.baseAlpha = nextAlpha;
       current.target = current.baseAlpha;
       current.alpha = current.baseAlpha;
       current.life = Number.MAX_SAFE_INTEGER;
-      current.nextRotateTick = Number.isFinite(current.nextRotateTick)
-        ? Math.min(current.nextRotateTick, logicalTick + DEFAULT_PRESET.clock.fallbackRotateTicks)
-        : logicalTick + DEFAULT_PRESET.clock.fallbackRotateTicks;
+      current.nextRotateTick = DEFAULT_PRESET.clock.fallbackRotateTicks;
       continue;
     }
 
-    const salt = hashInt(clockCell.salt ^ Math.imul(logicalTick + 1, 1103515245));
-    const char = chooseStableChar(PATTERN_SEED ^ 0x61c10c, column.index, rowIndex, salt);
+    const salt = clockCell.salt;
+    const char = clockGlyphChar(column.index, rowIndex, salt);
     column.cells[rowIndex] = {
       char,
       stableChar: char,
@@ -3053,8 +3051,8 @@ function ensureClockGridCells() {
       target: baseAlpha,
       baseAlpha,
       paletteName: "clock",
-      rotator: true,
-      nextRotateTick: logicalTick + DEFAULT_PRESET.clock.fallbackRotateTicks,
+      rotator: false,
+      nextRotateTick: DEFAULT_PRESET.clock.fallbackRotateTicks,
       streamId: `clock:${column.index}:${rowIndex}`,
       negative: false,
       head: false,
@@ -3077,15 +3075,9 @@ function drawClockFallbackGlyphs() {
   const palette = paletteByName("clock");
   const clock = DEFAULT_PRESET.clock;
   const brightness = clamp(settings.brightness / 72, 0.45, 1.32);
-  const rotationBucket = Math.floor(logicalTick / Math.max(1, clock.fallbackRotateTicks));
 
   for (const clockCell of clockCells) {
-    const char = chooseStableChar(
-      PATTERN_SEED ^ 0x61c10c,
-      clockCell.columnIndex,
-      clockCell.rowIndex,
-      clockCell.salt + rotationBucket
-    );
+    const char = clockGlyphChar(clockCell.columnIndex, clockCell.rowIndex, clockCell.salt);
     const sprite = createGlyph(char, "head", palette);
     const x = (clockCell.columnIndex + 0.5) * cellWidth;
     const y = (clockCell.rowIndex + 0.5) * cellHeight;
@@ -3477,9 +3469,7 @@ function collectMatrixRainState() {
       styleOverride: CLOCK_STYLE_OVERRIDE,
       mask: settings.clockstyle === "matrixfont"
         ? "matrix-font-digits"
-        : settings.clockstyle === "lcdsegment"
-          ? "lcd-seven-segment-clock"
-          : "seven-segment-clock",
+        : "7x9-dot-matrix-clock",
       text: clockText,
       activeCells: clockMask.reduce((sum, value) => sum + value, 0),
       emphasisCells: clockEmphasisMask.reduce((sum, value) => sum + value, 0),
@@ -3744,8 +3734,7 @@ function initializeControlsPanel() {
       applyPreviewProperties({ clock: propertyValue(value) });
     }),
     createControlsSelect("Clock style", settings.clockstyle, [
-      { label: "Seven segment", value: "sevensegment" },
-      { label: "LCD 10 x 14", value: "lcdsegment" },
+      { label: "7 x 9 dot matrix", value: "dotmatrix" },
       { label: "Matrix font 77054", value: "matrixfont" }
     ], (value) => {
       applyPreviewProperties({ clockstyle: propertyValue(value) });

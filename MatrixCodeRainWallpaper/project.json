@@ -78,15 +78,11 @@
       "clockstyle": {
         "text": "Clock style",
         "type": "combo",
-        "value": "sevensegment",
+        "value": "dotmatrix",
         "options": [
           {
-            "label": "Seven segment",
-            "value": "sevensegment"
-          },
-          {
-            "label": "LCD seven segment",
-            "value": "lcdsegment"
+            "label": "7 x 9 dot matrix",
+            "value": "dotmatrix"
           },
           {
             "label": "Matrix font 77054",

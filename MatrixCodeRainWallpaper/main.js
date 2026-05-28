@@ -18,6 +18,13 @@ const CONTROLS_ENABLED = parseBooleanParam(URL_PARAMS.get("controls")) ?? URL_PA
 const LAYOUT_OVERRIDE = normalizeLayoutMode(URL_PARAMS.get("layout"));
 const CLOCK_OVERRIDE = parseBooleanParam(URL_PARAMS.get("clock"));
 const AUDIO_COLOR_MODES = new Set(["spectrum", "neon", "matrix_tint"]);
+const AUDIO_HUE_STEPS = 48;
+const AUDIO_BAND_KEYS = ["bass", "mid", "treble"];
+const AUDIO_BANDS = {
+  bass: { start: 0.08, end: 0.34, minCells: 5, maxCells: 8, cooldownMin: 18, cooldownMax: 34 },
+  mid: { start: 0.34, end: 0.66, minCells: 4, maxCells: 7, cooldownMin: 16, cooldownMax: 30 },
+  treble: { start: 0.66, end: 0.92, minCells: 3, maxCells: 6, cooldownMin: 14, cooldownMax: 26 }
+};
 const FONT_STYLE_OVERRIDE = normalizeFontStyle(URL_PARAMS.get("fontstyle"));
 const AUDIO_OVERRIDE = parseBooleanParam(URL_PARAMS.get("audio"));
 const AUDIO_COLOR_MODE_OVERRIDE = normalizeAudioColorMode(URL_PARAMS.get("audiocolormode"));
@@ -443,17 +450,18 @@ const DEFAULT_PRESET = {
     bassWeight: 1.24,
     midWeight: 1,
     trebleWeight: 0.92,
-    baseChancePerTick: 0.018,
-    maxChancePerTick: 0.84,
-    maxStreamsPerTick: 4,
+    baseChancePerTick: 0.006,
+    maxChancePerTick: 0.42,
+    globalMinGapTicks: 5,
+    globalMaxGapTicks: 11,
     maxAudioStreamsPerColumn: 2,
-    minLengthRows: 0.16,
-    maxLengthRows: 0.42,
-    minEndRows: 0.42,
-    maxEndRows: 0.98,
+    minLengthRows: 0.12,
+    maxLengthRows: 0.28,
+    minEndRows: 0.36,
+    maxEndRows: 0.88,
     minSpeedScale: 1.04,
     maxSpeedScale: 1.52,
-    minDensity: 0.74,
+    minDensity: 1,
     maxDensity: 1,
     headChanceBase: 0.42,
     headChanceGain: 0.48,
@@ -537,7 +545,15 @@ let audioState = {
   level: 0,
   peak: 0,
   lastInputTime: 0,
-  debugPhase: 0
+  debugPhase: 0,
+  nextGlobalWaveTick: 0,
+  nextBandWaveTicks: {
+    bass: 0,
+    mid: 0,
+    treble: 0
+  },
+  lastWaveBand: "none",
+  waveCount: 0
 };
 
 function clamp(value, min, max) {
@@ -699,6 +715,42 @@ function scaleColor(color, multiplier) {
   };
 }
 
+function hslToRgb(hue, saturation, lightness) {
+  const h = ((hue % 360) + 360) % 360 / 60;
+  const c = (1 - Math.abs(2 * lightness - 1)) * saturation;
+  const x = c * (1 - Math.abs((h % 2) - 1));
+  const m = lightness - c / 2;
+  let r = 0;
+  let g = 0;
+  let b = 0;
+
+  if (h < 1) {
+    r = c;
+    g = x;
+  } else if (h < 2) {
+    r = x;
+    g = c;
+  } else if (h < 3) {
+    g = c;
+    b = x;
+  } else if (h < 4) {
+    g = x;
+    b = c;
+  } else if (h < 5) {
+    r = x;
+    b = c;
+  } else {
+    r = c;
+    b = x;
+  }
+
+  return {
+    r: Math.round((r + m) * 255),
+    g: Math.round((g + m) * 255),
+    b: Math.round((b + m) * 255)
+  };
+}
+
 function saturateColor(color, multiplier) {
   const luma = color.r * 0.2126 + color.g * 0.7152 + color.b * 0.0722;
   return {
@@ -785,6 +837,17 @@ function buildPalettes() {
     { name: "audioViolet", bodyColor: { r: 188, g: 96, b: 255 }, brightColor: { r: 238, g: 190, b: 255 }, glow: 0.7, fixed: true },
     { name: "audioMatrix", bodyColor: { r: 92, g: 255, b: 156 }, brightColor: { r: 226, g: 255, b: 220 }, glow: 0.64, fixed: true }
   ];
+
+  for (let index = 0; index < AUDIO_HUE_STEPS; index += 1) {
+    const hue = (index / AUDIO_HUE_STEPS) * 360;
+    variants.push({
+      name: `audioHue${index}`,
+      bodyColor: hslToRgb(hue, 0.92, 0.58),
+      brightColor: hslToRgb(hue, 0.96, 0.76),
+      glow: 0.68,
+      fixed: true
+    });
+  }
 
   palettes = variants.map((variant) => {
     const bodyColor = bodyToneSourceColor(variant, variant.bodyColor);
@@ -1077,10 +1140,13 @@ function updateAudioFromArray(audioArray) {
 
 function updateAudioDebugSignal() {
   const time = logicalTick / tickRate();
-  const beat = Math.pow(Math.max(0, Math.sin(time * 5.2)), 3.1);
-  const bass = clamp(0.08 + beat * 0.86 + Math.max(0, Math.sin(time * 1.7)) * 0.12, 0, 1);
-  const mid = clamp(0.06 + Math.max(0, Math.sin(time * 3.1 + 1.2)) * 0.48 + beat * 0.2, 0, 1);
-  const treble = clamp(0.04 + Math.max(0, Math.sin(time * 7.4 + 2.5)) * 0.36 + Math.random() * 0.08, 0, 1);
+  const phase = (time % 6) / 6;
+  const bassPulse = Math.pow(Math.max(0, Math.sin((phase * 3) * Math.PI)), 3.1);
+  const midPulse = Math.pow(Math.max(0, Math.sin(((phase * 3) - 1) * Math.PI)), 2.6);
+  const treblePulse = Math.pow(Math.max(0, Math.sin(((phase * 3) - 2) * Math.PI)), 2.2);
+  const bass = clamp(0.06 + bassPulse * 0.9 + Math.max(0, Math.sin(time * 1.7)) * 0.08, 0, 1);
+  const mid = clamp(0.05 + midPulse * 0.72 + Math.max(0, Math.sin(time * 3.1 + 1.2)) * 0.18, 0, 1);
+  const treble = clamp(0.04 + treblePulse * 0.72 + Math.max(0, Math.sin(time * 7.4 + 2.5)) * 0.16 + Math.random() * 0.04, 0, 1);
 
   audioState.debugPhase = time;
   applyAudioLevels(bass, mid, treble, false);
@@ -1108,27 +1174,37 @@ function activeAudioLevel() {
     : clamp((audioState.level - minLevel) / (1 - minLevel), 0, 1);
 }
 
-function audioPaletteName(seed) {
-  const neonNames = ["audioRed", "audioYellow", "audioCyan", "audioBlue", "audioViolet"];
-  const roll = hashUnit(seed ^ 0x2b7f);
+function activeAudioBandLevel(band) {
+  if (!settings.audioenabled) {
+    return 0;
+  }
+
+  const minLevel = DEFAULT_PRESET.audioResponsive.minLevel;
+  const value = audioState[band] || 0;
+  return value <= minLevel
+    ? 0
+    : clamp((value - minLevel) / (1 - minLevel), 0, 1);
+}
+
+function audioWaveBaseHueIndex(seed, band) {
+  const unit = hashUnit(seed ^ 0x2b7f);
+  if (settings.audiocolormode === "matrix_tint") {
+    return Math.round(seededRange(seed ^ 0x16d3, 18, 24)) % AUDIO_HUE_STEPS;
+  }
 
   if (settings.audiocolormode === "neon") {
-    return neonNames[Math.floor(roll * neonNames.length) % neonNames.length];
+    const neonAnchors = [46, 6, 24, 31, 39];
+    return neonAnchors[Math.floor(unit * neonAnchors.length) % neonAnchors.length];
   }
 
-  if (settings.audiocolormode === "matrix_tint") {
-    if (roll < 0.58) return "audioMatrix";
-    if (roll < 0.78) return "audioCyan";
-    return "audioYellow";
-  }
+  return Math.floor(unit * AUDIO_HUE_STEPS) % AUDIO_HUE_STEPS;
+}
 
-  if (audioState.bass >= audioState.mid && audioState.bass >= audioState.treble) {
-    return roll < 0.62 ? "audioRed" : "audioYellow";
-  }
-  if (audioState.mid >= audioState.treble) {
-    return roll < 0.68 ? "audioCyan" : "audioMatrix";
-  }
-  return roll < 0.56 ? "audioViolet" : "audioBlue";
+function audioGradientPaletteName(baseHueIndex, memberIndex, memberCount, seed) {
+  const center = (memberCount - 1) / 2;
+  const offset = Math.round((memberIndex - center) * 0.9 + seededRange(seed ^ Math.imul(memberIndex + 1, 0x9e37), -0.4, 0.4));
+  const hueIndex = (baseHueIndex + offset + AUDIO_HUE_STEPS) % AUDIO_HUE_STEPS;
+  return `audioHue${hueIndex}`;
 }
 
 function rowVisibility(rowIndex) {
@@ -1597,6 +1673,8 @@ function createCell(column, stream, rowIndex, age = 0, forceVisible = false) {
     transient: Boolean(stream.transient),
     audioCell: Boolean(stream.audioRain),
     audioLevel: stream.audioLevel || 0,
+    audioBand: stream.audioBand || null,
+    audioWaveId: stream.audioWaveId || null,
     justWritten: age <= 1
   };
 }
@@ -1682,23 +1760,21 @@ function countColumnAudioStreams(column) {
   return column.streams.reduce((sum, stream) => sum + (stream.audioRain && !stream.finished ? 1 : 0), 0);
 }
 
-function createAudioStream(column, seed, level) {
+function createAudioWaveStream(column, seed, wave) {
   const audio = DEFAULT_PRESET.audioResponsive;
   const ordinal = column.nextStreamOrdinal;
   column.nextStreamOrdinal += 1;
-  const lengthScale = seededRange(seed ^ 0x72a9, audio.minLengthRows, audio.maxLengthRows);
-  const length = Math.max(5, Math.round(rows * lengthScale * seededRange(seed ^ 0x35fd, 0.82, 1 + level * 0.35)));
-  const startRow = Math.floor(seededRange(seed ^ 0x43d1, -length * 0.9, 0));
+  const length = Math.max(4, Math.round(rows * wave.lengthScale));
+  const startRow = -2 + wave.rowOffset;
   const endRow = Math.max(
-    Math.min(rows + length + 2, Math.floor(rows * seededRange(seed ^ 0x257c, audio.minEndRows, audio.maxEndRows))),
+    Math.min(rows + length + 2, Math.floor(rows * wave.endUnit)),
     Math.min(rows - 1, length)
   );
-  const speedScale = seededRange(seed ^ 0xa38f, audio.minSpeedScale, audio.maxSpeedScale) * (0.9 + level * 0.28);
-  const alphaBase = seededRange(seed ^ 0x9e3d, audio.minAlpha, audio.minAlpha + (audio.maxAlpha - audio.minAlpha) * Math.max(0.24, level));
-  const headChance = clamp(audio.headChanceBase + level * audio.headChanceGain, 0, 1);
+  const alphaBase = seededRange(seed ^ 0x9e3d, audio.minAlpha, audio.minAlpha + (audio.maxAlpha - audio.minAlpha) * Math.max(0.24, wave.level));
+  const headChance = clamp(audio.headChanceBase + wave.level * audio.headChanceGain, 0, 1);
 
   return {
-    id: `audio:${column.index}:${ordinal}:${seed}`,
+    id: `audio:${wave.band}:${wave.id}:${column.index}:${ordinal}:${seed}`,
     seed,
     negative: false,
     mode: "audio",
@@ -1709,20 +1785,22 @@ function createAudioStream(column, seed, level) {
     patternSalt: seed,
     length,
     density: seededRange(seed ^ 0x68a31, audio.minDensity, audio.maxDensity),
-    rotatorRate: seededRange(seed ^ 0x4f81, 0.3, 0.76),
+    rotatorRate: seededRange(seed ^ 0x4f81, 0.24, 0.62),
     headChance,
     brightHead: hashUnit(seed ^ 0x57ac) < headChance,
     cooldownTicks: 0,
-    paletteName: audioPaletteName(seed),
-    toneMultiplier: 1 + level * 0.34,
-    speed: DEFAULT_PRESET.speedRowsPerSecond * clamp(settings.speed / 55, 0.32, 2.05) * speedScale,
+    paletteName: wave.paletteName,
+    toneMultiplier: 1 + wave.level * 0.34,
+    speed: wave.speed,
     endRow,
     finished: false,
     transient: true,
-    cellLifeTicks: Math.floor(seededRange(seed ^ 0x44f1, audio.minLifeTicks, audio.maxLifeTicks) * (1 + level * 0.45)),
+    cellLifeTicks: Math.floor(seededRange(seed ^ 0x44f1, audio.minLifeTicks, audio.maxLifeTicks) * (1 + wave.level * 0.35)),
     alphaBase,
     audioRain: true,
-    audioLevel: level
+    audioLevel: wave.level,
+    audioBand: wave.band,
+    audioWaveId: wave.id
   };
 }
 
@@ -2331,46 +2409,149 @@ function releaseLowerFragments() {
   }
 }
 
+function audioWaveMembers(seed, count) {
+  const shapeRoll = hashUnit(seed ^ 0x6c31);
+  const members = [];
+  const center = (count - 1) / 2;
+
+  if (shapeRoll < 0.42) {
+    for (let index = 0; index < count; index += 1) {
+      members.push({
+        columnOffset: Math.round(index - center),
+        rowOffset: 0
+      });
+    }
+  } else if (shapeRoll < 0.76) {
+    const rowPattern = [0, 1, 0, 2, 1, 0, 2, 1];
+    for (let index = 0; index < count; index += 1) {
+      members.push({
+        columnOffset: Math.round(index - center),
+        rowOffset: rowPattern[index % rowPattern.length]
+      });
+    }
+  } else {
+    const columnCount = Math.max(2, Math.ceil(count / 2));
+    for (let columnOffset = 0; columnOffset < columnCount && members.length < count; columnOffset += 1) {
+      for (let rowOffset = 0; rowOffset < 2 && members.length < count; rowOffset += 1) {
+        members.push({
+          columnOffset: Math.round(columnOffset - (columnCount - 1) / 2),
+          rowOffset
+        });
+      }
+    }
+  }
+
+  return members;
+}
+
+function audioWaveCandidateColumns(centerColumn, members) {
+  return members.map((member) => {
+    const columnIndex = clampInt(centerColumn + member.columnOffset, 0, gridColumns - 1);
+    const column = activeColumns[columnIndex + 2];
+    return column && column.index === columnIndex
+      ? { column, columnIndex, rowOffset: member.rowOffset }
+      : null;
+  }).filter(Boolean);
+}
+
+function releaseAudioWave(band, level, seed) {
+  const audio = DEFAULT_PRESET.audioResponsive;
+  const descriptor = AUDIO_BANDS[band];
+  const intensity = clamp(settings.audiointensity / 100, 0, 1);
+  const countRange = descriptor.maxCells - descriptor.minCells;
+  const memberCount = descriptor.minCells + Math.round(countRange * clamp(level * 0.85 + hashUnit(seed ^ 0xb71d) * 0.35, 0, 1));
+  const regionStart = Math.round(gridColumns * descriptor.start);
+  const regionEnd = Math.round(gridColumns * descriptor.end);
+  const centerColumn = clampInt(
+    seededRange(seed ^ 0x51db, regionStart, regionEnd),
+    0,
+    Math.max(0, gridColumns - 1)
+  );
+  const members = audioWaveMembers(seed, memberCount);
+  const candidates = audioWaveCandidateColumns(centerColumn, members);
+  const writable = [];
+
+  for (let index = 0; index < candidates.length; index += 1) {
+    const candidate = candidates[index];
+    if (countColumnAudioStreams(candidate.column) >= audio.maxAudioStreamsPerColumn) {
+      continue;
+    }
+    if (candidate.column.streams.length >= DEFAULT_PRESET.maxConcurrentStreamsPerColumn + audio.maxAudioStreamsPerColumn) {
+      continue;
+    }
+    writable.push({
+      ...candidate,
+      memberIndex: index
+    });
+  }
+
+  if (writable.length < 3) {
+    return false;
+  }
+
+  const waveId = audioState.waveCount + 1;
+  const baseHueIndex = audioWaveBaseHueIndex(seed, band);
+  const speedScale = seededRange(seed ^ 0xa38f, audio.minSpeedScale, audio.maxSpeedScale) * (0.92 + level * 0.22);
+  const speed = DEFAULT_PRESET.speedRowsPerSecond * clamp(settings.speed / 55, 0.32, 2.05) * speedScale;
+  const lengthScale = seededRange(seed ^ 0x72a9, audio.minLengthRows, audio.maxLengthRows) * (0.92 + level * 0.28);
+  const endUnit = seededRange(seed ^ 0x257c, audio.minEndRows, audio.maxEndRows);
+
+  for (let index = 0; index < writable.length; index += 1) {
+    const candidate = writable[index];
+    const streamSeed = hashInt(seed ^ Math.imul(candidate.columnIndex + 19, 1597334677) ^ Math.imul(candidate.rowOffset + 3, 374761393));
+    candidate.column.streams.push(createAudioWaveStream(candidate.column, streamSeed, {
+      id: waveId,
+      band,
+      level,
+      rowOffset: candidate.rowOffset,
+      paletteName: audioGradientPaletteName(baseHueIndex, candidate.memberIndex, members.length, seed),
+      speed,
+      lengthScale,
+      endUnit
+    }));
+  }
+
+  const bandGap = Math.floor(seededRange(seed ^ 0x73ad, descriptor.cooldownMin, descriptor.cooldownMax) * (1.1 - level * 0.28));
+  const globalGap = Math.floor(seededRange(seed ^ 0x192f, audio.globalMinGapTicks, audio.globalMaxGapTicks) * (1.08 - intensity * 0.24));
+  audioState.nextBandWaveTicks[band] = logicalTick + Math.max(8, bandGap);
+  audioState.nextGlobalWaveTick = logicalTick + Math.max(3, globalGap);
+  audioState.lastWaveBand = band;
+  audioState.waveCount = waveId;
+  return true;
+}
+
 function releaseAudioRain() {
-  const level = activeAudioLevel();
-  if (level <= 0 || activeColumns.length === 0) {
+  if (activeAudioLevel() <= 0 || activeColumns.length === 0 || logicalTick < audioState.nextGlobalWaveTick) {
     return;
   }
 
   const audio = DEFAULT_PRESET.audioResponsive;
   const intensity = clamp(settings.audiointensity / 100, 0, 1);
-  const power = Math.pow(level, 1.35);
-  const chance = clamp(
-    audio.baseChancePerTick + power * intensity * (audio.maxChancePerTick - audio.baseChancePerTick),
-    0,
-    audio.maxChancePerTick
-  );
   const seedBase = hashInt(PATTERN_SEED ^ Math.imul(logicalTick + 101, 2246822519));
-  if (hashUnit(seedBase ^ 0x4b1d) > chance) {
-    return;
-  }
+  const candidates = AUDIO_BAND_KEYS.map((band, index) => ({
+    band,
+    seed: hashInt(seedBase ^ Math.imul(index + 1, 1597334677)),
+    level: activeAudioBandLevel(band)
+  })).sort((a, b) => b.level - a.level);
 
-  const burstMax = Math.max(1, Math.round(1 + Math.pow(audioState.peak, 1.2) * intensity * (audio.maxStreamsPerTick - 1)));
-  const count = 1 + Math.floor(hashUnit(seedBase ^ 0x15bf) * burstMax);
-  let released = 0;
-
-  for (let attempt = 0; attempt < count * 7 && released < count; attempt += 1) {
-    const seed = hashInt(seedBase ^ Math.imul(attempt + 1, 1597334677));
-    const columnIndex = Math.floor(hashUnit(seed ^ 0x6d2b) * gridColumns);
-    const column = activeColumns[columnIndex + 2];
-    if (!column || column.index !== columnIndex) {
+  for (const candidate of candidates) {
+    if (candidate.level <= 0 || logicalTick < audioState.nextBandWaveTicks[candidate.band]) {
       continue;
     }
 
-    if (countColumnAudioStreams(column) >= audio.maxAudioStreamsPerColumn) {
-      continue;
-    }
-    if (column.streams.length >= DEFAULT_PRESET.maxConcurrentStreamsPerColumn + audio.maxAudioStreamsPerColumn) {
+    const power = Math.pow(candidate.level, 1.28);
+    const chance = clamp(
+      audio.baseChancePerTick + power * intensity * (audio.maxChancePerTick - audio.baseChancePerTick),
+      0,
+      audio.maxChancePerTick
+    );
+    if (hashUnit(candidate.seed ^ 0x4b1d) > chance) {
       continue;
     }
 
-    column.streams.push(createAudioStream(column, seed, level));
-    released += 1;
+    if (releaseAudioWave(candidate.band, candidate.level, candidate.seed)) {
+      break;
+    }
   }
 }
 
@@ -2507,6 +2688,9 @@ function prebuildGlyphAtlases() {
 
   for (const palette of palettes) {
     if (palette.name.startsWith("audio") && !settings.audioenabled && !audioDebugEnabled) {
+      continue;
+    }
+    if (palette.name.startsWith("audioHue")) {
       continue;
     }
 
@@ -2711,6 +2895,15 @@ function clearClockGridCells() {
 }
 
 function clearAudioRain() {
+  audioState.nextGlobalWaveTick = 0;
+  audioState.nextBandWaveTicks = {
+    bass: 0,
+    mid: 0,
+    treble: 0
+  };
+  audioState.lastWaveBand = "none";
+  audioState.waveCount = 0;
+
   for (const column of activeColumns) {
     if (!column || !column.cells) {
       continue;
@@ -3173,6 +3366,9 @@ function collectMatrixRainState() {
       if (cell.audioCell) {
         columnAudioCells += 1;
         summary.audioRainCells += 1;
+        if (cell.audioBand && Object.prototype.hasOwnProperty.call(summary.audioBandCells, cell.audioBand)) {
+          summary.audioBandCells[cell.audioBand] += 1;
+        }
       }
     }
 
@@ -3210,6 +3406,11 @@ function collectMatrixRainState() {
     clockGridCells: 0,
     columnsWithClockCells: 0,
     audioRainCells: 0,
+    audioBandCells: {
+      bass: 0,
+      mid: 0,
+      treble: 0
+    },
     columnsWithAudioRain: 0,
     columnLengthSum: 0,
     maxColumnLength: 0
@@ -3269,7 +3470,16 @@ function collectMatrixRainState() {
       mid: Number(audioState.mid.toFixed(4)),
       treble: Number(audioState.treble.toFixed(4)),
       audioRainCells: metrics.audioRainCells,
-      columnsWithAudioRain: metrics.columnsWithAudioRain
+      audioBandCells: metrics.audioBandCells,
+      columnsWithAudioRain: metrics.columnsWithAudioRain,
+      lastWaveBand: audioState.lastWaveBand,
+      waveCount: audioState.waveCount,
+      nextWaveCooldown: Math.max(0, audioState.nextGlobalWaveTick - logicalTick),
+      nextBandCooldowns: {
+        bass: Math.max(0, audioState.nextBandWaveTicks.bass - logicalTick),
+        mid: Math.max(0, audioState.nextBandWaveTicks.mid - logicalTick),
+        treble: Math.max(0, audioState.nextBandWaveTicks.treble - logicalTick)
+      }
     },
     speedRowsPerSecond: DEFAULT_PRESET.speedRowsPerSecond,
     settingsSpeed: settings.speed,
@@ -3286,6 +3496,8 @@ function collectMatrixRainState() {
           negative: stream.negative,
           finished: stream.finished,
           headRow: stream.headCellRow,
+          audioBand: stream.audioBand || null,
+          paletteName: stream.paletteName,
           hasHead: Boolean(cell && cell.head && cell.headStreamId === stream.id)
         };
       })

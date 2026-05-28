@@ -2325,9 +2325,9 @@ function markClockCellGroup(nextMask, nextCells, nextEmphasisMask, nextHighlight
 
 function markClockHorizontalSegment(nextMask, nextCells, nextEmphasisMask, nextHighlightMask, startColumn, startRow, scale, segmentRow) {
   const y = startRow + Math.round(segmentRow * scale);
-  const segmentStart = startColumn + Math.max(1, Math.round(scale * 0.8));
-  const segmentEnd = startColumn + Math.round(5 * scale) - Math.max(2, Math.round(scale * 0.8));
   const thickness = Math.max(1, Math.ceil(scale * 0.55));
+  const segmentStart = startColumn;
+  const segmentEnd = startColumn + Math.round(5 * scale) - 1;
 
   for (let offset = 0; offset < thickness; offset += 1) {
     for (let columnIndex = segmentStart; columnIndex <= segmentEnd; columnIndex += 1) {
@@ -2337,10 +2337,12 @@ function markClockHorizontalSegment(nextMask, nextCells, nextEmphasisMask, nextH
 }
 
 function markClockVerticalSegment(nextMask, nextCells, nextEmphasisMask, nextHighlightMask, startColumn, startRow, scale, segmentColumn, segmentStartRow, segmentEndRow) {
-  const x = startColumn + Math.round(segmentColumn * scale);
-  const yStart = startRow + Math.round(segmentStartRow * scale) + Math.max(1, Math.round(scale * 0.35));
-  const yEnd = startRow + Math.round(segmentEndRow * scale) - Math.max(1, Math.round(scale * 0.35));
   const thickness = Math.max(1, Math.ceil(scale * 0.55));
+  const x = segmentColumn === 0
+    ? startColumn
+    : startColumn + Math.round(segmentColumn * scale) - thickness;
+  const yStart = startRow + Math.round(segmentStartRow * scale);
+  const yEnd = startRow + Math.round(segmentEndRow * scale) + thickness - 1;
 
   for (let offset = 0; offset < thickness; offset += 1) {
     for (let rowIndex = yStart; rowIndex <= yEnd; rowIndex += 1) {
@@ -2379,7 +2381,7 @@ function buildClockMaskFromLcdSegments(text) {
   const nextEmphasisMask = new Uint8Array(rows * gridColumns);
   const nextHighlightMask = new Uint8Array(rows * gridColumns);
   const nextCells = [];
-  const digitWidth = 6;
+  const digitWidth = 5;
   const digitHeight = 7;
   const colonWidth = 1;
   const gap = clock.gapColumns + 1;

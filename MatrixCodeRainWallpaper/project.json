@@ -41,23 +41,39 @@
         "editable": true,
         "order": 40
       },
+      "fontstyle": {
+        "text": "Rain font",
+        "type": "combo",
+        "value": "trilogy",
+        "options": [
+          {
+            "label": "Matrix Code trilogy",
+            "value": "trilogy"
+          },
+          {
+            "label": "Matrix Resurrections",
+            "value": "resurrections"
+          }
+        ],
+        "order": 50
+      },
       "glow": {
         "text": "Glow",
         "type": "bool",
         "value": true,
-        "order": 50
+        "order": 60
       },
       "color": {
         "text": "Color",
         "type": "color",
         "value": "0.21 0.85 0.41",
-        "order": 60
+        "order": 70
       },
       "clock": {
         "text": "Clock",
         "type": "bool",
         "value": true,
-        "order": 70
+        "order": 80
       },
       "clockstyle": {
         "text": "Clock style",
@@ -73,7 +89,7 @@
             "value": "matrixfont"
           }
         ],
-        "order": 80
+        "order": 90
       },
       "clockbrightness": {
         "text": "Clock brightness",
@@ -82,7 +98,7 @@
         "min": 60,
         "max": 160,
         "editable": true,
-        "order": 90
+        "order": 100
       }
     },
     "supportsaudioprocessing": false

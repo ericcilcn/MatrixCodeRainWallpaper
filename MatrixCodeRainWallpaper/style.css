@@ -4,6 +4,12 @@
   font-display: block;
 }
 
+@font-face {
+  font-family: "Matrix Resurrected";
+  src: url("assets/fonts/Matrix-Resurrected.ttf") format("truetype");
+  font-display: block;
+}
+
 html,
 body {
   width: 100%;

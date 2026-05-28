@@ -3,7 +3,11 @@
 const canvas = document.getElementById("matrix-rain");
 const ctx = canvas.getContext("2d", { alpha: false });
 
-const FONT_FAMILY = "\"Matrix Code\", monospace";
+const FONT_STYLES = new Set(["trilogy", "resurrections"]);
+const FONT_FAMILIES = {
+  trilogy: "\"Matrix Code\", monospace",
+  resurrections: "\"Matrix Resurrected\", \"Matrix Code\", monospace"
+};
 const DPR_LIMIT = 2;
 const BASE_COLOR = { r: 54, g: 217, b: 105 };
 const GLYPH_EDGE_ALPHA = 0.72;
@@ -14,10 +18,20 @@ const LAYOUT_OVERRIDE = URL_PARAMS.get("layout");
 const CLOCK_OVERRIDE = parseBooleanParam(URL_PARAMS.get("clock"));
 const CLOCK_STYLES = new Set(["sevensegment", "matrixfont"]);
 const CLOCK_STYLE_OVERRIDE = normalizeClockStyle(URL_PARAMS.get("clockstyle"));
-const CHAR_POOL = `"*+012345789:<>z|¦©╌▪アウエオカキケコサシスセソタツテナニヌネハヒホマミムメモヤヨラリワー꞊\uE937`;
-const CHAR_LIST = Array.from(CHAR_POOL);
-const GLYPH_INDEX = new Map(CHAR_LIST.map((char, index) => [char, index]));
-const GLYPH_MEASURE_POOL = CHAR_POOL;
+const FONT_STYLE_OVERRIDE = normalizeFontStyle(URL_PARAMS.get("fontstyle"));
+const TRILOGY_CHAR_POOL = `"*+012345789:<>z|¦©╌▪アウエオカキケコサシスセソタツテナニヌネハヒホマミムメモヤヨラリワー꞊\uE937`;
+const RESURRECTIONS_CHAR_POOL = Array.from(
+  { length: 0xe989 - 0xe900 + 1 },
+  (_, index) => String.fromCharCode(0xe900 + index)
+).join("");
+const FONT_CHAR_POOLS = {
+  trilogy: TRILOGY_CHAR_POOL,
+  resurrections: RESURRECTIONS_CHAR_POOL
+};
+let CHAR_POOL = TRILOGY_CHAR_POOL;
+let CHAR_LIST = Array.from(CHAR_POOL);
+let GLYPH_INDEX = new Map(CHAR_LIST.map((char, index) => [char, index]));
+let GLYPH_MEASURE_POOL = CHAR_POOL;
 const GLYPH_STYLES = ["dim", "body", "bright", "head"];
 const CLOCK_GLYPHS = {
   "0": ["11111", "10001", "10011", "10101", "11001", "10001", "11111"],
@@ -330,6 +344,7 @@ const DEFAULT_PRESET = {
     speed: 55,
     brightness: 100,
     glyphscale: 100,
+    fontstyle: "trilogy",
     glow: true,
     clock: true,
     clockstyle: "sevensegment",
@@ -343,6 +358,7 @@ const settings = {
   speed: DEFAULT_PRESET.wallpaperProperties.speed,
   brightness: DEFAULT_PRESET.wallpaperProperties.brightness,
   glyphscale: DEFAULT_PRESET.wallpaperProperties.glyphscale,
+  fontstyle: FONT_STYLE_OVERRIDE ?? DEFAULT_PRESET.wallpaperProperties.fontstyle,
   glow: DEFAULT_PRESET.wallpaperProperties.glow,
   clock: CLOCK_OVERRIDE ?? DEFAULT_PRESET.wallpaperProperties.clock,
   clockstyle: CLOCK_STYLE_OVERRIDE ?? DEFAULT_PRESET.wallpaperProperties.clockstyle,
@@ -361,6 +377,8 @@ let cellHeight = 36;
 let fontSize = 27;
 let glyphScaleX = 1;
 let glyphScaleY = 1;
+let activeFontStyle = settings.fontstyle;
+let activeFontFamily = FONT_FAMILIES[activeFontStyle] || FONT_FAMILIES.trilogy;
 let activeLayoutProfile = null;
 let activeColumns = [];
 let palettes = [];
@@ -417,6 +435,51 @@ function normalizeClockStyle(value) {
     return normalized;
   }
   return null;
+}
+
+function normalizeFontStyle(value) {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const normalized = value.trim().toLowerCase().replace(/[-_\s]/g, "");
+  if (["trilogy", "classic", "matrix", "matrixcode", "matrixcodettf"].includes(normalized)) {
+    return "trilogy";
+  }
+  if (["resurrections", "resurrection", "resurrected", "matrixresurrections", "matrixresurrected", "matrixresurrectedttf"].includes(normalized)) {
+    return "resurrections";
+  }
+  if (FONT_STYLES.has(normalized)) {
+    return normalized;
+  }
+  return null;
+}
+
+function setActiveFontStyle(nextStyle) {
+  const normalized = normalizeFontStyle(nextStyle) || DEFAULT_PRESET.wallpaperProperties.fontstyle;
+  activeFontStyle = normalized;
+  activeFontFamily = FONT_FAMILIES[activeFontStyle] || FONT_FAMILIES.trilogy;
+  CHAR_POOL = FONT_CHAR_POOLS[activeFontStyle] || FONT_CHAR_POOLS.trilogy;
+  CHAR_LIST = Array.from(CHAR_POOL);
+  GLYPH_INDEX = new Map(CHAR_LIST.map((char, index) => [char, index]));
+  GLYPH_MEASURE_POOL = CHAR_POOL;
+  glyphCache = new Map();
+  settings.fontstyle = activeFontStyle;
+}
+
+function loadActiveFont() {
+  if (!document.fonts || typeof document.fonts.load !== "function") {
+    return Promise.resolve();
+  }
+
+  const loadSize = fontSize || 18;
+  const families = Array.from(new Set([activeFontFamily, FONT_FAMILIES.trilogy]));
+  return Promise.all(families.map((family) => document.fonts.load(`${loadSize}px ${family}`)))
+    .then(() => document.fonts.ready);
+}
+
+function clockFontFamily() {
+  return FONT_FAMILIES.trilogy;
 }
 
 function clampInt(value, min, max) {
@@ -640,7 +703,7 @@ function tickRate() {
 function measureMaxGlyphWidth(size) {
   const scratch = document.createElement("canvas");
   const sctx = scratch.getContext("2d");
-  sctx.font = `${size}px ${FONT_FAMILY}`;
+  sctx.font = `${size}px ${activeFontFamily}`;
 
   let maxWidth = 1;
   for (const char of CHAR_POOL) {
@@ -661,7 +724,7 @@ function fitFontSizeForPitch(baseSize, maxGlyphWidth) {
 function measureMedianGlyphBounds(size) {
   const scratch = document.createElement("canvas");
   const sctx = scratch.getContext("2d");
-  sctx.font = `${size}px ${FONT_FAMILY}`;
+  sctx.font = `${size}px ${activeFontFamily}`;
 
   const widths = [];
   const heights = [];
@@ -1938,7 +2001,7 @@ function paintGlyph(context, char, styleName, palette, x, y) {
 }
 
 function glyphAtlasKey(styleName, palette) {
-  return `${cellWidth}:${cellHeight}:${fontSize}:${glyphScaleX}:${glyphScaleY}:${dpr}:${styleName}:${settings.glow}:${GLYPH_EDGE_ALPHA}:${palette.name}:${palette.dim}:${palette.body}:${palette.bright}:${palette.head}`;
+  return `${cellWidth}:${cellHeight}:${fontSize}:${glyphScaleX}:${glyphScaleY}:${dpr}:${activeFontStyle}:${activeFontFamily}:${styleName}:${settings.glow}:${GLYPH_EDGE_ALPHA}:${palette.name}:${palette.dim}:${palette.body}:${palette.bright}:${palette.head}`;
 }
 
 function createGlyphAtlas(styleName, palette) {
@@ -1967,7 +2030,7 @@ function createGlyphAtlas(styleName, palette) {
   sctx.imageSmoothingEnabled = false;
   sctx.scale(dpr, dpr);
   sctx.clearRect(0, 0, cssWidth * atlasColumns, cssHeight * atlasRows);
-  sctx.font = `${fontSize}px ${FONT_FAMILY}`;
+  sctx.font = `${fontSize}px ${activeFontFamily}`;
   sctx.textAlign = "center";
   sctx.textBaseline = "middle";
 
@@ -2056,7 +2119,7 @@ function measureClockFontLayout(context, text, fontPx, sampleScale) {
   let ascent = 0;
   let descent = 0;
 
-  context.font = `${fontPx}px ${FONT_FAMILY}`;
+  context.font = `${fontPx}px ${clockFontFamily()}`;
   context.textAlign = "left";
   context.textBaseline = "alphabetic";
 
@@ -2267,7 +2330,7 @@ function buildClockMaskFromMatrixDigits(text) {
   const colonSquares = [];
 
   maskContext.fillStyle = "#fff";
-  maskContext.font = `${fontPx}px ${FONT_FAMILY}`;
+  maskContext.font = `${fontPx}px ${clockFontFamily()}`;
   maskContext.textAlign = "left";
   maskContext.textBaseline = "alphabetic";
 
@@ -2908,6 +2971,12 @@ function collectMatrixRainState() {
     glyphScaleX,
     glyphScaleY,
     dpr,
+    font: {
+      style: settings.fontstyle,
+      styleOverride: FONT_STYLE_OVERRIDE,
+      family: activeFontFamily,
+      glyphCount: CHAR_LIST.length
+    },
     layoutProfile: activeLayoutProfile,
     layout: DEFAULT_PRESET.layout,
     clock: {
@@ -3005,6 +3074,7 @@ window.wallpaperPropertyListener = {
   applyUserProperties(properties) {
     let needsRestart = false;
     let needsAppearanceRefresh = false;
+    let needsFontLoad = false;
 
     if (Object.prototype.hasOwnProperty.call(properties, "density")) {
       settings.density = clamp(Number(properties.density.value) || DEFAULT_PRESET.wallpaperProperties.density, 30, 95);
@@ -3023,6 +3093,19 @@ window.wallpaperPropertyListener = {
     if (Object.prototype.hasOwnProperty.call(properties, "glyphscale")) {
       settings.glyphscale = clamp(Number(properties.glyphscale.value) || DEFAULT_PRESET.wallpaperProperties.glyphscale, 75, 130);
       needsRestart = true;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(properties, "fontstyle")) {
+      const nextFontStyle = FONT_STYLE_OVERRIDE
+        ?? normalizeFontStyle(String(properties.fontstyle.value))
+        ?? DEFAULT_PRESET.wallpaperProperties.fontstyle;
+      if (nextFontStyle !== activeFontStyle) {
+        setActiveFontStyle(nextFontStyle);
+        clockMaskKey = "";
+        clearClockGridCells();
+        needsRestart = true;
+        needsFontLoad = true;
+      }
     }
 
     if (Object.prototype.hasOwnProperty.call(properties, "glow")) {
@@ -3055,11 +3138,19 @@ window.wallpaperPropertyListener = {
       needsAppearanceRefresh = true;
     }
 
-    if (needsRestart) {
-      buildPalettes();
-      restartRain();
-    } else if (needsAppearanceRefresh) {
-      refreshAppearance();
+    const finishUpdates = () => {
+      if (needsRestart) {
+        buildPalettes();
+        restartRain();
+      } else if (needsAppearanceRefresh) {
+        refreshAppearance();
+      }
+    };
+
+    if (needsFontLoad) {
+      loadActiveFont().then(finishUpdates);
+    } else {
+      finishUpdates();
     }
   },
 
@@ -3091,9 +3182,9 @@ document.addEventListener("visibilitychange", () => {
   }
 });
 
-const fontReady = document.fonts && typeof document.fonts.load === "function"
-  ? document.fonts.load(`${fontSize || 18}px ${FONT_FAMILY}`).then(() => document.fonts.ready)
-  : Promise.resolve();
+setActiveFontStyle(settings.fontstyle);
+
+const fontReady = loadActiveFont();
 
 Promise.race([
   fontReady,

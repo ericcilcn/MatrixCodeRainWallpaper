@@ -1509,6 +1509,11 @@ function updateCell(column, rowIndex) {
     return;
   }
 
+  if (cell.clockCell) {
+    updateClockCell(column, rowIndex, cell);
+    return;
+  }
+
   cell.age += 1;
   cell.justWritten = false;
 
@@ -2007,6 +2012,7 @@ function clockTextBaseWidth(text) {
 
 function updateClockMask() {
   if (!settings.clock || rows <= 0 || gridColumns <= 0) {
+    clearClockGridCells();
     clockMask = new Uint8Array(0);
     clockCells = [];
     clockMaskKey = "";
@@ -2083,6 +2089,112 @@ function isClockMaskCell(columnIndex, rowIndex) {
     && rowIndex >= 0
     && rowIndex < rows
     && clockMask[rowIndex * gridColumns + columnIndex] === 1;
+}
+
+function clearClockGridCells() {
+  for (const column of activeColumns) {
+    if (!column || !column.cells) {
+      continue;
+    }
+
+    for (let rowIndex = 0; rowIndex < column.cells.length; rowIndex += 1) {
+      if (column.cells[rowIndex] && column.cells[rowIndex].clockCell) {
+        column.cells[rowIndex] = null;
+      }
+    }
+  }
+}
+
+function clockCellBaseAlpha() {
+  return DEFAULT_PRESET.clock.alphaFloor * (settings.clockbrightness / 100);
+}
+
+function updateClockCell(column, rowIndex, cell) {
+  if (!isClockMaskCell(column.index, rowIndex)) {
+    column.cells[rowIndex] = null;
+    return;
+  }
+
+  const clock = DEFAULT_PRESET.clock;
+  cell.age += 1;
+  cell.justWritten = false;
+
+  if (logicalTick >= cell.nextRotateTick) {
+    cell.salt = hashInt(cell.salt ^ Math.imul(logicalTick + rowIndex + 3, 1597334677));
+    cell.char = chooseStableChar(PATTERN_SEED ^ 0x61c10c, column.index, rowIndex, cell.salt);
+    cell.nextRotateTick = logicalTick + clock.fallbackRotateTicks;
+  }
+
+  cell.life = Number.MAX_SAFE_INTEGER;
+  cell.negative = false;
+  cell.head = false;
+  cell.headStreamId = null;
+  cell.headPreviousGlowHead = false;
+  cell.glowHead = true;
+  cell.paletteName = "clock";
+  cell.baseAlpha = clockCellBaseAlpha();
+  cell.target = cell.baseAlpha;
+  cell.alpha = cell.baseAlpha;
+}
+
+function ensureClockGridCells() {
+  if (!settings.clock || clockCells.length === 0) {
+    return;
+  }
+
+  const baseAlpha = clockCellBaseAlpha();
+
+  for (const clockCell of clockCells) {
+    const column = activeColumns[clockCell.columnIndex + 2];
+    if (!column || column.index !== clockCell.columnIndex) {
+      continue;
+    }
+
+    const rowIndex = clockCell.rowIndex;
+    const current = column.cells[rowIndex];
+    if (current && !current.negative) {
+      const nextAlpha = current.clockCell ? baseAlpha : Math.max(current.baseAlpha || 0, baseAlpha);
+      current.clockCell = true;
+      current.staticCell = false;
+      current.transient = false;
+      current.paletteName = "clock";
+      current.glowHead = true;
+      current.baseAlpha = nextAlpha;
+      current.target = current.baseAlpha;
+      current.alpha = current.baseAlpha;
+      current.life = Number.MAX_SAFE_INTEGER;
+      current.nextRotateTick = Number.isFinite(current.nextRotateTick)
+        ? Math.min(current.nextRotateTick, logicalTick + DEFAULT_PRESET.clock.fallbackRotateTicks)
+        : logicalTick + DEFAULT_PRESET.clock.fallbackRotateTicks;
+      continue;
+    }
+
+    const salt = hashInt(clockCell.salt ^ Math.imul(logicalTick + 1, 1103515245));
+    const char = chooseStableChar(PATTERN_SEED ^ 0x61c10c, column.index, rowIndex, salt);
+    column.cells[rowIndex] = {
+      char,
+      stableChar: char,
+      salt,
+      age: 0,
+      life: Number.MAX_SAFE_INTEGER,
+      alpha: baseAlpha,
+      target: baseAlpha,
+      baseAlpha,
+      paletteName: "clock",
+      rotator: true,
+      nextRotateTick: logicalTick + DEFAULT_PRESET.clock.fallbackRotateTicks,
+      streamId: `clock:${column.index}:${rowIndex}`,
+      negative: false,
+      head: false,
+      headPreviousGlowHead: false,
+      headStreamId: null,
+      transient: false,
+      staticCell: false,
+      clockCell: true,
+      glowHead: true,
+      justWritten: true
+    };
+  }
 }
 
 function drawClockFallbackGlyphs() {
@@ -2183,6 +2295,7 @@ function drawGlyph(cell, column, rowIndex) {
 function render(now = performance.now()) {
   renderSeconds = now / 1000;
   updateClockMask();
+  ensureClockGridCells();
   ctx.globalAlpha = 1;
   ctx.globalCompositeOperation = "source-over";
   ctx.fillStyle = "#000";
@@ -2375,6 +2488,7 @@ function collectMatrixRainState() {
     let columnHeads = 0;
     let columnBright = 0;
     let columnRotators = 0;
+    let columnClockCells = 0;
 
     for (const cell of column.cells) {
       if (!cell) {
@@ -2395,6 +2509,10 @@ function collectMatrixRainState() {
         columnRotators += 1;
         summary.rotatingCells += 1;
       }
+      if (cell.clockCell) {
+        columnClockCells += 1;
+        summary.clockGridCells += 1;
+      }
     }
 
     if (columnCells > 0) {
@@ -2411,6 +2529,9 @@ function collectMatrixRainState() {
     if (columnRotators > 0) {
       summary.columnsWithRotators += 1;
     }
+    if (columnClockCells > 0) {
+      summary.columnsWithClockCells += 1;
+    }
 
     return summary;
   }, {
@@ -2422,6 +2543,8 @@ function collectMatrixRainState() {
     columnsWithHeads: 0,
     columnsWithBright: 0,
     columnsWithRotators: 0,
+    clockGridCells: 0,
+    columnsWithClockCells: 0,
     columnLengthSum: 0,
     maxColumnLength: 0
   });
@@ -2455,7 +2578,8 @@ function collectMatrixRainState() {
       override: CLOCK_OVERRIDE,
       text: clockText,
       activeCells: clockMask.reduce((sum, value) => sum + value, 0),
-      fallbackCells: clockCells.length
+      fallbackCells: clockCells.length,
+      materializedCells: metrics.clockGridCells
     },
     speedRowsPerSecond: DEFAULT_PRESET.speedRowsPerSecond,
     settingsSpeed: settings.speed,

@@ -2323,14 +2323,20 @@ function markClockCellGroup(nextMask, nextCells, nextEmphasisMask, nextHighlight
   markClockMaskCell(nextEmphasisMask, null, columnIndex, rowIndex);
 }
 
+function lcdSegmentBevel(scale) {
+  return Math.max(1, Math.floor(scale * 0.45));
+}
+
 function markClockHorizontalSegment(nextMask, nextCells, nextEmphasisMask, nextHighlightMask, startColumn, startRow, scale, segmentRow) {
   const y = startRow + Math.round(segmentRow * scale);
   const thickness = Math.max(1, Math.ceil(scale * 0.55));
   const segmentStart = startColumn;
   const segmentEnd = startColumn + Math.round(5 * scale) - 1;
+  const bevel = lcdSegmentBevel(scale);
 
   for (let offset = 0; offset < thickness; offset += 1) {
-    for (let columnIndex = segmentStart; columnIndex <= segmentEnd; columnIndex += 1) {
+    const edgeInset = Math.max(0, bevel - offset);
+    for (let columnIndex = segmentStart + edgeInset; columnIndex <= segmentEnd - edgeInset; columnIndex += 1) {
       markClockCellGroup(nextMask, nextCells, nextEmphasisMask, nextHighlightMask, columnIndex, y + offset);
     }
   }
@@ -2341,8 +2347,11 @@ function markClockVerticalSegment(nextMask, nextCells, nextEmphasisMask, nextHig
   const x = segmentColumn === 0
     ? startColumn
     : startColumn + Math.round(segmentColumn * scale) - thickness;
-  const yStart = startRow + Math.round(segmentStartRow * scale);
-  const yEnd = startRow + Math.round(segmentEndRow * scale) + thickness - 1;
+  const bevel = lcdSegmentBevel(scale);
+  const topInset = segmentStartRow === 0 ? bevel : 0;
+  const bottomInset = segmentEndRow === 6 ? bevel : 0;
+  const yStart = startRow + Math.round(segmentStartRow * scale) + topInset;
+  const yEnd = startRow + Math.round(segmentEndRow * scale) + thickness - 1 - bottomInset;
 
   for (let offset = 0; offset < thickness; offset += 1) {
     for (let rowIndex = yStart; rowIndex <= yEnd; rowIndex += 1) {

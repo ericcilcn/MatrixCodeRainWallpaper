@@ -111,8 +111,8 @@ const DEFAULT_PRESET = {
     accentMultiplier: 1.22
   },
   positiveAlpha: {
-    base: 0.98,
-    variance: 0.08
+    base: 1,
+    variance: 0.025
   },
   negativeAlpha: {
     base: 0.58,
@@ -260,10 +260,10 @@ const DEFAULT_PRESET = {
     charRefreshChance: 0.0011,
     brightFlipChance: 0.008,
     brightChance: 0.68,
-    brightAlphaMin: 1.48,
-    brightAlphaMax: 1.86,
-    bodyAlphaMin: 0.95,
-    bodyAlphaMax: 1.18,
+    brightAlphaMin: 1.02,
+    brightAlphaMax: 1.08,
+    bodyAlphaMin: 0.98,
+    bodyAlphaMax: 1.06,
     lifeMinTicks: 1500,
     lifeMaxTicks: 3600,
     singleBirthChancePerTick: 0.09,
@@ -2414,6 +2414,18 @@ function createGlyph(char, styleName, palette) {
   };
 }
 
+function paletteForCell(cell, column, clockHighlightHit) {
+  if (clockHighlightHit || cell.clockCell) {
+    return paletteByName("clock");
+  }
+
+  if (cell.audioCell) {
+    return paletteByName(cell.paletteName) || column.palette;
+  }
+
+  return column.palette || paletteByName(column.paletteName);
+}
+
 function currentClockText() {
   const now = new Date();
   const hours = String(now.getHours()).padStart(2, "0");
@@ -3108,9 +3120,12 @@ function drawGlyph(cell, column, rowIndex) {
   } else if (cell.negative || alpha < 0.2) {
     styleName = "dim";
     alpha *= cell.negative ? 0.62 : 0.82;
-  } else if (cell.glowHead) {
+  } else if (cell.audioCell && cell.glowHead) {
     styleName = "bright";
     alpha *= (cell.rotator ? 1.08 : 1.0) + 0.08 * glowIntensity;
+  } else if (cell.glowHead) {
+    styleName = "body";
+    alpha *= cell.rotator ? 1.02 : 1.0;
   }
 
   if (clockEmphasisHit) {
@@ -3128,9 +3143,7 @@ function drawGlyph(cell, column, rowIndex) {
     return;
   }
 
-  const palette = clockHighlightHit
-    ? paletteByName("clock")
-    : paletteByName(cell.paletteName) || column.palette;
+  const palette = paletteForCell(cell, column, clockHighlightHit);
   const sprite = createGlyph(cell.char, styleName, palette);
   const x = column.x;
   const y = (rowIndex + 0.5) * cellHeight;
@@ -3140,10 +3153,10 @@ function drawGlyph(cell, column, rowIndex) {
   } else if (clockHighlightHit) {
     visibility = Math.max(visibility, 0.68);
   }
-  if (!cell.negative && (cell.head || cell.glowHead)) {
+  if (!cell.negative && cell.head) {
     const rowUnit = rowIndex / Math.max(1, rows - 1);
-    const upperFloor = cell.head ? 0.88 : 0.74;
-    const lowerFloor = cell.head ? 0.64 : 0.5;
+    const upperFloor = 0.88;
+    const lowerFloor = 0.64;
     const floorMix = clamp((0.68 - rowUnit) / 0.2, 0, 1);
     visibility = Math.max(visibility, lowerFloor * (1 - floorMix) + upperFloor * floorMix);
   }

@@ -306,6 +306,7 @@ const DEFAULT_PRESET = {
     colonWidthRatio: 0.18,
     colonDotSizeRatio: 0.12,
     maskCoverageThreshold: 0.28,
+    highlightCoverageThreshold: 0.16,
     digitErodeRatio: 0.075,
     digitErodeMinPx: 2
   },
@@ -358,6 +359,7 @@ let running = true;
 let started = false;
 let debugStateElement = null;
 let clockMask = new Uint8Array(0);
+let clockHighlightMask = new Uint8Array(0);
 let clockCells = [];
 let clockMaskKey = "";
 let clockText = "";
@@ -495,7 +497,7 @@ function referenceToneColor(referenceColor, brightness) {
 function buildPalettes() {
   const referenceBrightness = clamp(settings.brightness / 100, 0.45, 1);
   const glowIntensity = DEFAULT_PRESET.glowingTracers.intensity / 100;
-  const whiteGreenHead = { r: 253, g: 255, b: 244 };
+  const whiteGreenHead = { r: 226, g: 255, b: 220 };
   const variants = [
     { name: "dim", bodyColor: { r: 29, g: 138, b: 59 }, brightColor: { r: 64, g: 196, b: 100 }, glow: 0.18 },
     { name: "normal", bodyColor: { r: 36, g: 176, b: 75 }, brightColor: { r: 96, g: 228, b: 132 }, glow: 0.28 },
@@ -2040,11 +2042,13 @@ function markClockMaskCell(nextMask, nextCells, columnIndex, rowIndex) {
   }
 
   nextMask[maskIndex] = 1;
-  nextCells.push({
-    columnIndex,
-    rowIndex,
-    salt: hashInt(Math.imul(columnIndex + 4099, 374761393) ^ Math.imul(rowIndex + 9176, 668265263))
-  });
+  if (nextCells) {
+    nextCells.push({
+      columnIndex,
+      rowIndex,
+      salt: hashInt(Math.imul(columnIndex + 4099, 374761393) ^ Math.imul(rowIndex + 9176, 668265263))
+    });
+  }
 }
 
 function markClockColonSquares(nextMask, nextCells, x, top, height, fontPx, sampleScale) {
@@ -2066,6 +2070,26 @@ function markClockColonSquares(nextMask, nextCells, x, top, height, fontPx, samp
           centerColumn - startOffset + columnOffset,
           centerRow - startOffset + rowOffset
         );
+      }
+    }
+  }
+}
+
+function sampleClockRasterToMask(image, threshold, targetMask, sampleScale, maskWidth) {
+  for (let rowIndex = 0; rowIndex < rows; rowIndex += 1) {
+    for (let columnIndex = 0; columnIndex < gridColumns; columnIndex += 1) {
+      let alphaSum = 0;
+      for (let sampleY = 0; sampleY < sampleScale; sampleY += 1) {
+        const y = rowIndex * sampleScale + sampleY;
+        for (let sampleX = 0; sampleX < sampleScale; sampleX += 1) {
+          const x = columnIndex * sampleScale + sampleX;
+          alphaSum += image[(y * maskWidth + x) * 4 + 3];
+        }
+      }
+
+      const coverage = alphaSum / (sampleScale * sampleScale * 255);
+      if (coverage >= threshold) {
+        markClockMaskCell(targetMask, null, columnIndex, rowIndex);
       }
     }
   }
@@ -2127,6 +2151,10 @@ function buildClockMaskFromMatrixDigits(text) {
     }
   }
 
+  const highlightImage = maskContext.getImageData(0, 0, maskWidth, maskHeight).data;
+  const nextHighlightMask = new Uint8Array(rows * gridColumns);
+  sampleClockRasterToMask(highlightImage, clock.highlightCoverageThreshold, nextHighlightMask, sampleScale, maskWidth);
+
   if (digitDraws.length > 0) {
     maskContext.save();
     maskContext.globalCompositeOperation = "destination-out";
@@ -2146,29 +2174,21 @@ function buildClockMaskFromMatrixDigits(text) {
   const image = maskContext.getImageData(0, 0, maskWidth, maskHeight).data;
   const nextMask = new Uint8Array(rows * gridColumns);
   const nextCells = [];
-
-  for (let rowIndex = 0; rowIndex < rows; rowIndex += 1) {
-    for (let columnIndex = 0; columnIndex < gridColumns; columnIndex += 1) {
-      let alphaSum = 0;
-      for (let sampleY = 0; sampleY < sampleScale; sampleY += 1) {
-        const y = rowIndex * sampleScale + sampleY;
-        for (let sampleX = 0; sampleX < sampleScale; sampleX += 1) {
-          const x = columnIndex * sampleScale + sampleX;
-          alphaSum += image[(y * maskWidth + x) * 4 + 3];
-        }
-      }
-
-      const coverage = alphaSum / (sampleScale * sampleScale * 255);
-      if (coverage >= clock.maskCoverageThreshold) {
-        markClockMaskCell(nextMask, nextCells, columnIndex, rowIndex);
-      }
-    }
-  }
+  sampleClockRasterToMask(image, clock.maskCoverageThreshold, nextMask, sampleScale, maskWidth);
 
   for (const colonSquare of colonSquares) {
     markClockColonSquares(
       nextMask,
-      nextCells,
+      null,
+      colonSquare.x,
+      colonSquare.top,
+      colonSquare.height,
+      colonSquare.fontPx,
+      colonSquare.sampleScale
+    );
+    markClockColonSquares(
+      nextHighlightMask,
+      null,
       colonSquare.x,
       colonSquare.top,
       colonSquare.height,
@@ -2177,8 +2197,22 @@ function buildClockMaskFromMatrixDigits(text) {
     );
   }
 
+  for (let maskIndex = 0; maskIndex < nextMask.length; maskIndex += 1) {
+    if (nextMask[maskIndex] !== 1) {
+      continue;
+    }
+
+    nextHighlightMask[maskIndex] = 1;
+    nextCells.push({
+      columnIndex: maskIndex % gridColumns,
+      rowIndex: Math.floor(maskIndex / gridColumns),
+      salt: hashInt(Math.imul((maskIndex % gridColumns) + 4099, 374761393) ^ Math.imul(Math.floor(maskIndex / gridColumns) + 9176, 668265263))
+    });
+  }
+
   return {
     nextMask,
+    nextHighlightMask,
     nextCells
   };
 }
@@ -2187,6 +2221,7 @@ function updateClockMask() {
   if (!settings.clock || rows <= 0 || gridColumns <= 0) {
     clearClockGridCells();
     clockMask = new Uint8Array(0);
+    clockHighlightMask = new Uint8Array(0);
     clockCells = [];
     clockMaskKey = "";
     clockText = "";
@@ -2195,13 +2230,14 @@ function updateClockMask() {
 
   const text = currentClockText();
   const key = `${text}:${rows}:${gridColumns}`;
-  if (key === clockMaskKey && clockMask.length === rows * gridColumns) {
+  if (key === clockMaskKey && clockMask.length === rows * gridColumns && clockHighlightMask.length === rows * gridColumns) {
     return;
   }
 
-  const { nextMask, nextCells } = buildClockMaskFromMatrixDigits(text);
+  const { nextMask, nextHighlightMask, nextCells } = buildClockMaskFromMatrixDigits(text);
 
   clockMask = nextMask;
+  clockHighlightMask = nextHighlightMask;
   clockCells = nextCells;
   clockMaskKey = key;
   clockText = text;
@@ -2214,6 +2250,15 @@ function isClockMaskCell(columnIndex, rowIndex) {
     && rowIndex >= 0
     && rowIndex < rows
     && clockMask[rowIndex * gridColumns + columnIndex] === 1;
+}
+
+function isClockHighlightCell(columnIndex, rowIndex) {
+  return settings.clock
+    && columnIndex >= 0
+    && columnIndex < gridColumns
+    && rowIndex >= 0
+    && rowIndex < rows
+    && clockHighlightMask[rowIndex * gridColumns + columnIndex] === 1;
 }
 
 function clearClockGridCells() {
@@ -2363,7 +2408,7 @@ function drawGlyph(cell, column, rowIndex) {
   let styleName = "body";
   let alpha = cell.alpha;
   const glowIntensity = DEFAULT_PRESET.glowingTracers.intensity / 100;
-  const clockHit = isClockMaskCell(column.index, rowIndex);
+  const clockHit = isClockHighlightCell(column.index, rowIndex);
 
   if (cell.head) {
     styleName = "head";
@@ -2704,6 +2749,7 @@ function collectMatrixRainState() {
       mask: "matrix-font-digits",
       text: clockText,
       activeCells: clockMask.reduce((sum, value) => sum + value, 0),
+      highlightCells: clockHighlightMask.reduce((sum, value) => sum + value, 0),
       fallbackCells: clockCells.length,
       materializedCells: metrics.clockGridCells
     },

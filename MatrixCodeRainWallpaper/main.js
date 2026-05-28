@@ -17,19 +17,6 @@ const CHAR_LIST = Array.from(CHAR_POOL);
 const GLYPH_INDEX = new Map(CHAR_LIST.map((char, index) => [char, index]));
 const GLYPH_MEASURE_POOL = CHAR_POOL;
 const GLYPH_STYLES = ["dim", "body", "bright", "head"];
-const CLOCK_GLYPHS = {
-  "0": ["11111", "10001", "10011", "10101", "11001", "10001", "11111"],
-  "1": ["00100", "01100", "00100", "00100", "00100", "00100", "01110"],
-  "2": ["11111", "00001", "00001", "11111", "10000", "10000", "11111"],
-  "3": ["11111", "00001", "00001", "11111", "00001", "00001", "11111"],
-  "4": ["10001", "10001", "10001", "11111", "00001", "00001", "00001"],
-  "5": ["11111", "10000", "10000", "11111", "00001", "00001", "11111"],
-  "6": ["11111", "10000", "10000", "11111", "10001", "10001", "11111"],
-  "7": ["11111", "00001", "00010", "00100", "01000", "01000", "01000"],
-  "8": ["11111", "10001", "10001", "11111", "10001", "10001", "11111"],
-  "9": ["11111", "10001", "10001", "11111", "00001", "00001", "11111"],
-  ":": ["0", "1", "1", "0", "1", "1", "0"]
-};
 
 const REFERENCE_ROW_PROFILE = {
   active: [0.464, 0.464, 0.536, 0.507, 0.421, 0.464, 0.443, 0.45, 0.514, 0.457, 0.493, 0.471, 0.493, 0.471, 0.5, 0.471, 0.5, 0.493, 0.436, 0.429, 0.4, 0.429, 0.421, 0.386, 0.35, 0.371, 0.379, 0.329, 0.35, 0.336, 0.336, 0.35, 0.357, 0.314, 0.329, 0.279, 0.257, 0.257, 0.221, 0.2, 0.2, 0.207, 0.214, 0.221, 0.214, 0.186, 0.157, 0.207, 0.2, 0.193, 0.186, 0.15, 0.107, 0.05, 0.079, 0.071, 0.057, 0.036, 0.021],
@@ -313,7 +300,12 @@ const DEFAULT_PRESET = {
     visibilityFloor: 0.92,
     alphaFloor: 1.18,
     fallbackAlpha: 0.86,
-    fallbackRotateTicks: 42
+    fallbackRotateTicks: 42,
+    maskSampleScale: 4,
+    digitGapColumns: 1,
+    colonWidthRatio: 0.18,
+    colonDotSizeRatio: 0.12,
+    maskAlphaThreshold: 36
   },
   wallpaperProperties: {
     density: 62,
@@ -1991,23 +1983,138 @@ function currentClockText() {
   return `${hours}:${minutes}`;
 }
 
-function clockTextBaseWidth(text) {
-  const gap = DEFAULT_PRESET.clock.gapColumns;
-  let widthUnits = 0;
+function clockColonWidth(fontPx, sampleScale) {
+  return Math.max(sampleScale * 2, Math.round(fontPx * DEFAULT_PRESET.clock.colonWidthRatio));
+}
+
+function clockDigitGap(sampleScale) {
+  return Math.max(1, Math.round(DEFAULT_PRESET.clock.digitGapColumns * sampleScale));
+}
+
+function measureClockFontLayout(context, text, fontPx, sampleScale) {
+  const gap = clockDigitGap(sampleScale);
+  let width = 0;
+  let ascent = 0;
+  let descent = 0;
+
+  context.font = `${fontPx}px ${FONT_FAMILY}`;
+  context.textAlign = "left";
+  context.textBaseline = "alphabetic";
 
   for (let index = 0; index < text.length; index += 1) {
-    const glyph = CLOCK_GLYPHS[text[index]];
-    if (!glyph) {
-      continue;
+    const char = text[index];
+    if (char === ":") {
+      width += clockColonWidth(fontPx, sampleScale);
+      ascent = Math.max(ascent, fontPx * 0.76);
+      descent = Math.max(descent, fontPx * 0.08);
+    } else {
+      const metrics = context.measureText(char);
+      width += Math.max(1, metrics.width);
+      ascent = Math.max(ascent, metrics.actualBoundingBoxAscent || fontPx * 0.78);
+      descent = Math.max(descent, metrics.actualBoundingBoxDescent || fontPx * 0.12);
     }
 
-    widthUnits += glyph[0].length;
     if (index < text.length - 1) {
-      widthUnits += gap;
+      width += gap;
     }
   }
 
-  return widthUnits;
+  return {
+    width,
+    ascent,
+    descent,
+    height: ascent + descent
+  };
+}
+
+function drawClockColon(context, x, top, height, fontPx, sampleScale) {
+  const dotSize = Math.max(sampleScale, Math.round(fontPx * DEFAULT_PRESET.clock.colonDotSizeRatio));
+  const colonWidth = clockColonWidth(fontPx, sampleScale);
+  const dotX = Math.round(x + (colonWidth - dotSize) / 2);
+  const topDotY = Math.round(top + height * 0.34 - dotSize / 2);
+  const bottomDotY = Math.round(top + height * 0.66 - dotSize / 2);
+
+  context.fillRect(dotX, topDotY, dotSize, dotSize);
+  context.fillRect(dotX, bottomDotY, dotSize, dotSize);
+}
+
+function buildClockMaskFromMatrixDigits(text) {
+  const clock = DEFAULT_PRESET.clock;
+  const sampleScale = Math.max(1, clock.maskSampleScale);
+  const maskWidth = Math.max(1, gridColumns * sampleScale);
+  const maskHeight = Math.max(1, rows * sampleScale);
+  const maxWidth = Math.max(1, gridColumns * clock.maxWidthPortion * sampleScale);
+  const maxHeight = Math.max(1, rows * clock.maxHeightPortion * sampleScale);
+  const maskCanvas = document.createElement("canvas");
+  maskCanvas.width = maskWidth;
+  maskCanvas.height = maskHeight;
+  const maskContext = maskCanvas.getContext("2d", { willReadFrequently: true });
+  maskContext.imageSmoothingEnabled = true;
+  maskContext.clearRect(0, 0, maskWidth, maskHeight);
+
+  let fontPx = maxHeight * 0.98;
+  let layout = measureClockFontLayout(maskContext, text, fontPx, sampleScale);
+  while (layout.width > maxWidth && fontPx > sampleScale * 4) {
+    fontPx *= 0.94;
+    layout = measureClockFontLayout(maskContext, text, fontPx, sampleScale);
+  }
+
+  const startX = Math.round((maskWidth - layout.width) / 2);
+  const top = Math.round(clamp((rows * clock.verticalCenter * sampleScale) - layout.height / 2, 0, Math.max(0, maskHeight - layout.height)));
+  const baseline = top + layout.ascent;
+  const gap = clockDigitGap(sampleScale);
+  let cursorX = startX;
+
+  maskContext.fillStyle = "#fff";
+  maskContext.font = `${fontPx}px ${FONT_FAMILY}`;
+  maskContext.textAlign = "left";
+  maskContext.textBaseline = "alphabetic";
+
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index];
+    if (char === ":") {
+      drawClockColon(maskContext, cursorX, top, layout.height, fontPx, sampleScale);
+      cursorX += clockColonWidth(fontPx, sampleScale);
+    } else {
+      maskContext.fillText(char, cursorX, baseline);
+      cursorX += Math.max(1, maskContext.measureText(char).width);
+    }
+
+    if (index < text.length - 1) {
+      cursorX += gap;
+    }
+  }
+
+  const image = maskContext.getImageData(0, 0, maskWidth, maskHeight).data;
+  const nextMask = new Uint8Array(rows * gridColumns);
+  const nextCells = [];
+
+  for (let rowIndex = 0; rowIndex < rows; rowIndex += 1) {
+    for (let columnIndex = 0; columnIndex < gridColumns; columnIndex += 1) {
+      let maxAlpha = 0;
+      for (let sampleY = 0; sampleY < sampleScale; sampleY += 1) {
+        const y = rowIndex * sampleScale + sampleY;
+        for (let sampleX = 0; sampleX < sampleScale; sampleX += 1) {
+          const x = columnIndex * sampleScale + sampleX;
+          maxAlpha = Math.max(maxAlpha, image[(y * maskWidth + x) * 4 + 3]);
+        }
+      }
+
+      if (maxAlpha >= clock.maskAlphaThreshold) {
+        nextMask[rowIndex * gridColumns + columnIndex] = 1;
+        nextCells.push({
+          columnIndex,
+          rowIndex,
+          salt: hashInt(Math.imul(columnIndex + 4099, 374761393) ^ Math.imul(rowIndex + 9176, 668265263))
+        });
+      }
+    }
+  }
+
+  return {
+    nextMask,
+    nextCells
+  };
 }
 
 function updateClockMask() {
@@ -2026,55 +2133,7 @@ function updateClockMask() {
     return;
   }
 
-  const clock = DEFAULT_PRESET.clock;
-  const baseHeight = 7;
-  const baseWidth = clockTextBaseWidth(text);
-  const maxWidth = Math.max(1, gridColumns * clock.maxWidthPortion);
-  const maxHeight = Math.max(1, rows * clock.maxHeightPortion);
-  const scale = Math.max(1, Math.floor(Math.min(maxWidth / baseWidth, maxHeight / baseHeight)));
-  const totalWidth = baseWidth * scale;
-  const totalHeight = baseHeight * scale;
-  const startColumn = clampInt((gridColumns - totalWidth) / 2, 0, Math.max(0, gridColumns - totalWidth));
-  const startRow = clampInt((rows * clock.verticalCenter) - (totalHeight / 2), 0, Math.max(0, rows - totalHeight));
-  const nextMask = new Uint8Array(rows * gridColumns);
-  const nextCells = [];
-  let cursorColumn = startColumn;
-
-  for (let textIndex = 0; textIndex < text.length; textIndex += 1) {
-    const glyph = CLOCK_GLYPHS[text[textIndex]];
-    if (!glyph) {
-      continue;
-    }
-
-    for (let glyphRow = 0; glyphRow < glyph.length; glyphRow += 1) {
-      for (let glyphColumn = 0; glyphColumn < glyph[glyphRow].length; glyphColumn += 1) {
-        if (glyph[glyphRow][glyphColumn] !== "1") {
-          continue;
-        }
-
-        for (let rowScale = 0; rowScale < scale; rowScale += 1) {
-          const rowIndex = startRow + glyphRow * scale + rowScale;
-          if (rowIndex < 0 || rowIndex >= rows) {
-            continue;
-          }
-
-          for (let columnScale = 0; columnScale < scale; columnScale += 1) {
-            const columnIndex = cursorColumn + glyphColumn * scale + columnScale;
-            if (columnIndex >= 0 && columnIndex < gridColumns) {
-              nextMask[rowIndex * gridColumns + columnIndex] = 1;
-              nextCells.push({
-                columnIndex,
-                rowIndex,
-                salt: hashInt(Math.imul(columnIndex + 4099, 374761393) ^ Math.imul(rowIndex + 9176, 668265263))
-              });
-            }
-          }
-        }
-      }
-    }
-
-    cursorColumn += (glyph[0].length + clock.gapColumns) * scale;
-  }
+  const { nextMask, nextCells } = buildClockMaskFromMatrixDigits(text);
 
   clockMask = nextMask;
   clockCells = nextCells;
@@ -2576,6 +2635,7 @@ function collectMatrixRainState() {
     clock: {
       enabled: settings.clock,
       override: CLOCK_OVERRIDE,
+      mask: "matrix-font-digits",
       text: clockText,
       activeCells: clockMask.reduce((sum, value) => sum + value, 0),
       fallbackCells: clockCells.length,

@@ -207,10 +207,15 @@ const DEFAULT_PRESET = {
   characterSize: 100,
   maxConcurrentStreamsPerColumn: 2,
   startup: {
-    prewarmSeconds: 12.5,
-    seedInitialBodies: false
+    prewarmSeconds: 20,
+    seedInitialBodies: false,
+    maxActiveColumnRatio: 0.24,
+    activeDelayMinTicks: 260,
+    activeDelayMaxTicks: 680,
+    quietDelayMinTicks: 160,
+    quietDelayMaxTicks: 620
   },
-  initialWarmupSeconds: 12.5,
+  initialWarmupSeconds: 20,
   bottomFade: {
     baseVisibility: 1,
     start: 0.24,
@@ -1934,6 +1939,46 @@ function updateColumnActivity(column) {
   setColumnActivity(column, !column.active, seed);
 }
 
+function stabilizeStartupActivity() {
+  const startup = DEFAULT_PRESET.startup;
+  const maxActiveColumns = Math.max(1, Math.round(gridColumns * startup.maxActiveColumnRatio));
+  const activeColumnsNow = activeColumns
+    .filter((column) => column.active)
+    .sort((a, b) => hashUnit(a.seed ^ 0x48f31) - hashUnit(b.seed ^ 0x48f31));
+
+  for (let index = maxActiveColumns; index < activeColumnsNow.length; index += 1) {
+    const column = activeColumnsNow[index];
+    column.active = false;
+    retireColumn(column);
+  }
+
+  if (activeColumnsNow.length < maxActiveColumns) {
+    const inactiveColumns = activeColumns
+      .filter((column) => !column.active)
+      .sort((a, b) => hashUnit(a.seed ^ 0x912ab) - hashUnit(b.seed ^ 0x912ab));
+    const needed = Math.min(maxActiveColumns - activeColumnsNow.length, inactiveColumns.length);
+
+    for (let index = 0; index < needed; index += 1) {
+      const column = inactiveColumns[index];
+      const seed = hashInt(column.activitySeed ^ column.seed ^ 0x2fc19);
+      setColumnActivity(column, true, seed, true);
+    }
+  }
+
+  for (const column of activeColumns) {
+    const seed = hashInt(column.activitySeed ^ column.seed ^ 0x5d71e9);
+    if (column.active) {
+      column.nextActivityTick = logicalTick + Math.floor(seededRange(seed, startup.activeDelayMinTicks, startup.activeDelayMaxTicks));
+    } else {
+      column.nextActivityTick = logicalTick + Math.floor(seededRange(seed, startup.quietDelayMinTicks, startup.quietDelayMaxTicks));
+    }
+
+    for (const stream of column.streams) {
+      stream.progress = hashUnit(seed ^ stream.seed ^ 0x7a3d);
+    }
+  }
+}
+
 function rainColumns() {
   return activeColumns.filter((column) => column.active);
 }
@@ -3089,6 +3134,7 @@ function resize() {
   for (let i = 0; i < Math.round(tickRate() * prewarmSeconds); i += 1) {
     logicStep();
   }
+  stabilizeStartupActivity();
   render(performance.now());
 }
 

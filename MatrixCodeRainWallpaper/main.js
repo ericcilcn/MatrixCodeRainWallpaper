@@ -2027,15 +2027,46 @@ function measureClockFontLayout(context, text, fontPx, sampleScale) {
   };
 }
 
-function drawClockColon(context, x, top, height, fontPx, sampleScale) {
-  const dotSize = Math.max(sampleScale, Math.round(fontPx * DEFAULT_PRESET.clock.colonDotSizeRatio));
-  const colonWidth = clockColonWidth(fontPx, sampleScale);
-  const dotX = Math.round(x + (colonWidth - dotSize) / 2);
-  const topDotY = Math.round(top + height * 0.34 - dotSize / 2);
-  const bottomDotY = Math.round(top + height * 0.66 - dotSize / 2);
+function markClockMaskCell(nextMask, nextCells, columnIndex, rowIndex) {
+  if (columnIndex < 0 || columnIndex >= gridColumns || rowIndex < 0 || rowIndex >= rows) {
+    return;
+  }
 
-  context.fillRect(dotX, topDotY, dotSize, dotSize);
-  context.fillRect(dotX, bottomDotY, dotSize, dotSize);
+  const maskIndex = rowIndex * gridColumns + columnIndex;
+  if (nextMask[maskIndex] === 1) {
+    return;
+  }
+
+  nextMask[maskIndex] = 1;
+  nextCells.push({
+    columnIndex,
+    rowIndex,
+    salt: hashInt(Math.imul(columnIndex + 4099, 374761393) ^ Math.imul(rowIndex + 9176, 668265263))
+  });
+}
+
+function markClockColonSquares(nextMask, nextCells, x, top, height, fontPx, sampleScale) {
+  const colonWidth = clockColonWidth(fontPx, sampleScale);
+  const dotCells = Math.max(1, Math.round((fontPx * DEFAULT_PRESET.clock.colonDotSizeRatio) / sampleScale));
+  const startOffset = Math.floor((dotCells - 1) / 2);
+  const centerColumn = Math.round(((x + colonWidth / 2) / sampleScale) - 0.5);
+  const centers = [
+    Math.round(((top + height * 0.34) / sampleScale) - 0.5),
+    Math.round(((top + height * 0.66) / sampleScale) - 0.5)
+  ];
+
+  for (const centerRow of centers) {
+    for (let rowOffset = 0; rowOffset < dotCells; rowOffset += 1) {
+      for (let columnOffset = 0; columnOffset < dotCells; columnOffset += 1) {
+        markClockMaskCell(
+          nextMask,
+          nextCells,
+          centerColumn - startOffset + columnOffset,
+          centerRow - startOffset + rowOffset
+        );
+      }
+    }
+  }
 }
 
 function buildClockMaskFromMatrixDigits(text) {
@@ -2064,6 +2095,7 @@ function buildClockMaskFromMatrixDigits(text) {
   const baseline = top + layout.ascent;
   const gap = clockDigitGap(sampleScale);
   let cursorX = startX;
+  const colonSquares = [];
 
   maskContext.fillStyle = "#fff";
   maskContext.font = `${fontPx}px ${FONT_FAMILY}`;
@@ -2073,7 +2105,13 @@ function buildClockMaskFromMatrixDigits(text) {
   for (let index = 0; index < text.length; index += 1) {
     const char = text[index];
     if (char === ":") {
-      drawClockColon(maskContext, cursorX, top, layout.height, fontPx, sampleScale);
+      colonSquares.push({
+        x: cursorX,
+        top,
+        height: layout.height,
+        fontPx,
+        sampleScale
+      });
       cursorX += clockColonWidth(fontPx, sampleScale);
     } else {
       maskContext.fillText(char, cursorX, baseline);
@@ -2101,14 +2139,21 @@ function buildClockMaskFromMatrixDigits(text) {
       }
 
       if (maxAlpha >= clock.maskAlphaThreshold) {
-        nextMask[rowIndex * gridColumns + columnIndex] = 1;
-        nextCells.push({
-          columnIndex,
-          rowIndex,
-          salt: hashInt(Math.imul(columnIndex + 4099, 374761393) ^ Math.imul(rowIndex + 9176, 668265263))
-        });
+        markClockMaskCell(nextMask, nextCells, columnIndex, rowIndex);
       }
     }
+  }
+
+  for (const colonSquare of colonSquares) {
+    markClockColonSquares(
+      nextMask,
+      nextCells,
+      colonSquare.x,
+      colonSquare.top,
+      colonSquare.height,
+      colonSquare.fontPx,
+      colonSquare.sampleScale
+    );
   }
 
   return {

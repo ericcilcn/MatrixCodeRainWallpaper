@@ -16,7 +16,7 @@ const URL_PARAMS = new URLSearchParams(window.location.search);
 const DEBUG_STATE_ENABLED = URL_PARAMS.has("debugstate");
 const LAYOUT_OVERRIDE = URL_PARAMS.get("layout");
 const CLOCK_OVERRIDE = parseBooleanParam(URL_PARAMS.get("clock"));
-const CLOCK_STYLES = new Set(["sevensegment", "matrixfont"]);
+const CLOCK_STYLES = new Set(["sevensegment", "lcdsegment", "matrixfont"]);
 const CLOCK_STYLE_OVERRIDE = normalizeClockStyle(URL_PARAMS.get("clockstyle"));
 const FONT_STYLE_OVERRIDE = normalizeFontStyle(URL_PARAMS.get("fontstyle"));
 const TRILOGY_CHAR_POOL = `"*+012345789:<>z|¦©╌▪アウエオカキケコサシスセソタツテナニヌネハヒホマミムメモヤヨラリワー꞊\uE937`;
@@ -427,6 +427,9 @@ function normalizeClockStyle(value) {
   const normalized = value.trim().toLowerCase().replace(/[-_\s]/g, "");
   if (normalized === "seven" || normalized === "sevensegment" || normalized === "segments") {
     return "sevensegment";
+  }
+  if (["lcd", "lcdsegment", "lcdsegments", "liquidcrystal", "sevensegmentlcd"].includes(normalized)) {
+    return "lcdsegment";
   }
   if (normalized === "matrix" || normalized === "matrixfont" || normalized === "77054" || normalized === "77054db") {
     return "matrixfont";
@@ -2301,6 +2304,125 @@ function buildClockMaskFromSevenSegments(text) {
   };
 }
 
+const LCD_SEGMENTS = {
+  "0": "abcfed",
+  "1": "bc",
+  "2": "abged",
+  "3": "abgcd",
+  "4": "fgbc",
+  "5": "afgcd",
+  "6": "afgecd",
+  "7": "abc",
+  "8": "abcdefg",
+  "9": "abfgcd"
+};
+
+function markClockCellGroup(nextMask, nextCells, nextEmphasisMask, nextHighlightMask, columnIndex, rowIndex) {
+  markClockMaskCell(nextMask, nextCells, columnIndex, rowIndex);
+  markClockMaskCell(nextHighlightMask, null, columnIndex, rowIndex);
+  markClockMaskCell(nextEmphasisMask, null, columnIndex, rowIndex);
+}
+
+function markClockHorizontalSegment(nextMask, nextCells, nextEmphasisMask, nextHighlightMask, startColumn, startRow, scale, segmentRow) {
+  const y = startRow + Math.round(segmentRow * scale);
+  const segmentStart = startColumn + Math.max(1, Math.round(scale * 0.8));
+  const segmentEnd = startColumn + Math.round(5 * scale) - Math.max(2, Math.round(scale * 0.8));
+  const thickness = Math.max(1, Math.ceil(scale * 0.55));
+
+  for (let offset = 0; offset < thickness; offset += 1) {
+    for (let columnIndex = segmentStart; columnIndex <= segmentEnd; columnIndex += 1) {
+      markClockCellGroup(nextMask, nextCells, nextEmphasisMask, nextHighlightMask, columnIndex, y + offset);
+    }
+  }
+}
+
+function markClockVerticalSegment(nextMask, nextCells, nextEmphasisMask, nextHighlightMask, startColumn, startRow, scale, segmentColumn, segmentStartRow, segmentEndRow) {
+  const x = startColumn + Math.round(segmentColumn * scale);
+  const yStart = startRow + Math.round(segmentStartRow * scale) + Math.max(1, Math.round(scale * 0.35));
+  const yEnd = startRow + Math.round(segmentEndRow * scale) - Math.max(1, Math.round(scale * 0.35));
+  const thickness = Math.max(1, Math.ceil(scale * 0.55));
+
+  for (let offset = 0; offset < thickness; offset += 1) {
+    for (let rowIndex = yStart; rowIndex <= yEnd; rowIndex += 1) {
+      markClockCellGroup(nextMask, nextCells, nextEmphasisMask, nextHighlightMask, x + offset, rowIndex);
+    }
+  }
+}
+
+function markClockLcdColon(nextMask, nextCells, nextEmphasisMask, nextHighlightMask, startColumn, startRow, scale) {
+  const dotSize = Math.max(1, Math.ceil(scale * 0.75));
+  const centerColumn = startColumn + Math.max(0, Math.round(scale * 0.35));
+  const centers = [
+    startRow + Math.round(2.15 * scale),
+    startRow + Math.round(4.85 * scale)
+  ];
+
+  for (const centerRow of centers) {
+    for (let rowOffset = 0; rowOffset < dotSize; rowOffset += 1) {
+      for (let columnOffset = 0; columnOffset < dotSize; columnOffset += 1) {
+        markClockCellGroup(
+          nextMask,
+          nextCells,
+          nextEmphasisMask,
+          nextHighlightMask,
+          centerColumn + columnOffset,
+          centerRow + rowOffset
+        );
+      }
+    }
+  }
+}
+
+function buildClockMaskFromLcdSegments(text) {
+  const clock = DEFAULT_PRESET.clock;
+  const nextMask = new Uint8Array(rows * gridColumns);
+  const nextEmphasisMask = new Uint8Array(rows * gridColumns);
+  const nextHighlightMask = new Uint8Array(rows * gridColumns);
+  const nextCells = [];
+  const digitWidth = 6;
+  const digitHeight = 7;
+  const colonWidth = 1;
+  const gap = clock.gapColumns + 1;
+  const baseWidth = Array.from(text).reduce((sum, char, index) => {
+    const charWidth = char === ":" ? colonWidth : digitWidth;
+    return sum + charWidth + (index < text.length - 1 ? gap : 0);
+  }, 0);
+  const maxWidth = Math.max(1, gridColumns * clock.maxWidthPortion);
+  const maxHeight = Math.max(1, rows * clock.maxHeightPortion);
+  const scale = Math.max(1, Math.floor(Math.min(maxWidth / baseWidth, maxHeight / digitHeight)));
+  const totalWidth = baseWidth * scale;
+  const totalHeight = digitHeight * scale;
+  const startColumn = clampInt((gridColumns - totalWidth) / 2, 0, Math.max(0, gridColumns - totalWidth));
+  const startRow = clampInt((rows * clock.verticalCenter) - (totalHeight / 2), 0, Math.max(0, rows - totalHeight));
+  let cursorColumn = startColumn;
+
+  for (const char of text) {
+    if (char === ":") {
+      markClockLcdColon(nextMask, nextCells, nextEmphasisMask, nextHighlightMask, cursorColumn, startRow, scale);
+      cursorColumn += (colonWidth + gap) * scale;
+      continue;
+    }
+
+    const segments = LCD_SEGMENTS[char] || "";
+    if (segments.includes("a")) markClockHorizontalSegment(nextMask, nextCells, nextEmphasisMask, nextHighlightMask, cursorColumn, startRow, scale, 0);
+    if (segments.includes("g")) markClockHorizontalSegment(nextMask, nextCells, nextEmphasisMask, nextHighlightMask, cursorColumn, startRow, scale, 3);
+    if (segments.includes("d")) markClockHorizontalSegment(nextMask, nextCells, nextEmphasisMask, nextHighlightMask, cursorColumn, startRow, scale, 6);
+    if (segments.includes("f")) markClockVerticalSegment(nextMask, nextCells, nextEmphasisMask, nextHighlightMask, cursorColumn, startRow, scale, 0, 0, 3);
+    if (segments.includes("b")) markClockVerticalSegment(nextMask, nextCells, nextEmphasisMask, nextHighlightMask, cursorColumn, startRow, scale, 5, 0, 3);
+    if (segments.includes("e")) markClockVerticalSegment(nextMask, nextCells, nextEmphasisMask, nextHighlightMask, cursorColumn, startRow, scale, 0, 3, 6);
+    if (segments.includes("c")) markClockVerticalSegment(nextMask, nextCells, nextEmphasisMask, nextHighlightMask, cursorColumn, startRow, scale, 5, 3, 6);
+
+    cursorColumn += (digitWidth + gap) * scale;
+  }
+
+  return {
+    nextMask,
+    nextEmphasisMask,
+    nextHighlightMask,
+    nextCells
+  };
+}
+
 function buildClockMaskFromMatrixDigits(text) {
   const clock = DEFAULT_PRESET.clock;
   const sampleScale = Math.max(1, clock.maskSampleScale);
@@ -2441,7 +2563,9 @@ function updateClockMask() {
 
   const builder = settings.clockstyle === "matrixfont"
     ? buildClockMaskFromMatrixDigits
-    : buildClockMaskFromSevenSegments;
+    : settings.clockstyle === "lcdsegment"
+      ? buildClockMaskFromLcdSegments
+      : buildClockMaskFromSevenSegments;
   const { nextMask, nextEmphasisMask, nextHighlightMask, nextCells } = builder(text);
 
   clockMask = nextMask;
@@ -2984,7 +3108,11 @@ function collectMatrixRainState() {
       override: CLOCK_OVERRIDE,
       style: settings.clockstyle,
       styleOverride: CLOCK_STYLE_OVERRIDE,
-      mask: settings.clockstyle === "matrixfont" ? "matrix-font-digits" : "seven-segment-clock",
+      mask: settings.clockstyle === "matrixfont"
+        ? "matrix-font-digits"
+        : settings.clockstyle === "lcdsegment"
+          ? "lcd-seven-segment-clock"
+          : "seven-segment-clock",
       text: clockText,
       activeCells: clockMask.reduce((sum, value) => sum + value, 0),
       emphasisCells: clockEmphasisMask.reduce((sum, value) => sum + value, 0),

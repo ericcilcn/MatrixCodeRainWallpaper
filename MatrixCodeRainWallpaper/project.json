@@ -85,6 +85,10 @@
             "value": "sevensegment"
           },
           {
+            "label": "LCD seven segment",
+            "value": "lcdsegment"
+          },
+          {
             "label": "Matrix font 77054",
             "value": "matrixfont"
           }

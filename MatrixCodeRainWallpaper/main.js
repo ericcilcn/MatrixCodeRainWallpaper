@@ -305,10 +305,9 @@ const DEFAULT_PRESET = {
     digitGapColumns: 1,
     colonWidthRatio: 0.18,
     colonDotSizeRatio: 0.12,
-    maskCoverageThreshold: 0.28,
-    highlightCoverageThreshold: 0.16,
-    digitErodeRatio: 0.075,
-    digitErodeMinPx: 2
+    maskCoverageThreshold: 0.22,
+    highlightCoverageThreshold: 0.24,
+    highlightAlphaFloor: 0.58
   },
   wallpaperProperties: {
     density: 62,
@@ -2095,6 +2094,42 @@ function sampleClockRasterToMask(image, threshold, targetMask, sampleScale, mask
   }
 }
 
+function thinClockMask(sourceMask) {
+  const nextMask = new Uint8Array(sourceMask.length);
+
+  for (let rowIndex = 0; rowIndex < rows; rowIndex += 1) {
+    let start = -1;
+    for (let columnIndex = 0; columnIndex <= gridColumns; columnIndex += 1) {
+      const filled = columnIndex < gridColumns && sourceMask[rowIndex * gridColumns + columnIndex] === 1;
+      if (filled && start === -1) {
+        start = columnIndex;
+      } else if (!filled && start !== -1) {
+        const end = columnIndex - 1;
+        const center = Math.round((start + end) / 2);
+        nextMask[rowIndex * gridColumns + center] = 1;
+        start = -1;
+      }
+    }
+  }
+
+  for (let columnIndex = 0; columnIndex < gridColumns; columnIndex += 1) {
+    let start = -1;
+    for (let rowIndex = 0; rowIndex <= rows; rowIndex += 1) {
+      const filled = rowIndex < rows && sourceMask[rowIndex * gridColumns + columnIndex] === 1;
+      if (filled && start === -1) {
+        start = rowIndex;
+      } else if (!filled && start !== -1) {
+        const end = rowIndex - 1;
+        const center = Math.round((start + end) / 2);
+        nextMask[center * gridColumns + columnIndex] = 1;
+        start = -1;
+      }
+    }
+  }
+
+  return nextMask;
+}
+
 function buildClockMaskFromMatrixDigits(text) {
   const clock = DEFAULT_PRESET.clock;
   const sampleScale = Math.max(1, clock.maskSampleScale);
@@ -2122,7 +2157,6 @@ function buildClockMaskFromMatrixDigits(text) {
   const gap = clockDigitGap(sampleScale);
   let cursorX = startX;
   const colonSquares = [];
-  const digitDraws = [];
 
   maskContext.fillStyle = "#fff";
   maskContext.font = `${fontPx}px ${FONT_FAMILY}`;
@@ -2142,7 +2176,6 @@ function buildClockMaskFromMatrixDigits(text) {
       cursorX += clockColonWidth(fontPx, sampleScale);
     } else {
       maskContext.fillText(char, cursorX, baseline);
-      digitDraws.push({ char, x: cursorX, baseline });
       cursorX += Math.max(1, maskContext.measureText(char).width);
     }
 
@@ -2154,27 +2187,10 @@ function buildClockMaskFromMatrixDigits(text) {
   const highlightImage = maskContext.getImageData(0, 0, maskWidth, maskHeight).data;
   const nextHighlightMask = new Uint8Array(rows * gridColumns);
   sampleClockRasterToMask(highlightImage, clock.highlightCoverageThreshold, nextHighlightMask, sampleScale, maskWidth);
-
-  if (digitDraws.length > 0) {
-    maskContext.save();
-    maskContext.globalCompositeOperation = "destination-out";
-    maskContext.strokeStyle = "#fff";
-    maskContext.lineWidth = Math.max(clock.digitErodeMinPx, fontPx * clock.digitErodeRatio);
-    maskContext.lineJoin = "round";
-    maskContext.lineCap = "round";
-    maskContext.font = `${fontPx}px ${FONT_FAMILY}`;
-    maskContext.textAlign = "left";
-    maskContext.textBaseline = "alphabetic";
-    for (const digitDraw of digitDraws) {
-      maskContext.strokeText(digitDraw.char, digitDraw.x, digitDraw.baseline);
-    }
-    maskContext.restore();
-  }
-
-  const image = maskContext.getImageData(0, 0, maskWidth, maskHeight).data;
-  const nextMask = new Uint8Array(rows * gridColumns);
+  const solidMask = new Uint8Array(rows * gridColumns);
   const nextCells = [];
-  sampleClockRasterToMask(image, clock.maskCoverageThreshold, nextMask, sampleScale, maskWidth);
+  sampleClockRasterToMask(highlightImage, clock.maskCoverageThreshold, solidMask, sampleScale, maskWidth);
+  const nextMask = thinClockMask(solidMask);
 
   for (const colonSquare of colonSquares) {
     markClockColonSquares(
@@ -2408,7 +2424,8 @@ function drawGlyph(cell, column, rowIndex) {
   let styleName = "body";
   let alpha = cell.alpha;
   const glowIntensity = DEFAULT_PRESET.glowingTracers.intensity / 100;
-  const clockHit = isClockHighlightCell(column.index, rowIndex);
+  const clockMaskHit = isClockMaskCell(column.index, rowIndex);
+  const clockHighlightHit = isClockHighlightCell(column.index, rowIndex);
 
   if (cell.head) {
     styleName = "head";
@@ -2421,24 +2438,29 @@ function drawGlyph(cell, column, rowIndex) {
     alpha *= (cell.rotator ? 1.08 : 1.0) + 0.08 * glowIntensity;
   }
 
-  if (clockHit) {
+  if (clockMaskHit) {
     styleName = "head";
     alpha = Math.max(alpha * 1.34, DEFAULT_PRESET.clock.alphaFloor * (settings.clockbrightness / 100));
+  } else if (clockHighlightHit) {
+    styleName = cell.head ? "head" : "bright";
+    alpha = Math.max(alpha * 1.12, DEFAULT_PRESET.clock.highlightAlphaFloor * (settings.clockbrightness / 100));
   }
 
   if (alpha <= 0.012) {
     return;
   }
 
-  const palette = clockHit
+  const palette = clockHighlightHit
     ? paletteByName("clock")
     : paletteByName(cell.paletteName) || column.palette;
   const sprite = createGlyph(cell.char, styleName, palette);
   const x = column.x;
   const y = (rowIndex + 0.5) * cellHeight;
   let visibility = rowVisibility(rowIndex);
-  if (clockHit) {
+  if (clockMaskHit) {
     visibility = Math.max(visibility, DEFAULT_PRESET.clock.visibilityFloor);
+  } else if (clockHighlightHit) {
+    visibility = Math.max(visibility, 0.68);
   }
   if (!cell.negative && (cell.head || cell.glowHead)) {
     const rowUnit = rowIndex / Math.max(1, rows - 1);
@@ -2480,8 +2502,6 @@ function render(now = performance.now()) {
       }
     }
   }
-
-  drawClockFallbackGlyphs();
 
   ctx.globalAlpha = 1;
   ctx.globalCompositeOperation = "source-over";

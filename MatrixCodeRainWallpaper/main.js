@@ -416,20 +416,12 @@ const DEFAULT_PRESET = {
   clock: {
     enabled: true,
     verticalCenter: 0.43,
-    maxWidthPortion: 0.66,
-    maxHeightPortion: 0.25,
     gapColumns: 1,
     visibilityFloor: 0.92,
     alphaFloor: 1.18,
     fallbackAlpha: 0.86,
     characterRotateMinTicks: 12,
     characterRotateMaxTicks: 34,
-    maskSampleScale: 4,
-    digitGapColumns: 1,
-    colonWidthRatio: 0.18,
-    colonDotSizeRatio: 0.12,
-    maskCoverageThreshold: 0.28,
-    highlightCoverageThreshold: 0.24,
     displayAlphaFloor: 0.72,
     highlightAlphaFloor: 0.58
   },
@@ -640,10 +632,6 @@ function loadActiveFont() {
   const families = Array.from(new Set([activeFontFamily, FONT_FAMILIES.trilogy]));
   return Promise.all(families.map((family) => document.fonts.load(`${loadSize}px ${family}`)))
     .then(() => document.fonts.ready);
-}
-
-function clockFontFamily() {
-  return FONT_FAMILIES.trilogy;
 }
 
 function clampInt(value, min, max) {
@@ -2535,50 +2523,6 @@ function clockTextBaseWidth(text) {
   return widthUnits;
 }
 
-function clockColonWidth(fontPx, sampleScale) {
-  return Math.max(sampleScale * 2, Math.round(fontPx * DEFAULT_PRESET.clock.colonWidthRatio));
-}
-
-function clockDigitGap(sampleScale) {
-  return Math.max(1, Math.round(DEFAULT_PRESET.clock.digitGapColumns * sampleScale));
-}
-
-function measureClockFontLayout(context, text, fontPx, sampleScale) {
-  const gap = clockDigitGap(sampleScale);
-  let width = 0;
-  let ascent = 0;
-  let descent = 0;
-
-  context.font = `${fontPx}px ${clockFontFamily()}`;
-  context.textAlign = "left";
-  context.textBaseline = "alphabetic";
-
-  for (let index = 0; index < text.length; index += 1) {
-    const char = text[index];
-    if (char === ":") {
-      width += clockColonWidth(fontPx, sampleScale);
-      ascent = Math.max(ascent, fontPx * 0.76);
-      descent = Math.max(descent, fontPx * 0.08);
-    } else {
-      const metrics = context.measureText(char);
-      width += Math.max(1, metrics.width);
-      ascent = Math.max(ascent, metrics.actualBoundingBoxAscent || fontPx * 0.78);
-      descent = Math.max(descent, metrics.actualBoundingBoxDescent || fontPx * 0.12);
-    }
-
-    if (index < text.length - 1) {
-      width += gap;
-    }
-  }
-
-  return {
-    width,
-    ascent,
-    descent,
-    height: ascent + descent
-  };
-}
-
 function markClockMaskCell(nextMask, nextCells, columnIndex, rowIndex) {
   if (columnIndex < 0 || columnIndex >= gridColumns || rowIndex < 0 || rowIndex >= rows) {
     return;
@@ -2599,86 +2543,6 @@ function markClockMaskCell(nextMask, nextCells, columnIndex, rowIndex) {
   }
 }
 
-function markClockColonSquares(nextMask, nextCells, x, top, height, fontPx, sampleScale) {
-  const colonWidth = clockColonWidth(fontPx, sampleScale);
-  const dotCells = Math.max(1, Math.round((fontPx * DEFAULT_PRESET.clock.colonDotSizeRatio) / sampleScale));
-  const startOffset = Math.floor((dotCells - 1) / 2);
-  const centerColumn = Math.round(((x + colonWidth / 2) / sampleScale) - 0.5);
-  const centers = [
-    Math.round(((top + height * 0.34) / sampleScale) - 0.5),
-    Math.round(((top + height * 0.66) / sampleScale) - 0.5)
-  ];
-
-  for (const centerRow of centers) {
-    for (let rowOffset = 0; rowOffset < dotCells; rowOffset += 1) {
-      for (let columnOffset = 0; columnOffset < dotCells; columnOffset += 1) {
-        markClockMaskCell(
-          nextMask,
-          nextCells,
-          centerColumn - startOffset + columnOffset,
-          centerRow - startOffset + rowOffset
-        );
-      }
-    }
-  }
-}
-
-function sampleClockRasterToMask(image, threshold, targetMask, sampleScale, maskWidth) {
-  for (let rowIndex = 0; rowIndex < rows; rowIndex += 1) {
-    for (let columnIndex = 0; columnIndex < gridColumns; columnIndex += 1) {
-      let alphaSum = 0;
-      for (let sampleY = 0; sampleY < sampleScale; sampleY += 1) {
-        const y = rowIndex * sampleScale + sampleY;
-        for (let sampleX = 0; sampleX < sampleScale; sampleX += 1) {
-          const x = columnIndex * sampleScale + sampleX;
-          alphaSum += image[(y * maskWidth + x) * 4 + 3];
-        }
-      }
-
-      const coverage = alphaSum / (sampleScale * sampleScale * 255);
-      if (coverage >= threshold) {
-        markClockMaskCell(targetMask, null, columnIndex, rowIndex);
-      }
-    }
-  }
-}
-
-function thinClockMask(sourceMask) {
-  const nextMask = new Uint8Array(sourceMask.length);
-
-  for (let rowIndex = 0; rowIndex < rows; rowIndex += 1) {
-    let start = -1;
-    for (let columnIndex = 0; columnIndex <= gridColumns; columnIndex += 1) {
-      const filled = columnIndex < gridColumns && sourceMask[rowIndex * gridColumns + columnIndex] === 1;
-      if (filled && start === -1) {
-        start = columnIndex;
-      } else if (!filled && start !== -1) {
-        const end = columnIndex - 1;
-        const center = Math.round((start + end) / 2);
-        nextMask[rowIndex * gridColumns + center] = 1;
-        start = -1;
-      }
-    }
-  }
-
-  for (let columnIndex = 0; columnIndex < gridColumns; columnIndex += 1) {
-    let start = -1;
-    for (let rowIndex = 0; rowIndex <= rows; rowIndex += 1) {
-      const filled = rowIndex < rows && sourceMask[rowIndex * gridColumns + columnIndex] === 1;
-      if (filled && start === -1) {
-        start = rowIndex;
-      } else if (!filled && start !== -1) {
-        const end = rowIndex - 1;
-        const center = Math.round((start + end) / 2);
-        nextMask[center * gridColumns + columnIndex] = 1;
-        start = -1;
-      }
-    }
-  }
-
-  return nextMask;
-}
-
 function buildClockMaskFromDotMatrix(text) {
   const clock = DEFAULT_PRESET.clock;
   const nextMask = new Uint8Array(rows * gridColumns);
@@ -2687,9 +2551,7 @@ function buildClockMaskFromDotMatrix(text) {
   const nextCells = [];
   const baseHeight = 7;
   const baseWidth = clockTextBaseWidth(text);
-  const maxWidth = Math.max(1, gridColumns * clock.maxWidthPortion);
-  const maxHeight = Math.max(1, rows * clock.maxHeightPortion);
-  const scale = Math.max(1, Math.floor(Math.min(maxWidth / baseWidth, maxHeight / baseHeight)));
+  const scale = 1;
   const totalWidth = baseWidth * scale;
   const totalHeight = baseHeight * scale;
   const startColumn = clampInt((gridColumns - totalWidth) / 2, 0, Math.max(0, gridColumns - totalWidth));
@@ -2731,123 +2593,6 @@ function buildClockMaskFromDotMatrix(text) {
   };
 }
 
-function buildClockMaskFromMatrixDigits(text) {
-  const clock = DEFAULT_PRESET.clock;
-  const sampleScale = Math.max(1, clock.maskSampleScale);
-  const maskWidth = Math.max(1, gridColumns * sampleScale);
-  const maskHeight = Math.max(1, rows * sampleScale);
-  const maxWidth = Math.max(1, gridColumns * clock.maxWidthPortion * sampleScale);
-  const maxHeight = Math.max(1, rows * clock.maxHeightPortion * sampleScale);
-  const maskCanvas = document.createElement("canvas");
-  maskCanvas.width = maskWidth;
-  maskCanvas.height = maskHeight;
-  const maskContext = maskCanvas.getContext("2d", { willReadFrequently: true });
-  maskContext.imageSmoothingEnabled = true;
-  maskContext.clearRect(0, 0, maskWidth, maskHeight);
-
-  let fontPx = maxHeight * 0.98;
-  let layout = measureClockFontLayout(maskContext, text, fontPx, sampleScale);
-  while (layout.width > maxWidth && fontPx > sampleScale * 4) {
-    fontPx *= 0.94;
-    layout = measureClockFontLayout(maskContext, text, fontPx, sampleScale);
-  }
-
-  const startX = Math.round((maskWidth - layout.width) / 2);
-  const top = Math.round(clamp((rows * clock.verticalCenter * sampleScale) - layout.height / 2, 0, Math.max(0, maskHeight - layout.height)));
-  const baseline = top + layout.ascent;
-  const gap = clockDigitGap(sampleScale);
-  let cursorX = startX;
-  const colonSquares = [];
-
-  maskContext.fillStyle = "#fff";
-  maskContext.font = `${fontPx}px ${clockFontFamily()}`;
-  maskContext.textAlign = "left";
-  maskContext.textBaseline = "alphabetic";
-
-  for (let index = 0; index < text.length; index += 1) {
-    const char = text[index];
-    if (char === ":") {
-      colonSquares.push({
-        x: cursorX,
-        top,
-        height: layout.height,
-        fontPx,
-        sampleScale
-      });
-      cursorX += clockColonWidth(fontPx, sampleScale);
-    } else {
-      maskContext.fillText(char, cursorX, baseline);
-      cursorX += Math.max(1, maskContext.measureText(char).width);
-    }
-
-    if (index < text.length - 1) {
-      cursorX += gap;
-    }
-  }
-
-  const highlightImage = maskContext.getImageData(0, 0, maskWidth, maskHeight).data;
-  const nextHighlightMask = new Uint8Array(rows * gridColumns);
-  sampleClockRasterToMask(highlightImage, clock.highlightCoverageThreshold, nextHighlightMask, sampleScale, maskWidth);
-  const nextMask = new Uint8Array(rows * gridColumns);
-  const nextCells = [];
-  sampleClockRasterToMask(highlightImage, clock.maskCoverageThreshold, nextMask, sampleScale, maskWidth);
-  let nextEmphasisMask = thinClockMask(nextMask);
-
-  for (const colonSquare of colonSquares) {
-    markClockColonSquares(
-      nextMask,
-      null,
-      colonSquare.x,
-      colonSquare.top,
-      colonSquare.height,
-      colonSquare.fontPx,
-      colonSquare.sampleScale
-    );
-    markClockColonSquares(
-      nextHighlightMask,
-      null,
-      colonSquare.x,
-      colonSquare.top,
-      colonSquare.height,
-      colonSquare.fontPx,
-      colonSquare.sampleScale
-    );
-  }
-
-  nextEmphasisMask = thinClockMask(nextMask);
-  for (const colonSquare of colonSquares) {
-    markClockColonSquares(
-      nextEmphasisMask,
-      null,
-      colonSquare.x,
-      colonSquare.top,
-      colonSquare.height,
-      colonSquare.fontPx,
-      colonSquare.sampleScale
-    );
-  }
-
-  for (let maskIndex = 0; maskIndex < nextMask.length; maskIndex += 1) {
-    if (nextMask[maskIndex] !== 1) {
-      continue;
-    }
-
-    nextHighlightMask[maskIndex] = 1;
-    nextCells.push({
-      columnIndex: maskIndex % gridColumns,
-      rowIndex: Math.floor(maskIndex / gridColumns),
-      salt: hashInt(Math.imul((maskIndex % gridColumns) + 4099, 374761393) ^ Math.imul(Math.floor(maskIndex / gridColumns) + 9176, 668265263))
-    });
-  }
-
-  return {
-    nextMask,
-    nextEmphasisMask,
-    nextHighlightMask,
-    nextCells
-  };
-}
-
 function updateClockMask() {
   if (!settings.clock || rows <= 0 || gridColumns <= 0) {
     clearClockGridCells();
@@ -2869,8 +2614,7 @@ function updateClockMask() {
     return;
   }
 
-  const builder = buildClockMaskFromDotMatrix;
-  const { nextMask, nextEmphasisMask, nextHighlightMask, nextCells } = builder(text);
+  const { nextMask, nextEmphasisMask, nextHighlightMask, nextCells } = buildClockMaskFromDotMatrix(text);
 
   clockMask = nextMask;
   clockEmphasisMask = nextEmphasisMask;

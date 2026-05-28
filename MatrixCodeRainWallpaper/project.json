@@ -103,8 +103,52 @@
         "max": 160,
         "editable": true,
         "order": 100
+      },
+      "audioenabled": {
+        "text": "Audio rain",
+        "type": "bool",
+        "value": false,
+        "order": 110
+      },
+      "audiointensity": {
+        "text": "Audio rain intensity",
+        "type": "slider",
+        "value": 65,
+        "min": 0,
+        "max": 100,
+        "editable": true,
+        "order": 120
+      },
+      "audiosensitivity": {
+        "text": "Audio rain sensitivity",
+        "type": "slider",
+        "value": 55,
+        "min": 10,
+        "max": 100,
+        "editable": true,
+        "order": 130
+      },
+      "audiocolormode": {
+        "text": "Audio rain color",
+        "type": "combo",
+        "value": "spectrum",
+        "options": [
+          {
+            "label": "Spectrum",
+            "value": "spectrum"
+          },
+          {
+            "label": "Neon",
+            "value": "neon"
+          },
+          {
+            "label": "Matrix tint",
+            "value": "matrix_tint"
+          }
+        ],
+        "order": 140
       }
     },
-    "supportsaudioprocessing": false
+    "supportsaudioprocessing": true
   }
 }

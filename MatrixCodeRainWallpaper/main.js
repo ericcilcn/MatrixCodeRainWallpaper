@@ -17,8 +17,12 @@ const DEBUG_STATE_ENABLED = URL_PARAMS.has("debugstate");
 const LAYOUT_OVERRIDE = URL_PARAMS.get("layout");
 const CLOCK_OVERRIDE = parseBooleanParam(URL_PARAMS.get("clock"));
 const CLOCK_STYLES = new Set(["sevensegment", "lcdsegment", "matrixfont"]);
+const AUDIO_COLOR_MODES = new Set(["spectrum", "neon", "matrix_tint"]);
 const CLOCK_STYLE_OVERRIDE = normalizeClockStyle(URL_PARAMS.get("clockstyle"));
 const FONT_STYLE_OVERRIDE = normalizeFontStyle(URL_PARAMS.get("fontstyle"));
+const AUDIO_OVERRIDE = parseBooleanParam(URL_PARAMS.get("audio"));
+const AUDIO_DEBUG_ENABLED = parseBooleanParam(URL_PARAMS.get("audiodebug")) ?? URL_PARAMS.has("audiodebug");
+const AUDIO_COLOR_MODE_OVERRIDE = normalizeAudioColorMode(URL_PARAMS.get("audiocolormode"));
 const TRILOGY_CHAR_POOL = `"*+012345789:<>z|¦©╌▪アウエオカキケコサシスセソタツテナニヌネハヒホマミムメモヤヨラリワー꞊\uE937`;
 const RESURRECTIONS_CHAR_POOL = Array.from(
   { length: 0xe989 - 0xe900 + 1 },
@@ -339,6 +343,38 @@ const DEFAULT_PRESET = {
     displayAlphaFloor: 0.72,
     highlightAlphaFloor: 0.58
   },
+  audioResponsive: {
+    enabled: false,
+    intensity: 65,
+    sensitivity: 55,
+    colorMode: "spectrum",
+    minLevel: 0.035,
+    attack: 0.48,
+    release: 0.12,
+    peakRelease: 0.06,
+    silenceAfterMs: 520,
+    bassWeight: 1.24,
+    midWeight: 1,
+    trebleWeight: 0.92,
+    baseChancePerTick: 0.018,
+    maxChancePerTick: 0.84,
+    maxStreamsPerTick: 4,
+    maxAudioStreamsPerColumn: 2,
+    minLengthRows: 0.16,
+    maxLengthRows: 0.42,
+    minEndRows: 0.42,
+    maxEndRows: 0.98,
+    minSpeedScale: 1.04,
+    maxSpeedScale: 1.52,
+    minDensity: 0.74,
+    maxDensity: 1,
+    headChanceBase: 0.42,
+    headChanceGain: 0.48,
+    minLifeTicks: 10,
+    maxLifeTicks: 24,
+    minAlpha: 0.76,
+    maxAlpha: 1.72
+  },
   wallpaperProperties: {
     density: 62,
     speed: 55,
@@ -348,7 +384,11 @@ const DEFAULT_PRESET = {
     glow: true,
     clock: true,
     clockstyle: "sevensegment",
-    clockbrightness: 110
+    clockbrightness: 110,
+    audioenabled: false,
+    audiointensity: 65,
+    audiosensitivity: 55,
+    audiocolormode: "spectrum"
   },
   baseColor: BASE_COLOR
 };
@@ -363,6 +403,10 @@ const settings = {
   clock: CLOCK_OVERRIDE ?? DEFAULT_PRESET.wallpaperProperties.clock,
   clockstyle: CLOCK_STYLE_OVERRIDE ?? DEFAULT_PRESET.wallpaperProperties.clockstyle,
   clockbrightness: DEFAULT_PRESET.wallpaperProperties.clockbrightness,
+  audioenabled: AUDIO_OVERRIDE ?? DEFAULT_PRESET.wallpaperProperties.audioenabled,
+  audiointensity: DEFAULT_PRESET.wallpaperProperties.audiointensity,
+  audiosensitivity: DEFAULT_PRESET.wallpaperProperties.audiosensitivity,
+  audiocolormode: AUDIO_COLOR_MODE_OVERRIDE ?? DEFAULT_PRESET.wallpaperProperties.audiocolormode,
   color: DEFAULT_PRESET.baseColor,
   fps: 0
 };
@@ -399,6 +443,15 @@ let clockHighlightMask = new Uint8Array(0);
 let clockCells = [];
 let clockMaskKey = "";
 let clockText = "";
+let audioState = {
+  bass: 0,
+  mid: 0,
+  treble: 0,
+  level: 0,
+  peak: 0,
+  lastInputTime: 0,
+  debugPhase: 0
+};
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
@@ -453,6 +506,27 @@ function normalizeFontStyle(value) {
     return "resurrections";
   }
   if (FONT_STYLES.has(normalized)) {
+    return normalized;
+  }
+  return null;
+}
+
+function normalizeAudioColorMode(value) {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const normalized = value.trim().toLowerCase().replace(/[-\s]/g, "_");
+  if (["spectrum", "rainbow", "frequency"].includes(normalized)) {
+    return "spectrum";
+  }
+  if (["neon", "random", "colorful"].includes(normalized)) {
+    return "neon";
+  }
+  if (["matrix", "matrix_tint", "matrixtint", "green"].includes(normalized)) {
+    return "matrix_tint";
+  }
+  if (AUDIO_COLOR_MODES.has(normalized)) {
     return normalized;
   }
   return null;
@@ -606,15 +680,32 @@ function buildPalettes() {
     { name: "pale", bodyColor: { r: 82, g: 226, b: 124 }, brightColor: { r: 156, g: 255, b: 186 }, glow: 0.42 },
     { name: "accent", bodyColor: { r: 135, g: 255, b: 168 }, brightColor: { r: 210, g: 255, b: 220 }, glow: 0.64 },
     { name: "clock", bodyColor: { r: 178, g: 255, b: 198 }, brightColor: { r: 236, g: 255, b: 232 }, glow: 0.82 },
-    { name: "negative", bodyColor: { r: 24, g: 112, b: 50 }, brightColor: { r: 50, g: 166, b: 85 }, glow: 0.14 }
+    { name: "negative", bodyColor: { r: 24, g: 112, b: 50 }, brightColor: { r: 50, g: 166, b: 85 }, glow: 0.14 },
+    { name: "audioRed", bodyColor: { r: 238, g: 64, b: 76 }, brightColor: { r: 255, g: 154, b: 132 }, glow: 0.62, fixed: true },
+    { name: "audioYellow", bodyColor: { r: 236, g: 220, b: 76 }, brightColor: { r: 255, g: 252, b: 168 }, glow: 0.66, fixed: true },
+    { name: "audioCyan", bodyColor: { r: 52, g: 226, b: 226 }, brightColor: { r: 178, g: 255, b: 248 }, glow: 0.68, fixed: true },
+    { name: "audioBlue", bodyColor: { r: 78, g: 128, b: 255 }, brightColor: { r: 168, g: 208, b: 255 }, glow: 0.64, fixed: true },
+    { name: "audioViolet", bodyColor: { r: 188, g: 96, b: 255 }, brightColor: { r: 238, g: 190, b: 255 }, glow: 0.7, fixed: true },
+    { name: "audioMatrix", bodyColor: { r: 92, g: 255, b: 156 }, brightColor: { r: 226, g: 255, b: 220 }, glow: 0.64, fixed: true }
   ];
 
   palettes = variants.map((variant) => {
-    const body = referenceToneColor(variant.bodyColor, referenceBrightness);
-    const bright = referenceToneColor(variant.brightColor, referenceBrightness);
-    const dim = referenceToneColor(scaleColor(variant.bodyColor, 0.58), referenceBrightness);
-    const head = mixColor(whiteGreenHead, settings.color, 0.008);
-    const glowBase = mixColor(head, settings.color, 0.24);
+    const body = variant.fixed
+      ? scaleColor(variant.bodyColor, referenceBrightness)
+      : referenceToneColor(variant.bodyColor, referenceBrightness);
+    const bright = variant.fixed
+      ? scaleColor(variant.brightColor, referenceBrightness)
+      : referenceToneColor(variant.brightColor, referenceBrightness);
+    const dimSource = scaleColor(variant.bodyColor, variant.fixed ? 0.48 : 0.58);
+    const dim = variant.fixed
+      ? scaleColor(dimSource, referenceBrightness)
+      : referenceToneColor(dimSource, referenceBrightness);
+    const head = variant.fixed
+      ? mixColor(whiteGreenHead, variant.brightColor, 0.34)
+      : mixColor(whiteGreenHead, settings.color, 0.008);
+    const glowBase = variant.fixed
+      ? mixColor(variant.brightColor, whiteGreenHead, 0.24)
+      : mixColor(head, settings.color, 0.24);
 
     return {
       name: variant.name,
@@ -820,6 +911,125 @@ function streamLength(stream, seed) {
     ? seededRange(seed ^ 0x7f3ac21, rows * lengthPreset.longMinRows, rows * lengthPreset.longMaxRows)
     : seededRange(seed ^ 0x2b61fd9, rows * lengthPreset.shortMinRows, rows * lengthPreset.shortMaxRows);
   return Math.max(7, Math.round(length));
+}
+
+function smoothAudioValue(current, target) {
+  const audio = DEFAULT_PRESET.audioResponsive;
+  const factor = target > current ? audio.attack : audio.release;
+  return current + (target - current) * factor;
+}
+
+function audioSensitivityScale() {
+  return 0.45 + (settings.audiosensitivity / 55) * 0.55;
+}
+
+function applyAudioLevels(bass, mid, treble, markInput = false) {
+  const audio = DEFAULT_PRESET.audioResponsive;
+  const sensitivity = audioSensitivityScale();
+  const nextBass = clamp(bass * audio.bassWeight * sensitivity, 0, 1);
+  const nextMid = clamp(mid * audio.midWeight * sensitivity, 0, 1);
+  const nextTreble = clamp(treble * audio.trebleWeight * sensitivity, 0, 1);
+  const nextLevel = clamp(Math.sqrt(
+    (nextBass * nextBass * audio.bassWeight
+      + nextMid * nextMid * audio.midWeight
+      + nextTreble * nextTreble * audio.trebleWeight)
+    / (audio.bassWeight + audio.midWeight + audio.trebleWeight)
+  ), 0, 1);
+
+  audioState.bass = smoothAudioValue(audioState.bass, nextBass);
+  audioState.mid = smoothAudioValue(audioState.mid, nextMid);
+  audioState.treble = smoothAudioValue(audioState.treble, nextTreble);
+  audioState.level = smoothAudioValue(audioState.level, nextLevel);
+  audioState.peak = Math.max(audioState.level, audioState.peak * (1 - audio.peakRelease));
+
+  if (markInput) {
+    audioState.lastInputTime = performance.now();
+  }
+}
+
+function audioBandRms(audioArray, start, end, halfCount) {
+  let sum = 0;
+  let count = 0;
+
+  for (let index = start; index < end && index < halfCount; index += 1) {
+    const left = clamp(Number(audioArray[index]) || 0, 0, 1);
+    const right = clamp(Number(audioArray[index + halfCount]) || 0, 0, 1);
+    const mono = (left + right) * 0.5;
+    sum += mono * mono;
+    count += 1;
+  }
+
+  return count > 0 ? Math.sqrt(sum / count) : 0;
+}
+
+function updateAudioFromArray(audioArray) {
+  if (!audioArray || audioArray.length < 4) {
+    return;
+  }
+
+  const halfCount = Math.floor(audioArray.length / 2);
+  applyAudioLevels(
+    audioBandRms(audioArray, 0, 8, halfCount),
+    audioBandRms(audioArray, 8, 32, halfCount),
+    audioBandRms(audioArray, 32, halfCount, halfCount),
+    true
+  );
+}
+
+function updateAudioDebugSignal() {
+  const time = logicalTick / tickRate();
+  const beat = Math.pow(Math.max(0, Math.sin(time * 5.2)), 3.1);
+  const bass = clamp(0.08 + beat * 0.86 + Math.max(0, Math.sin(time * 1.7)) * 0.12, 0, 1);
+  const mid = clamp(0.06 + Math.max(0, Math.sin(time * 3.1 + 1.2)) * 0.48 + beat * 0.2, 0, 1);
+  const treble = clamp(0.04 + Math.max(0, Math.sin(time * 7.4 + 2.5)) * 0.36 + Math.random() * 0.08, 0, 1);
+
+  audioState.debugPhase = time;
+  applyAudioLevels(bass, mid, treble, false);
+}
+
+function updateAudioResponsiveState() {
+  if (AUDIO_DEBUG_ENABLED) {
+    updateAudioDebugSignal();
+    return;
+  }
+
+  if (performance.now() - audioState.lastInputTime > DEFAULT_PRESET.audioResponsive.silenceAfterMs) {
+    applyAudioLevels(0, 0, 0, false);
+  }
+}
+
+function activeAudioLevel() {
+  if (!settings.audioenabled) {
+    return 0;
+  }
+
+  const minLevel = DEFAULT_PRESET.audioResponsive.minLevel;
+  return audioState.level <= minLevel
+    ? 0
+    : clamp((audioState.level - minLevel) / (1 - minLevel), 0, 1);
+}
+
+function audioPaletteName(seed) {
+  const neonNames = ["audioRed", "audioYellow", "audioCyan", "audioBlue", "audioViolet"];
+  const roll = hashUnit(seed ^ 0x2b7f);
+
+  if (settings.audiocolormode === "neon") {
+    return neonNames[Math.floor(roll * neonNames.length) % neonNames.length];
+  }
+
+  if (settings.audiocolormode === "matrix_tint") {
+    if (roll < 0.58) return "audioMatrix";
+    if (roll < 0.78) return "audioCyan";
+    return "audioYellow";
+  }
+
+  if (audioState.bass >= audioState.mid && audioState.bass >= audioState.treble) {
+    return roll < 0.62 ? "audioRed" : "audioYellow";
+  }
+  if (audioState.mid >= audioState.treble) {
+    return roll < 0.68 ? "audioCyan" : "audioMatrix";
+  }
+  return roll < 0.56 ? "audioViolet" : "audioBlue";
 }
 
 function rowVisibility(rowIndex) {
@@ -1286,6 +1496,8 @@ function createCell(column, stream, rowIndex, age = 0, forceVisible = false) {
     negative: stream.negative,
     glowHead,
     transient: Boolean(stream.transient),
+    audioCell: Boolean(stream.audioRain),
+    audioLevel: stream.audioLevel || 0,
     justWritten: age <= 1
   };
 }
@@ -1364,6 +1576,54 @@ function createLowerFragmentStream(column, seed, startRow, length) {
     transient: true,
     cellLifeTicks: Math.floor(seededRange(seed ^ 0x44f1, fragments.minLifeTicks, fragments.maxLifeTicks)),
     alphaBase: seededRange(seed ^ 0x9e3d, fragments.minAlpha, fragments.maxAlpha)
+  };
+}
+
+function countColumnAudioStreams(column) {
+  return column.streams.reduce((sum, stream) => sum + (stream.audioRain && !stream.finished ? 1 : 0), 0);
+}
+
+function createAudioStream(column, seed, level) {
+  const audio = DEFAULT_PRESET.audioResponsive;
+  const ordinal = column.nextStreamOrdinal;
+  column.nextStreamOrdinal += 1;
+  const lengthScale = seededRange(seed ^ 0x72a9, audio.minLengthRows, audio.maxLengthRows);
+  const length = Math.max(5, Math.round(rows * lengthScale * seededRange(seed ^ 0x35fd, 0.82, 1 + level * 0.35)));
+  const startRow = Math.floor(seededRange(seed ^ 0x43d1, -length * 0.9, 0));
+  const endRow = Math.max(
+    Math.min(rows + length + 2, Math.floor(rows * seededRange(seed ^ 0x257c, audio.minEndRows, audio.maxEndRows))),
+    Math.min(rows - 1, length)
+  );
+  const speedScale = seededRange(seed ^ 0xa38f, audio.minSpeedScale, audio.maxSpeedScale) * (0.9 + level * 0.28);
+  const alphaBase = seededRange(seed ^ 0x9e3d, audio.minAlpha, audio.minAlpha + (audio.maxAlpha - audio.minAlpha) * Math.max(0.24, level));
+  const headChance = clamp(audio.headChanceBase + level * audio.headChanceGain, 0, 1);
+
+  return {
+    id: `audio:${column.index}:${ordinal}:${seed}`,
+    seed,
+    negative: false,
+    mode: "audio",
+    long: false,
+    headRow: startRow,
+    headCellRow: null,
+    progress: hashUnit(seed ^ 0x1c51) * 0.4,
+    patternSalt: seed,
+    length,
+    density: seededRange(seed ^ 0x68a31, audio.minDensity, audio.maxDensity),
+    rotatorRate: seededRange(seed ^ 0x4f81, 0.3, 0.76),
+    headChance,
+    brightHead: hashUnit(seed ^ 0x57ac) < headChance,
+    cooldownTicks: 0,
+    paletteName: audioPaletteName(seed),
+    toneMultiplier: 1 + level * 0.34,
+    speed: DEFAULT_PRESET.speedRowsPerSecond * clamp(settings.speed / 55, 0.32, 2.05) * speedScale,
+    endRow,
+    finished: false,
+    transient: true,
+    cellLifeTicks: Math.floor(seededRange(seed ^ 0x44f1, audio.minLifeTicks, audio.maxLifeTicks) * (1 + level * 0.45)),
+    alphaBase,
+    audioRain: true,
+    audioLevel: level
   };
 }
 
@@ -1736,7 +1996,7 @@ function stepStream(column, stream) {
   stream.headRow += 1;
 
   if (stream.headRow > stream.endRow) {
-    if (stream.mode === "lowerFragment") {
+    if (stream.mode === "lowerFragment" || stream.mode === "audio") {
       stream.finished = true;
       return;
     }
@@ -1750,7 +2010,7 @@ function stepStream(column, stream) {
   }
 
   const written = writeCell(column, stream, stream.headRow, 0, {
-    forceVisible: !stream.negative && (stream.brightHead || stream.mode === "lowerFragment"),
+    forceVisible: !stream.negative && (stream.brightHead || stream.mode === "lowerFragment" || stream.mode === "audio"),
     head: stream.brightHead
   });
   if (written) {
@@ -1932,8 +2192,52 @@ function releaseLowerFragments() {
   }
 }
 
+function releaseAudioRain() {
+  const level = activeAudioLevel();
+  if (level <= 0 || activeColumns.length === 0) {
+    return;
+  }
+
+  const audio = DEFAULT_PRESET.audioResponsive;
+  const intensity = clamp(settings.audiointensity / 100, 0, 1);
+  const power = Math.pow(level, 1.35);
+  const chance = clamp(
+    audio.baseChancePerTick + power * intensity * (audio.maxChancePerTick - audio.baseChancePerTick),
+    0,
+    audio.maxChancePerTick
+  );
+  const seedBase = hashInt(PATTERN_SEED ^ Math.imul(logicalTick + 101, 2246822519));
+  if (hashUnit(seedBase ^ 0x4b1d) > chance) {
+    return;
+  }
+
+  const burstMax = Math.max(1, Math.round(1 + Math.pow(audioState.peak, 1.2) * intensity * (audio.maxStreamsPerTick - 1)));
+  const count = 1 + Math.floor(hashUnit(seedBase ^ 0x15bf) * burstMax);
+  let released = 0;
+
+  for (let attempt = 0; attempt < count * 7 && released < count; attempt += 1) {
+    const seed = hashInt(seedBase ^ Math.imul(attempt + 1, 1597334677));
+    const columnIndex = Math.floor(hashUnit(seed ^ 0x6d2b) * gridColumns);
+    const column = activeColumns[columnIndex + 2];
+    if (!column || column.index !== columnIndex) {
+      continue;
+    }
+
+    if (countColumnAudioStreams(column) >= audio.maxAudioStreamsPerColumn) {
+      continue;
+    }
+    if (column.streams.length >= DEFAULT_PRESET.maxConcurrentStreamsPerColumn + audio.maxAudioStreamsPerColumn) {
+      continue;
+    }
+
+    column.streams.push(createAudioStream(column, seed, level));
+    released += 1;
+  }
+}
+
 function logicStep() {
   logicalTick += 1;
+  updateAudioResponsiveState();
 
   for (const column of activeColumns) {
     updateColumnActivity(column);
@@ -1971,6 +2275,7 @@ function logicStep() {
   releaseAmbientSmallColumns();
   releaseStandaloneRotators();
   releaseLowerFragments();
+  releaseAudioRain();
 
   for (const column of activeColumns) {
     shapeColumnSingletons(column);
@@ -2062,6 +2367,10 @@ function prebuildGlyphAtlases() {
   }
 
   for (const palette of palettes) {
+    if (palette.name.startsWith("audio") && !settings.audioenabled && !AUDIO_DEBUG_ENABLED) {
+      continue;
+    }
+
     for (const styleName of GLYPH_STYLES) {
       createGlyphAtlas(styleName, palette);
     }
@@ -2614,6 +2923,21 @@ function clearClockGridCells() {
   }
 }
 
+function clearAudioRain() {
+  for (const column of activeColumns) {
+    if (!column || !column.cells) {
+      continue;
+    }
+
+    column.streams = column.streams.filter((stream) => !stream.audioRain);
+    for (let rowIndex = 0; rowIndex < column.cells.length; rowIndex += 1) {
+      if (column.cells[rowIndex] && column.cells[rowIndex].audioCell) {
+        column.cells[rowIndex] = null;
+      }
+    }
+  }
+}
+
 function clockCellBaseAlpha(columnIndex, rowIndex) {
   const clock = DEFAULT_PRESET.clock;
   const floor = isClockEmphasisCell(columnIndex, rowIndex)
@@ -3010,6 +3334,7 @@ function collectMatrixRainState() {
     let columnBright = 0;
     let columnRotators = 0;
     let columnClockCells = 0;
+    let columnAudioCells = 0;
 
     for (const cell of column.cells) {
       if (!cell) {
@@ -3034,6 +3359,10 @@ function collectMatrixRainState() {
         columnClockCells += 1;
         summary.clockGridCells += 1;
       }
+      if (cell.audioCell) {
+        columnAudioCells += 1;
+        summary.audioRainCells += 1;
+      }
     }
 
     if (columnCells > 0) {
@@ -3053,6 +3382,9 @@ function collectMatrixRainState() {
     if (columnClockCells > 0) {
       summary.columnsWithClockCells += 1;
     }
+    if (columnAudioCells > 0) {
+      summary.columnsWithAudioRain += 1;
+    }
 
     return summary;
   }, {
@@ -3066,6 +3398,8 @@ function collectMatrixRainState() {
     columnsWithRotators: 0,
     clockGridCells: 0,
     columnsWithClockCells: 0,
+    audioRainCells: 0,
+    columnsWithAudioRain: 0,
     columnLengthSum: 0,
     maxColumnLength: 0
   });
@@ -3116,6 +3450,21 @@ function collectMatrixRainState() {
       highlightCells: clockHighlightMask.reduce((sum, value) => sum + value, 0),
       fallbackCells: clockCells.length,
       materializedCells: metrics.clockGridCells
+    },
+    audio: {
+      enabled: settings.audioenabled,
+      override: AUDIO_OVERRIDE,
+      debug: AUDIO_DEBUG_ENABLED,
+      colorMode: settings.audiocolormode,
+      intensity: settings.audiointensity,
+      sensitivity: settings.audiosensitivity,
+      level: Number(audioState.level.toFixed(4)),
+      peak: Number(audioState.peak.toFixed(4)),
+      bass: Number(audioState.bass.toFixed(4)),
+      mid: Number(audioState.mid.toFixed(4)),
+      treble: Number(audioState.treble.toFixed(4)),
+      audioRainCells: metrics.audioRainCells,
+      columnsWithAudioRain: metrics.columnsWithAudioRain
     },
     speedRowsPerSecond: DEFAULT_PRESET.speedRowsPerSecond,
     settingsSpeed: settings.speed,
@@ -3258,6 +3607,29 @@ window.wallpaperPropertyListener = {
       needsAppearanceRefresh = true;
     }
 
+    if (Object.prototype.hasOwnProperty.call(properties, "audioenabled")) {
+      const nextAudioEnabled = AUDIO_OVERRIDE ?? Boolean(properties.audioenabled.value);
+      if (settings.audioenabled && !nextAudioEnabled) {
+        clearAudioRain();
+        needsAppearanceRefresh = true;
+      }
+      settings.audioenabled = nextAudioEnabled;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(properties, "audiointensity")) {
+      settings.audiointensity = clamp(Number(properties.audiointensity.value) || DEFAULT_PRESET.wallpaperProperties.audiointensity, 0, 100);
+    }
+
+    if (Object.prototype.hasOwnProperty.call(properties, "audiosensitivity")) {
+      settings.audiosensitivity = clamp(Number(properties.audiosensitivity.value) || DEFAULT_PRESET.wallpaperProperties.audiosensitivity, 10, 100);
+    }
+
+    if (Object.prototype.hasOwnProperty.call(properties, "audiocolormode")) {
+      settings.audiocolormode = AUDIO_COLOR_MODE_OVERRIDE
+        ?? normalizeAudioColorMode(String(properties.audiocolormode.value))
+        ?? DEFAULT_PRESET.wallpaperProperties.audiocolormode;
+    }
+
     if (Object.prototype.hasOwnProperty.call(properties, "color")) {
       settings.color = parseWallpaperColor(properties.color.value);
       needsAppearanceRefresh = true;
@@ -3306,6 +3678,14 @@ document.addEventListener("visibilitychange", () => {
     cancelAnimationFrame(animationFrame);
   }
 });
+
+function wallpaperAudioListener(audioArray) {
+  updateAudioFromArray(audioArray);
+}
+
+if (typeof window.wallpaperRegisterAudioListener === "function") {
+  window.wallpaperRegisterAudioListener(wallpaperAudioListener);
+}
 
 setActiveFontStyle(settings.fontstyle);
 

@@ -237,10 +237,10 @@ const DEFAULT_PRESET = {
   initialWarmupSeconds: 12.5,
   bottomFade: {
     baseVisibility: 1,
-    start: 0.27,
+    start: 0.24,
     power: 1,
-    amount: 0.68,
-    minVisibility: 0.32,
+    amount: 0.76,
+    minVisibility: 0.24,
     maxVisibility: 1.1
   },
   entryBoost: {
@@ -319,9 +319,9 @@ const DEFAULT_PRESET = {
   topOrigin: {
     initialTopChance: 0.82,
     initialTopPortion: 0.27,
-    reachesBottomChance: 0.28,
+    reachesBottomChance: 0.2,
     endMinRows: 0.56,
-    endMaxRows: 0.98,
+    endMaxRows: 0.9,
     resetStartMin: -3,
     resetStartMax: 1
   },
@@ -407,13 +407,13 @@ const DEFAULT_PRESET = {
     maxRotateTicks: 8
   },
   lowerFragments: {
-    chancePerTick: 0.032,
+    chancePerTick: 0.022,
     maxPerTick: 1,
     startMinRows: 0.45,
-    startMaxRows: 0.86,
+    startMaxRows: 0.78,
     startBiasPower: 1.55,
-    minLengthRows: 3,
-    maxLengthRows: 6,
+    minLengthRows: 2,
+    maxLengthRows: 4,
     quietGapRows: 7,
     rotatingChance: 0.32,
     brightHeadChance: 0.45,
@@ -446,7 +446,8 @@ const DEFAULT_PRESET = {
     visibilityFloor: 0.92,
     alphaFloor: 1.18,
     fallbackAlpha: 0.86,
-    fallbackRotateTicks: Number.MAX_SAFE_INTEGER,
+    characterRotateMinTicks: 12,
+    characterRotateMaxTicks: 34,
     maskSampleScale: 4,
     digitGapColumns: 1,
     colonWidthRatio: 0.18,
@@ -755,6 +756,23 @@ function scaleColor(color, multiplier) {
   };
 }
 
+function saturateColor(color, multiplier) {
+  const luma = color.r * 0.2126 + color.g * 0.7152 + color.b * 0.0722;
+  return {
+    r: clamp(Math.round(luma + (color.r - luma) * multiplier), 0, 255),
+    g: clamp(Math.round(luma + (color.g - luma) * multiplier), 0, 255),
+    b: clamp(Math.round(luma + (color.b - luma) * multiplier), 0, 255)
+  };
+}
+
+function bodyToneSourceColor(variant, color) {
+  if (variant.fixed || variant.name === "accent" || variant.name === "clock") {
+    return color;
+  }
+
+  return saturateColor(scaleColor(color, 0.8), 1.2);
+}
+
 function mixColor(a, b, amount) {
   const inverse = 1 - amount;
   return {
@@ -826,13 +844,15 @@ function buildPalettes() {
   ];
 
   palettes = variants.map((variant) => {
+    const bodyColor = bodyToneSourceColor(variant, variant.bodyColor);
+    const brightColor = bodyToneSourceColor(variant, variant.brightColor);
     const body = variant.fixed
-      ? scaleColor(variant.bodyColor, referenceBrightness)
-      : referenceToneColor(variant.bodyColor, referenceBrightness);
+      ? scaleColor(bodyColor, referenceBrightness)
+      : referenceToneColor(bodyColor, referenceBrightness);
     const bright = variant.fixed
-      ? scaleColor(variant.brightColor, referenceBrightness)
-      : referenceToneColor(variant.brightColor, referenceBrightness);
-    const dimSource = scaleColor(variant.bodyColor, variant.fixed ? 0.48 : 0.58);
+      ? scaleColor(brightColor, referenceBrightness)
+      : referenceToneColor(brightColor, referenceBrightness);
+    const dimSource = scaleColor(bodyColor, variant.fixed ? 0.48 : 0.58);
     const dim = variant.fixed
       ? scaleColor(dimSource, referenceBrightness)
       : referenceToneColor(dimSource, referenceBrightness);
@@ -2972,6 +2992,15 @@ function clockGlyphChar(columnIndex, rowIndex, salt) {
   return chooseStableChar(PATTERN_SEED ^ 0x61c10c, columnIndex, rowIndex, salt);
 }
 
+function clockRotateDelay(seed, rowIndex) {
+  const clock = DEFAULT_PRESET.clock;
+  return Math.floor(seededRange(
+    seed ^ Math.imul(rowIndex + 37, 1597334677),
+    clock.characterRotateMinTicks,
+    clock.characterRotateMaxTicks + 1
+  ));
+}
+
 function clockCellBaseAlpha(columnIndex, rowIndex) {
   const clock = DEFAULT_PRESET.clock;
   const floor = isClockEmphasisCell(columnIndex, rowIndex)
@@ -2986,9 +3015,15 @@ function updateClockCell(column, rowIndex, cell) {
     return;
   }
 
-  const clock = DEFAULT_PRESET.clock;
   cell.age += 1;
   cell.justWritten = false;
+
+  if (!Number.isFinite(cell.nextRotateTick) || cell.nextRotateTick <= logicalTick) {
+    cell.salt = hashInt(cell.salt ^ Math.imul(logicalTick + rowIndex + 3, 1597334677));
+    cell.char = clockGlyphChar(column.index, rowIndex, cell.salt);
+    cell.stableChar = cell.char;
+    cell.nextRotateTick = logicalTick + clockRotateDelay(cell.salt, rowIndex);
+  }
 
   cell.life = Number.MAX_SAFE_INTEGER;
   cell.negative = false;
@@ -2997,8 +3032,7 @@ function updateClockCell(column, rowIndex, cell) {
   cell.headPreviousGlowHead = false;
   cell.glowHead = isClockEmphasisCell(column.index, rowIndex);
   cell.paletteName = "clock";
-  cell.rotator = false;
-  cell.nextRotateTick = clock.fallbackRotateTicks;
+  cell.rotator = true;
   cell.baseAlpha = clockCellBaseAlpha(column.index, rowIndex);
   cell.target = cell.baseAlpha;
   cell.alpha = cell.baseAlpha;
@@ -3022,20 +3056,24 @@ function ensureClockGridCells() {
     const current = column.cells[rowIndex];
     if (current && !current.negative) {
       const nextAlpha = current.clockCell ? baseAlpha : Math.max(current.baseAlpha || 0, baseAlpha);
-      current.char = stableChar;
-      current.stableChar = stableChar;
-      current.salt = clockCell.salt;
+      if (!current.clockCell) {
+        current.char = stableChar;
+        current.stableChar = stableChar;
+        current.salt = clockCell.salt;
+        current.nextRotateTick = logicalTick + clockRotateDelay(clockCell.salt, rowIndex);
+      } else if (!Number.isFinite(current.nextRotateTick)) {
+        current.nextRotateTick = logicalTick + clockRotateDelay(current.salt, rowIndex);
+      }
       current.clockCell = true;
       current.staticCell = false;
       current.transient = false;
       current.paletteName = "clock";
-      current.rotator = false;
+      current.rotator = true;
       current.glowHead = emphasis;
       current.baseAlpha = nextAlpha;
       current.target = current.baseAlpha;
       current.alpha = current.baseAlpha;
       current.life = Number.MAX_SAFE_INTEGER;
-      current.nextRotateTick = DEFAULT_PRESET.clock.fallbackRotateTicks;
       continue;
     }
 
@@ -3051,8 +3089,8 @@ function ensureClockGridCells() {
       target: baseAlpha,
       baseAlpha,
       paletteName: "clock",
-      rotator: false,
-      nextRotateTick: DEFAULT_PRESET.clock.fallbackRotateTicks,
+      rotator: true,
+      nextRotateTick: logicalTick + clockRotateDelay(salt, rowIndex),
       streamId: `clock:${column.index}:${rowIndex}`,
       negative: false,
       head: false,
@@ -3077,7 +3115,14 @@ function drawClockFallbackGlyphs() {
   const brightness = clamp(settings.brightness / 72, 0.45, 1.32);
 
   for (const clockCell of clockCells) {
-    const char = clockGlyphChar(clockCell.columnIndex, clockCell.rowIndex, clockCell.salt);
+    const delay = clockRotateDelay(clockCell.salt, clockCell.rowIndex);
+    const phase = Math.floor(hashUnit(clockCell.salt ^ 0x49cd) * delay);
+    const bucket = Math.floor((logicalTick + phase) / Math.max(1, delay));
+    const char = clockGlyphChar(
+      clockCell.columnIndex,
+      clockCell.rowIndex,
+      hashInt(clockCell.salt ^ Math.imul(bucket + 1, 1103515245))
+    );
     const sprite = createGlyph(char, "head", palette);
     const x = (clockCell.columnIndex + 0.5) * cellWidth;
     const y = (clockCell.rowIndex + 0.5) * cellHeight;

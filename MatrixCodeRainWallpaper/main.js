@@ -16,6 +16,19 @@ const CHAR_LIST = Array.from(CHAR_POOL);
 const GLYPH_INDEX = new Map(CHAR_LIST.map((char, index) => [char, index]));
 const GLYPH_MEASURE_POOL = CHAR_POOL;
 const GLYPH_STYLES = ["dim", "body", "bright", "head"];
+const CLOCK_GLYPHS = {
+  "0": ["11111", "10001", "10011", "10101", "11001", "10001", "11111"],
+  "1": ["00100", "01100", "00100", "00100", "00100", "00100", "01110"],
+  "2": ["11111", "00001", "00001", "11111", "10000", "10000", "11111"],
+  "3": ["11111", "00001", "00001", "11111", "00001", "00001", "11111"],
+  "4": ["10001", "10001", "10001", "11111", "00001", "00001", "00001"],
+  "5": ["11111", "10000", "10000", "11111", "00001", "00001", "11111"],
+  "6": ["11111", "10000", "10000", "11111", "10001", "10001", "11111"],
+  "7": ["11111", "00001", "00010", "00100", "01000", "01000", "01000"],
+  "8": ["11111", "10001", "10001", "11111", "10001", "10001", "11111"],
+  "9": ["11111", "10001", "10001", "11111", "00001", "00001", "11111"],
+  ":": ["0", "1", "1", "0", "1", "1", "0"]
+};
 
 const REFERENCE_ROW_PROFILE = {
   active: [0.464, 0.464, 0.536, 0.507, 0.421, 0.464, 0.443, 0.45, 0.514, 0.457, 0.493, 0.471, 0.493, 0.471, 0.5, 0.471, 0.5, 0.493, 0.436, 0.429, 0.4, 0.429, 0.421, 0.386, 0.35, 0.371, 0.379, 0.329, 0.35, 0.336, 0.336, 0.35, 0.357, 0.314, 0.329, 0.279, 0.257, 0.257, 0.221, 0.2, 0.2, 0.207, 0.214, 0.221, 0.214, 0.186, 0.157, 0.207, 0.2, 0.193, 0.186, 0.15, 0.107, 0.05, 0.079, 0.071, 0.057, 0.036, 0.021],
@@ -290,12 +303,23 @@ const DEFAULT_PRESET = {
     retireMinTicks: 72,
     retireMaxTicks: 180
   },
+  clock: {
+    enabled: true,
+    verticalCenter: 0.43,
+    maxWidthPortion: 0.72,
+    maxHeightPortion: 0.27,
+    gapColumns: 1,
+    visibilityFloor: 0.92,
+    alphaFloor: 1.18
+  },
   wallpaperProperties: {
     density: 62,
     speed: 55,
     brightness: 100,
     glyphscale: 100,
-    glow: true
+    glow: true,
+    clock: true,
+    clockbrightness: 110
   },
   baseColor: BASE_COLOR
 };
@@ -306,6 +330,8 @@ const settings = {
   brightness: DEFAULT_PRESET.wallpaperProperties.brightness,
   glyphscale: DEFAULT_PRESET.wallpaperProperties.glyphscale,
   glow: DEFAULT_PRESET.wallpaperProperties.glow,
+  clock: DEFAULT_PRESET.wallpaperProperties.clock,
+  clockbrightness: DEFAULT_PRESET.wallpaperProperties.clockbrightness,
   color: DEFAULT_PRESET.baseColor,
   fps: 0
 };
@@ -334,6 +360,9 @@ let renderSeconds = 0;
 let running = true;
 let started = false;
 let debugStateElement = null;
+let clockMask = new Uint8Array(0);
+let clockMaskKey = "";
+let clockText = "";
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
@@ -459,6 +488,7 @@ function buildPalettes() {
     { name: "normal", bodyColor: { r: 36, g: 176, b: 75 }, brightColor: { r: 96, g: 228, b: 132 }, glow: 0.28 },
     { name: "pale", bodyColor: { r: 82, g: 226, b: 124 }, brightColor: { r: 156, g: 255, b: 186 }, glow: 0.42 },
     { name: "accent", bodyColor: { r: 135, g: 255, b: 168 }, brightColor: { r: 210, g: 255, b: 220 }, glow: 0.64 },
+    { name: "clock", bodyColor: { r: 178, g: 255, b: 198 }, brightColor: { r: 236, g: 255, b: 232 }, glow: 0.82 },
     { name: "negative", bodyColor: { r: 24, g: 112, b: 50 }, brightColor: { r: 50, g: 166, b: 85 }, glow: 0.14 }
   ];
 
@@ -1930,10 +1960,109 @@ function createGlyph(char, styleName, palette) {
   };
 }
 
+function currentClockText() {
+  const now = new Date();
+  const hours = String(now.getHours()).padStart(2, "0");
+  const minutes = String(now.getMinutes()).padStart(2, "0");
+  return `${hours}:${minutes}`;
+}
+
+function clockTextBaseWidth(text) {
+  const gap = DEFAULT_PRESET.clock.gapColumns;
+  let widthUnits = 0;
+
+  for (let index = 0; index < text.length; index += 1) {
+    const glyph = CLOCK_GLYPHS[text[index]];
+    if (!glyph) {
+      continue;
+    }
+
+    widthUnits += glyph[0].length;
+    if (index < text.length - 1) {
+      widthUnits += gap;
+    }
+  }
+
+  return widthUnits;
+}
+
+function updateClockMask() {
+  if (!settings.clock || rows <= 0 || gridColumns <= 0) {
+    clockMask = new Uint8Array(0);
+    clockMaskKey = "";
+    clockText = "";
+    return;
+  }
+
+  const text = currentClockText();
+  const key = `${text}:${rows}:${gridColumns}`;
+  if (key === clockMaskKey && clockMask.length === rows * gridColumns) {
+    return;
+  }
+
+  const clock = DEFAULT_PRESET.clock;
+  const baseHeight = 7;
+  const baseWidth = clockTextBaseWidth(text);
+  const maxWidth = Math.max(1, gridColumns * clock.maxWidthPortion);
+  const maxHeight = Math.max(1, rows * clock.maxHeightPortion);
+  const scale = Math.max(1, Math.floor(Math.min(maxWidth / baseWidth, maxHeight / baseHeight)));
+  const totalWidth = baseWidth * scale;
+  const totalHeight = baseHeight * scale;
+  const startColumn = clampInt((gridColumns - totalWidth) / 2, 0, Math.max(0, gridColumns - totalWidth));
+  const startRow = clampInt((rows * clock.verticalCenter) - (totalHeight / 2), 0, Math.max(0, rows - totalHeight));
+  const nextMask = new Uint8Array(rows * gridColumns);
+  let cursorColumn = startColumn;
+
+  for (let textIndex = 0; textIndex < text.length; textIndex += 1) {
+    const glyph = CLOCK_GLYPHS[text[textIndex]];
+    if (!glyph) {
+      continue;
+    }
+
+    for (let glyphRow = 0; glyphRow < glyph.length; glyphRow += 1) {
+      for (let glyphColumn = 0; glyphColumn < glyph[glyphRow].length; glyphColumn += 1) {
+        if (glyph[glyphRow][glyphColumn] !== "1") {
+          continue;
+        }
+
+        for (let rowScale = 0; rowScale < scale; rowScale += 1) {
+          const rowIndex = startRow + glyphRow * scale + rowScale;
+          if (rowIndex < 0 || rowIndex >= rows) {
+            continue;
+          }
+
+          for (let columnScale = 0; columnScale < scale; columnScale += 1) {
+            const columnIndex = cursorColumn + glyphColumn * scale + columnScale;
+            if (columnIndex >= 0 && columnIndex < gridColumns) {
+              nextMask[rowIndex * gridColumns + columnIndex] = 1;
+            }
+          }
+        }
+      }
+    }
+
+    cursorColumn += (glyph[0].length + clock.gapColumns) * scale;
+  }
+
+  clockMask = nextMask;
+  clockMaskKey = key;
+  clockText = text;
+}
+
+function isClockMaskCell(columnIndex, rowIndex) {
+  return settings.clock
+    && columnIndex >= 0
+    && columnIndex < gridColumns
+    && rowIndex >= 0
+    && rowIndex < rows
+    && clockMask[rowIndex * gridColumns + columnIndex] === 1;
+}
+
 function drawGlyph(cell, column, rowIndex) {
   let styleName = "body";
   let alpha = cell.alpha;
   const glowIntensity = DEFAULT_PRESET.glowingTracers.intensity / 100;
+  const clockHit = isClockMaskCell(column.index, rowIndex);
 
   if (cell.head) {
     styleName = "head";
@@ -1946,15 +2075,25 @@ function drawGlyph(cell, column, rowIndex) {
     alpha *= (cell.rotator ? 1.08 : 1.0) + 0.08 * glowIntensity;
   }
 
+  if (clockHit) {
+    styleName = "head";
+    alpha = Math.max(alpha * 1.34, DEFAULT_PRESET.clock.alphaFloor * (settings.clockbrightness / 100));
+  }
+
   if (alpha <= 0.012) {
     return;
   }
 
-  const palette = paletteByName(cell.paletteName) || column.palette;
+  const palette = clockHit
+    ? paletteByName("clock")
+    : paletteByName(cell.paletteName) || column.palette;
   const sprite = createGlyph(cell.char, styleName, palette);
   const x = column.x;
   const y = (rowIndex + 0.5) * cellHeight;
   let visibility = rowVisibility(rowIndex);
+  if (clockHit) {
+    visibility = Math.max(visibility, DEFAULT_PRESET.clock.visibilityFloor);
+  }
   if (!cell.negative && (cell.head || cell.glowHead)) {
     const rowUnit = rowIndex / Math.max(1, rows - 1);
     const upperFloor = cell.head ? 0.88 : 0.74;
@@ -1979,6 +2118,7 @@ function drawGlyph(cell, column, rowIndex) {
 
 function render(now = performance.now()) {
   renderSeconds = now / 1000;
+  updateClockMask();
   ctx.globalAlpha = 1;
   ctx.globalCompositeOperation = "source-over";
   ctx.fillStyle = "#000";
@@ -2244,6 +2384,11 @@ function collectMatrixRainState() {
     dpr,
     layoutProfile: activeLayoutProfile,
     layout: DEFAULT_PRESET.layout,
+    clock: {
+      enabled: settings.clock,
+      text: clockText,
+      activeCells: clockMask.reduce((sum, value) => sum + value, 0)
+    },
     speedRowsPerSecond: DEFAULT_PRESET.speedRowsPerSecond,
     settingsSpeed: settings.speed,
     startup: DEFAULT_PRESET.startup,
@@ -2348,6 +2493,17 @@ window.wallpaperPropertyListener = {
 
     if (Object.prototype.hasOwnProperty.call(properties, "glow")) {
       settings.glow = Boolean(properties.glow.value);
+      needsAppearanceRefresh = true;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(properties, "clock")) {
+      settings.clock = Boolean(properties.clock.value);
+      clockMaskKey = "";
+      needsAppearanceRefresh = true;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(properties, "clockbrightness")) {
+      settings.clockbrightness = clamp(Number(properties.clockbrightness.value) || DEFAULT_PRESET.wallpaperProperties.clockbrightness, 60, 160);
       needsAppearanceRefresh = true;
     }
 

@@ -52,6 +52,21 @@
         "type": "color",
         "value": "0.21 0.85 0.41",
         "order": 60
+      },
+      "clock": {
+        "text": "Clock",
+        "type": "bool",
+        "value": true,
+        "order": 70
+      },
+      "clockbrightness": {
+        "text": "Clock brightness",
+        "type": "slider",
+        "value": 110,
+        "min": 60,
+        "max": 160,
+        "editable": true,
+        "order": 80
       }
     },
     "supportsaudioprocessing": false

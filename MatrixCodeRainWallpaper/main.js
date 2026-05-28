@@ -305,8 +305,9 @@ const DEFAULT_PRESET = {
     digitGapColumns: 1,
     colonWidthRatio: 0.18,
     colonDotSizeRatio: 0.12,
-    maskCoverageThreshold: 0.22,
+    maskCoverageThreshold: 0.28,
     highlightCoverageThreshold: 0.24,
+    displayAlphaFloor: 0.72,
     highlightAlphaFloor: 0.58
   },
   wallpaperProperties: {
@@ -358,6 +359,7 @@ let running = true;
 let started = false;
 let debugStateElement = null;
 let clockMask = new Uint8Array(0);
+let clockEmphasisMask = new Uint8Array(0);
 let clockHighlightMask = new Uint8Array(0);
 let clockCells = [];
 let clockMaskKey = "";
@@ -2187,10 +2189,10 @@ function buildClockMaskFromMatrixDigits(text) {
   const highlightImage = maskContext.getImageData(0, 0, maskWidth, maskHeight).data;
   const nextHighlightMask = new Uint8Array(rows * gridColumns);
   sampleClockRasterToMask(highlightImage, clock.highlightCoverageThreshold, nextHighlightMask, sampleScale, maskWidth);
-  const solidMask = new Uint8Array(rows * gridColumns);
+  const nextMask = new Uint8Array(rows * gridColumns);
   const nextCells = [];
-  sampleClockRasterToMask(highlightImage, clock.maskCoverageThreshold, solidMask, sampleScale, maskWidth);
-  const nextMask = thinClockMask(solidMask);
+  sampleClockRasterToMask(highlightImage, clock.maskCoverageThreshold, nextMask, sampleScale, maskWidth);
+  let nextEmphasisMask = thinClockMask(nextMask);
 
   for (const colonSquare of colonSquares) {
     markClockColonSquares(
@@ -2204,6 +2206,19 @@ function buildClockMaskFromMatrixDigits(text) {
     );
     markClockColonSquares(
       nextHighlightMask,
+      null,
+      colonSquare.x,
+      colonSquare.top,
+      colonSquare.height,
+      colonSquare.fontPx,
+      colonSquare.sampleScale
+    );
+  }
+
+  nextEmphasisMask = thinClockMask(nextMask);
+  for (const colonSquare of colonSquares) {
+    markClockColonSquares(
+      nextEmphasisMask,
       null,
       colonSquare.x,
       colonSquare.top,
@@ -2228,6 +2243,7 @@ function buildClockMaskFromMatrixDigits(text) {
 
   return {
     nextMask,
+    nextEmphasisMask,
     nextHighlightMask,
     nextCells
   };
@@ -2237,6 +2253,7 @@ function updateClockMask() {
   if (!settings.clock || rows <= 0 || gridColumns <= 0) {
     clearClockGridCells();
     clockMask = new Uint8Array(0);
+    clockEmphasisMask = new Uint8Array(0);
     clockHighlightMask = new Uint8Array(0);
     clockCells = [];
     clockMaskKey = "";
@@ -2246,13 +2263,17 @@ function updateClockMask() {
 
   const text = currentClockText();
   const key = `${text}:${rows}:${gridColumns}`;
-  if (key === clockMaskKey && clockMask.length === rows * gridColumns && clockHighlightMask.length === rows * gridColumns) {
+  if (key === clockMaskKey
+    && clockMask.length === rows * gridColumns
+    && clockEmphasisMask.length === rows * gridColumns
+    && clockHighlightMask.length === rows * gridColumns) {
     return;
   }
 
-  const { nextMask, nextHighlightMask, nextCells } = buildClockMaskFromMatrixDigits(text);
+  const { nextMask, nextEmphasisMask, nextHighlightMask, nextCells } = buildClockMaskFromMatrixDigits(text);
 
   clockMask = nextMask;
+  clockEmphasisMask = nextEmphasisMask;
   clockHighlightMask = nextHighlightMask;
   clockCells = nextCells;
   clockMaskKey = key;
@@ -2266,6 +2287,15 @@ function isClockMaskCell(columnIndex, rowIndex) {
     && rowIndex >= 0
     && rowIndex < rows
     && clockMask[rowIndex * gridColumns + columnIndex] === 1;
+}
+
+function isClockEmphasisCell(columnIndex, rowIndex) {
+  return settings.clock
+    && columnIndex >= 0
+    && columnIndex < gridColumns
+    && rowIndex >= 0
+    && rowIndex < rows
+    && clockEmphasisMask[rowIndex * gridColumns + columnIndex] === 1;
 }
 
 function isClockHighlightCell(columnIndex, rowIndex) {
@@ -2291,8 +2321,12 @@ function clearClockGridCells() {
   }
 }
 
-function clockCellBaseAlpha() {
-  return DEFAULT_PRESET.clock.alphaFloor * (settings.clockbrightness / 100);
+function clockCellBaseAlpha(columnIndex, rowIndex) {
+  const clock = DEFAULT_PRESET.clock;
+  const floor = isClockEmphasisCell(columnIndex, rowIndex)
+    ? clock.alphaFloor
+    : clock.displayAlphaFloor;
+  return floor * (settings.clockbrightness / 100);
 }
 
 function updateClockCell(column, rowIndex, cell) {
@@ -2316,9 +2350,9 @@ function updateClockCell(column, rowIndex, cell) {
   cell.head = false;
   cell.headStreamId = null;
   cell.headPreviousGlowHead = false;
-  cell.glowHead = true;
+  cell.glowHead = isClockEmphasisCell(column.index, rowIndex);
   cell.paletteName = "clock";
-  cell.baseAlpha = clockCellBaseAlpha();
+  cell.baseAlpha = clockCellBaseAlpha(column.index, rowIndex);
   cell.target = cell.baseAlpha;
   cell.alpha = cell.baseAlpha;
 }
@@ -2328,8 +2362,6 @@ function ensureClockGridCells() {
     return;
   }
 
-  const baseAlpha = clockCellBaseAlpha();
-
   for (const clockCell of clockCells) {
     const column = activeColumns[clockCell.columnIndex + 2];
     if (!column || column.index !== clockCell.columnIndex) {
@@ -2337,6 +2369,8 @@ function ensureClockGridCells() {
     }
 
     const rowIndex = clockCell.rowIndex;
+    const emphasis = isClockEmphasisCell(column.index, rowIndex);
+    const baseAlpha = clockCellBaseAlpha(column.index, rowIndex);
     const current = column.cells[rowIndex];
     if (current && !current.negative) {
       const nextAlpha = current.clockCell ? baseAlpha : Math.max(current.baseAlpha || 0, baseAlpha);
@@ -2344,7 +2378,7 @@ function ensureClockGridCells() {
       current.staticCell = false;
       current.transient = false;
       current.paletteName = "clock";
-      current.glowHead = true;
+      current.glowHead = emphasis;
       current.baseAlpha = nextAlpha;
       current.target = current.baseAlpha;
       current.alpha = current.baseAlpha;
@@ -2377,7 +2411,7 @@ function ensureClockGridCells() {
       transient: false,
       staticCell: false,
       clockCell: true,
-      glowHead: true,
+      glowHead: emphasis,
       justWritten: true
     };
   }
@@ -2425,6 +2459,7 @@ function drawGlyph(cell, column, rowIndex) {
   let alpha = cell.alpha;
   const glowIntensity = DEFAULT_PRESET.glowingTracers.intensity / 100;
   const clockMaskHit = isClockMaskCell(column.index, rowIndex);
+  const clockEmphasisHit = isClockEmphasisCell(column.index, rowIndex);
   const clockHighlightHit = isClockHighlightCell(column.index, rowIndex);
 
   if (cell.head) {
@@ -2438,9 +2473,12 @@ function drawGlyph(cell, column, rowIndex) {
     alpha *= (cell.rotator ? 1.08 : 1.0) + 0.08 * glowIntensity;
   }
 
-  if (clockMaskHit) {
+  if (clockEmphasisHit) {
     styleName = "head";
     alpha = Math.max(alpha * 1.34, DEFAULT_PRESET.clock.alphaFloor * (settings.clockbrightness / 100));
+  } else if (clockMaskHit) {
+    styleName = "bright";
+    alpha = Math.max(alpha * 1.02, DEFAULT_PRESET.clock.displayAlphaFloor * (settings.clockbrightness / 100));
   } else if (clockHighlightHit) {
     styleName = cell.head ? "head" : "bright";
     alpha = Math.max(alpha * 1.12, DEFAULT_PRESET.clock.highlightAlphaFloor * (settings.clockbrightness / 100));
@@ -2769,6 +2807,7 @@ function collectMatrixRainState() {
       mask: "matrix-font-digits",
       text: clockText,
       activeCells: clockMask.reduce((sum, value) => sum + value, 0),
+      emphasisCells: clockEmphasisMask.reduce((sum, value) => sum + value, 0),
       highlightCells: clockHighlightMask.reduce((sum, value) => sum + value, 0),
       fallbackCells: clockCells.length,
       materializedCells: metrics.clockGridCells

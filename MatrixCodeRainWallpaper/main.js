@@ -2323,17 +2323,17 @@ function markClockCellGroup(nextMask, nextCells, nextEmphasisMask, nextHighlight
   markClockMaskCell(nextEmphasisMask, null, columnIndex, rowIndex);
 }
 
-const LCD_DIGIT_WIDTH = 11;
-const LCD_DIGIT_HEIGHT = 15;
+const LCD_DIGIT_WIDTH = 10;
+const LCD_DIGIT_HEIGHT = 14;
 const LCD_COLON_WIDTH = 3;
 const LCD_SEGMENT_CELLS = {
-  a: [[2, 0], [3, 0], [4, 0], [5, 0], [6, 0], [7, 0], [8, 0], [1, 1], [2, 1], [3, 1], [4, 1], [5, 1], [6, 1], [7, 1], [8, 1], [9, 1]],
-  g: [[2, 6], [3, 6], [4, 6], [5, 6], [6, 6], [7, 6], [8, 6], [1, 7], [2, 7], [3, 7], [4, 7], [5, 7], [6, 7], [7, 7], [8, 7], [9, 7], [2, 8], [3, 8], [4, 8], [5, 8], [6, 8], [7, 8], [8, 8]],
-  d: [[1, 13], [2, 13], [3, 13], [4, 13], [5, 13], [6, 13], [7, 13], [8, 13], [9, 13], [2, 14], [3, 14], [4, 14], [5, 14], [6, 14], [7, 14], [8, 14]],
-  f: [[1, 2], [0, 3], [1, 3], [0, 4], [1, 4], [0, 5], [1, 5], [1, 6]],
-  b: [[9, 2], [9, 3], [10, 3], [9, 4], [10, 4], [9, 5], [10, 5], [9, 6]],
-  e: [[1, 8], [0, 9], [1, 9], [0, 10], [1, 10], [0, 11], [1, 11], [1, 12]],
-  c: [[9, 8], [9, 9], [10, 9], [9, 10], [10, 10], [9, 11], [10, 11], [9, 12]]
+  a: [[2, 0], [3, 0], [4, 0], [5, 0], [6, 0], [7, 0], [1, 1], [2, 1], [3, 1], [4, 1], [5, 1], [6, 1], [7, 1], [8, 1]],
+  g: [[2, 6], [3, 6], [4, 6], [5, 6], [6, 6], [7, 6], [1, 7], [2, 7], [3, 7], [4, 7], [5, 7], [6, 7], [7, 7], [8, 7]],
+  d: [[1, 12], [2, 12], [3, 12], [4, 12], [5, 12], [6, 12], [7, 12], [8, 12], [2, 13], [3, 13], [4, 13], [5, 13], [6, 13], [7, 13]],
+  f: [[1, 2], [0, 3], [1, 3], [0, 4], [1, 4], [1, 5]],
+  b: [[8, 2], [8, 3], [9, 3], [8, 4], [9, 4], [8, 5]],
+  e: [[1, 8], [0, 9], [1, 9], [0, 10], [1, 10], [1, 11]],
+  c: [[8, 8], [8, 9], [9, 9], [8, 10], [9, 10], [8, 11]]
 };
 
 function markClockScaledCell(nextMask, nextCells, nextEmphasisMask, nextHighlightMask, startColumn, startRow, scale, cellColumn, cellRow) {
@@ -2359,7 +2359,7 @@ function markClockLcdSegment(nextMask, nextCells, nextEmphasisMask, nextHighligh
 }
 
 function markClockLcdColon(nextMask, nextCells, nextEmphasisMask, nextHighlightMask, startColumn, startRow, scale) {
-  const colonCells = [[1, 4], [1, 10]];
+  const colonCells = [[1, 4], [1, 9]];
   for (const [cellColumn, cellRow] of colonCells) {
     markClockScaledCell(nextMask, nextCells, nextEmphasisMask, nextHighlightMask, startColumn, startRow, scale, cellColumn, cellRow);
   }

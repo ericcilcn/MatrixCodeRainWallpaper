@@ -14,15 +14,18 @@ const GLYPH_EDGE_ALPHA = 0.72;
 const PATTERN_SEED = 0x4d415452;
 const URL_PARAMS = new URLSearchParams(window.location.search);
 const DEBUG_STATE_ENABLED = URL_PARAMS.has("debugstate");
-const LAYOUT_OVERRIDE = URL_PARAMS.get("layout");
+const CONTROLS_ENABLED = parseBooleanParam(URL_PARAMS.get("controls")) ?? URL_PARAMS.has("controls");
+const LAYOUT_OVERRIDE = normalizeLayoutMode(URL_PARAMS.get("layout"));
 const CLOCK_OVERRIDE = parseBooleanParam(URL_PARAMS.get("clock"));
 const CLOCK_STYLES = new Set(["sevensegment", "lcdsegment", "matrixfont"]);
 const AUDIO_COLOR_MODES = new Set(["spectrum", "neon", "matrix_tint"]);
 const CLOCK_STYLE_OVERRIDE = normalizeClockStyle(URL_PARAMS.get("clockstyle"));
 const FONT_STYLE_OVERRIDE = normalizeFontStyle(URL_PARAMS.get("fontstyle"));
 const AUDIO_OVERRIDE = parseBooleanParam(URL_PARAMS.get("audio"));
-const AUDIO_DEBUG_ENABLED = parseBooleanParam(URL_PARAMS.get("audiodebug")) ?? URL_PARAMS.has("audiodebug");
 const AUDIO_COLOR_MODE_OVERRIDE = normalizeAudioColorMode(URL_PARAMS.get("audiocolormode"));
+const CLOCK_BRIGHTNESS_OVERRIDE = parseNumberParam(URL_PARAMS.get("clockbrightness"));
+const AUDIO_INTENSITY_OVERRIDE = parseNumberParam(URL_PARAMS.get("audiointensity"));
+const AUDIO_SENSITIVITY_OVERRIDE = parseNumberParam(URL_PARAMS.get("audiosensitivity"));
 const TRILOGY_CHAR_POOL = `"*+012345789:<>z|¦©╌▪アウエオカキケコサシスセソタツテナニヌネハヒホマミムメモヤヨラリワー꞊\uE937`;
 const RESURRECTIONS_CHAR_POOL = Array.from(
   { length: 0xe989 - 0xe900 + 1 },
@@ -402,10 +405,10 @@ const settings = {
   glow: DEFAULT_PRESET.wallpaperProperties.glow,
   clock: CLOCK_OVERRIDE ?? DEFAULT_PRESET.wallpaperProperties.clock,
   clockstyle: CLOCK_STYLE_OVERRIDE ?? DEFAULT_PRESET.wallpaperProperties.clockstyle,
-  clockbrightness: DEFAULT_PRESET.wallpaperProperties.clockbrightness,
+  clockbrightness: clamp(CLOCK_BRIGHTNESS_OVERRIDE ?? DEFAULT_PRESET.wallpaperProperties.clockbrightness, 60, 160),
   audioenabled: AUDIO_OVERRIDE ?? DEFAULT_PRESET.wallpaperProperties.audioenabled,
-  audiointensity: DEFAULT_PRESET.wallpaperProperties.audiointensity,
-  audiosensitivity: DEFAULT_PRESET.wallpaperProperties.audiosensitivity,
+  audiointensity: clamp(AUDIO_INTENSITY_OVERRIDE ?? DEFAULT_PRESET.wallpaperProperties.audiointensity, 0, 100),
+  audiosensitivity: clamp(AUDIO_SENSITIVITY_OVERRIDE ?? DEFAULT_PRESET.wallpaperProperties.audiosensitivity, 10, 100),
   audiocolormode: AUDIO_COLOR_MODE_OVERRIDE ?? DEFAULT_PRESET.wallpaperProperties.audiocolormode,
   color: DEFAULT_PRESET.baseColor,
   fps: 0
@@ -443,6 +446,8 @@ let clockHighlightMask = new Uint8Array(0);
 let clockCells = [];
 let clockMaskKey = "";
 let clockText = "";
+let layoutModeOverride = LAYOUT_OVERRIDE;
+let audioDebugEnabled = parseBooleanParam(URL_PARAMS.get("audiodebug")) ?? URL_PARAMS.has("audiodebug");
 let audioState = {
   bass: 0,
   mid: 0,
@@ -470,6 +475,24 @@ function parseBooleanParam(value) {
     return false;
   }
   return null;
+}
+
+function parseNumberParam(value) {
+  if (value === null) {
+    return null;
+  }
+
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function normalizeLayoutMode(value) {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  return ["phone", "tablet", "desktop"].includes(normalized) ? normalized : null;
 }
 
 function normalizeClockStyle(value) {
@@ -988,7 +1011,7 @@ function updateAudioDebugSignal() {
 }
 
 function updateAudioResponsiveState() {
-  if (AUDIO_DEBUG_ENABLED) {
+  if (audioDebugEnabled) {
     updateAudioDebugSignal();
     return;
   }
@@ -2367,7 +2390,7 @@ function prebuildGlyphAtlases() {
   }
 
   for (const palette of palettes) {
-    if (palette.name.startsWith("audio") && !settings.audioenabled && !AUDIO_DEBUG_ENABLED) {
+    if (palette.name.startsWith("audio") && !settings.audioenabled && !audioDebugEnabled) {
       continue;
     }
 
@@ -3209,8 +3232,8 @@ function isTouchViewport() {
 }
 
 function resolveLayoutMode(viewWidth, viewHeight) {
-  if (LAYOUT_OVERRIDE === "phone" || LAYOUT_OVERRIDE === "tablet" || LAYOUT_OVERRIDE === "desktop") {
-    return LAYOUT_OVERRIDE;
+  if (layoutModeOverride) {
+    return layoutModeOverride;
   }
 
   if (!isTouchViewport()) {
@@ -3454,7 +3477,7 @@ function collectMatrixRainState() {
     audio: {
       enabled: settings.audioenabled,
       override: AUDIO_OVERRIDE,
-      debug: AUDIO_DEBUG_ENABLED,
+      debug: audioDebugEnabled,
       colorMode: settings.audiocolormode,
       intensity: settings.audiointensity,
       sensitivity: settings.audiosensitivity,
@@ -3534,6 +3557,236 @@ function restartRain() {
   }
 }
 
+function propertyValue(value) {
+  return { value };
+}
+
+function applyPreviewProperties(properties) {
+  window.wallpaperPropertyListener.applyUserProperties(properties);
+}
+
+function setPreviewLayoutMode(value) {
+  layoutModeOverride = normalizeLayoutMode(value);
+  restartRain();
+}
+
+function controlsUrlValue(value) {
+  return value === true ? "1" : value === false ? "0" : String(value);
+}
+
+function buildControlsUrl() {
+  const url = new URL(window.location.href);
+  url.searchParams.set("controls", "1");
+  url.searchParams.set("audio", controlsUrlValue(settings.audioenabled));
+  url.searchParams.set("audiointensity", controlsUrlValue(settings.audiointensity));
+  url.searchParams.set("audiosensitivity", controlsUrlValue(settings.audiosensitivity));
+  url.searchParams.set("audiocolormode", settings.audiocolormode);
+  url.searchParams.set("audiodebug", controlsUrlValue(audioDebugEnabled));
+  url.searchParams.set("clock", controlsUrlValue(settings.clock));
+  url.searchParams.set("clockstyle", settings.clockstyle);
+  url.searchParams.set("clockbrightness", controlsUrlValue(settings.clockbrightness));
+  url.searchParams.set("fontstyle", settings.fontstyle);
+
+  if (layoutModeOverride) {
+    url.searchParams.set("layout", layoutModeOverride);
+  } else {
+    url.searchParams.delete("layout");
+  }
+
+  return url.toString();
+}
+
+function createControlsField(labelText, input) {
+  const label = document.createElement("label");
+  label.className = "matrix-controls-field";
+  const text = document.createElement("span");
+  text.textContent = labelText;
+  label.append(text, input);
+  return label;
+}
+
+function createControlsToggle(labelText, checked, onChange) {
+  const input = document.createElement("input");
+  input.type = "checkbox";
+  input.checked = checked;
+  input.addEventListener("change", () => onChange(input.checked));
+  return createControlsField(labelText, input);
+}
+
+function createControlsRange(labelText, value, min, max, onChange) {
+  const input = document.createElement("input");
+  input.type = "range";
+  input.min = String(min);
+  input.max = String(max);
+  input.value = String(value);
+  const valueText = document.createElement("output");
+  valueText.value = String(value);
+  input.addEventListener("input", () => {
+    valueText.value = input.value;
+    onChange(Number(input.value));
+  });
+
+  const wrap = document.createElement("div");
+  wrap.className = "matrix-controls-range";
+  wrap.append(input, valueText);
+  return createControlsField(labelText, wrap);
+}
+
+function createControlsSelect(labelText, value, options, onChange) {
+  const select = document.createElement("select");
+  for (const option of options) {
+    const element = document.createElement("option");
+    element.value = option.value;
+    element.textContent = option.label;
+    select.appendChild(element);
+  }
+  select.value = value;
+  select.addEventListener("change", () => onChange(select.value));
+  return createControlsField(labelText, select);
+}
+
+function setControlsStatus(panel, message) {
+  const status = panel.querySelector(".matrix-controls-status");
+  if (status) {
+    status.textContent = message;
+  }
+}
+
+function updateControlsStats(panel) {
+  const stats = panel.querySelector(".matrix-controls-stats");
+  if (!stats) {
+    return;
+  }
+
+  const state = collectMatrixRainState();
+  stats.textContent = [
+    `audio ${state.audio.enabled ? "on" : "off"} level ${state.audio.level}`,
+    `audio cells ${state.audio.audioRainCells}`,
+    `${state.gridColumns} x ${state.rows}`,
+    state.layoutProfile ? state.layoutProfile.mode : "layout"
+  ].join(" / ");
+}
+
+function createControlsButton(text, onClick) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.textContent = text;
+  button.addEventListener("click", onClick);
+  return button;
+}
+
+function initializeControlsPanel() {
+  if (!CONTROLS_ENABLED) {
+    return;
+  }
+
+  document.body.classList.add("matrix-controls-enabled");
+
+  const panel = document.createElement("section");
+  panel.id = "matrix-controls";
+  panel.className = "matrix-controls";
+
+  const header = document.createElement("div");
+  header.className = "matrix-controls-header";
+  const title = document.createElement("strong");
+  title.textContent = "Matrix controls";
+  const collapseButton = createControlsButton("Hide", () => {
+    panel.classList.toggle("is-collapsed");
+    collapseButton.textContent = panel.classList.contains("is-collapsed") ? "Show" : "Hide";
+  });
+  header.append(title, collapseButton);
+
+  const body = document.createElement("div");
+  body.className = "matrix-controls-body";
+
+  body.append(
+    createControlsToggle("Audio rain", settings.audioenabled, (value) => {
+      applyPreviewProperties({ audioenabled: propertyValue(value) });
+      if (value) {
+        refreshAppearance();
+      }
+    }),
+    createControlsToggle("Audio debug", audioDebugEnabled, (value) => {
+      audioDebugEnabled = value;
+      if (!value) {
+        applyAudioLevels(0, 0, 0, false);
+        clearAudioRain();
+      }
+      refreshAppearance();
+    }),
+    createControlsRange("Audio intensity", settings.audiointensity, 0, 100, (value) => {
+      applyPreviewProperties({ audiointensity: propertyValue(value) });
+    }),
+    createControlsRange("Audio sensitivity", settings.audiosensitivity, 10, 100, (value) => {
+      applyPreviewProperties({ audiosensitivity: propertyValue(value) });
+    }),
+    createControlsSelect("Audio color", settings.audiocolormode, [
+      { label: "Spectrum", value: "spectrum" },
+      { label: "Neon", value: "neon" },
+      { label: "Matrix tint", value: "matrix_tint" }
+    ], (value) => {
+      applyPreviewProperties({ audiocolormode: propertyValue(value) });
+    }),
+    createControlsToggle("Clock", settings.clock, (value) => {
+      applyPreviewProperties({ clock: propertyValue(value) });
+    }),
+    createControlsSelect("Clock style", settings.clockstyle, [
+      { label: "Seven segment", value: "sevensegment" },
+      { label: "LCD 10 x 14", value: "lcdsegment" },
+      { label: "Matrix font 77054", value: "matrixfont" }
+    ], (value) => {
+      applyPreviewProperties({ clockstyle: propertyValue(value) });
+    }),
+    createControlsRange("Clock brightness", settings.clockbrightness, 60, 160, (value) => {
+      applyPreviewProperties({ clockbrightness: propertyValue(value) });
+    }),
+    createControlsSelect("Rain font", settings.fontstyle, [
+      { label: "Matrix Code trilogy", value: "trilogy" },
+      { label: "Matrix Resurrections", value: "resurrections" }
+    ], (value) => {
+      applyPreviewProperties({ fontstyle: propertyValue(value) });
+    }),
+    createControlsSelect("Layout", layoutModeOverride || "auto", [
+      { label: "Auto", value: "auto" },
+      { label: "Desktop", value: "desktop" },
+      { label: "Tablet", value: "tablet" },
+      { label: "Phone", value: "phone" }
+    ], (value) => {
+      setPreviewLayoutMode(value === "auto" ? null : value);
+    })
+  );
+
+  const actions = document.createElement("div");
+  actions.className = "matrix-controls-actions";
+  actions.append(
+    createControlsButton("Copy link", () => {
+      const url = buildControlsUrl();
+      if (navigator.clipboard && typeof navigator.clipboard.writeText === "function") {
+        navigator.clipboard.writeText(url)
+          .then(() => setControlsStatus(panel, "Link copied"))
+          .catch(() => setControlsStatus(panel, url));
+      } else {
+        setControlsStatus(panel, url);
+      }
+    }),
+    createControlsButton("Reset preview", () => {
+      window.location.href = `${window.location.pathname}?controls=1`;
+    })
+  );
+
+  const stats = document.createElement("div");
+  stats.className = "matrix-controls-stats";
+  const status = document.createElement("div");
+  status.className = "matrix-controls-status";
+  status.textContent = "Hidden unless controls=1";
+
+  body.append(actions, stats, status);
+  panel.append(header, body);
+  document.body.appendChild(panel);
+  updateControlsStats(panel);
+  window.setInterval(() => updateControlsStats(panel), 600);
+}
+
 function start() {
   buildPalettes();
   started = true;
@@ -3541,6 +3794,7 @@ function start() {
   lastFrameTime = performance.now();
   fpsRemainder = 0;
   cancelAnimationFrame(animationFrame);
+  initializeControlsPanel();
   animationFrame = requestAnimationFrame(frame);
 }
 
@@ -3570,7 +3824,7 @@ window.wallpaperPropertyListener = {
     }
 
     if (Object.prototype.hasOwnProperty.call(properties, "fontstyle")) {
-      const nextFontStyle = FONT_STYLE_OVERRIDE
+      const nextFontStyle = (CONTROLS_ENABLED ? null : FONT_STYLE_OVERRIDE)
         ?? normalizeFontStyle(String(properties.fontstyle.value))
         ?? DEFAULT_PRESET.wallpaperProperties.fontstyle;
       if (nextFontStyle !== activeFontStyle) {
@@ -3588,13 +3842,13 @@ window.wallpaperPropertyListener = {
     }
 
     if (Object.prototype.hasOwnProperty.call(properties, "clock")) {
-      settings.clock = CLOCK_OVERRIDE ?? Boolean(properties.clock.value);
+      settings.clock = (CONTROLS_ENABLED ? null : CLOCK_OVERRIDE) ?? Boolean(properties.clock.value);
       clockMaskKey = "";
       needsAppearanceRefresh = true;
     }
 
     if (Object.prototype.hasOwnProperty.call(properties, "clockstyle")) {
-      settings.clockstyle = CLOCK_STYLE_OVERRIDE
+      settings.clockstyle = (CONTROLS_ENABLED ? null : CLOCK_STYLE_OVERRIDE)
         ?? normalizeClockStyle(String(properties.clockstyle.value))
         ?? DEFAULT_PRESET.wallpaperProperties.clockstyle;
       clockMaskKey = "";
@@ -3608,7 +3862,7 @@ window.wallpaperPropertyListener = {
     }
 
     if (Object.prototype.hasOwnProperty.call(properties, "audioenabled")) {
-      const nextAudioEnabled = AUDIO_OVERRIDE ?? Boolean(properties.audioenabled.value);
+      const nextAudioEnabled = (CONTROLS_ENABLED ? null : AUDIO_OVERRIDE) ?? Boolean(properties.audioenabled.value);
       if (settings.audioenabled && !nextAudioEnabled) {
         clearAudioRain();
         needsAppearanceRefresh = true;
@@ -3625,7 +3879,7 @@ window.wallpaperPropertyListener = {
     }
 
     if (Object.prototype.hasOwnProperty.call(properties, "audiocolormode")) {
-      settings.audiocolormode = AUDIO_COLOR_MODE_OVERRIDE
+      settings.audiocolormode = (CONTROLS_ENABLED ? null : AUDIO_COLOR_MODE_OVERRIDE)
         ?? normalizeAudioColorMode(String(properties.audiocolormode.value))
         ?? DEFAULT_PRESET.wallpaperProperties.audiocolormode;
     }

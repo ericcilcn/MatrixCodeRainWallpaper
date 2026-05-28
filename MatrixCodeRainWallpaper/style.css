@@ -29,3 +29,145 @@ canvas {
   height: 100vh;
   background: #000;
 }
+
+.matrix-controls-enabled {
+  cursor: auto;
+}
+
+.matrix-controls,
+.matrix-controls * {
+  box-sizing: border-box;
+  cursor: auto;
+}
+
+.matrix-controls {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  z-index: 10;
+  width: min(360px, calc(100vw - 24px));
+  max-height: calc(100vh - 24px);
+  overflow: auto;
+  color: #d9ffe5;
+  background: rgba(0, 12, 4, 0.84);
+  border: 1px solid rgba(118, 255, 157, 0.38);
+  border-radius: 8px;
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.62), 0 0 24px rgba(64, 255, 126, 0.14);
+  font: 12px/1.35 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  backdrop-filter: blur(8px);
+}
+
+.matrix-controls.is-collapsed {
+  width: auto;
+  overflow: hidden;
+}
+
+.matrix-controls-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-bottom: 1px solid rgba(118, 255, 157, 0.18);
+}
+
+.matrix-controls-header strong {
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.matrix-controls-body {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+}
+
+.matrix-controls.is-collapsed .matrix-controls-body {
+  display: none;
+}
+
+.matrix-controls-field {
+  display: grid;
+  grid-template-columns: minmax(104px, 0.8fr) minmax(0, 1.2fr);
+  align-items: center;
+  gap: 10px;
+}
+
+.matrix-controls-field > span {
+  color: rgba(217, 255, 229, 0.82);
+}
+
+.matrix-controls input,
+.matrix-controls select,
+.matrix-controls button {
+  max-width: 100%;
+  color: #eaffef;
+  background: rgba(10, 34, 16, 0.92);
+  border: 1px solid rgba(118, 255, 157, 0.32);
+  border-radius: 6px;
+  font: inherit;
+}
+
+.matrix-controls input[type="checkbox"] {
+  justify-self: start;
+  width: 18px;
+  height: 18px;
+  accent-color: #76ff9d;
+}
+
+.matrix-controls input[type="range"] {
+  width: 100%;
+  accent-color: #76ff9d;
+}
+
+.matrix-controls select,
+.matrix-controls button {
+  min-height: 30px;
+  padding: 4px 8px;
+}
+
+.matrix-controls button {
+  color: #06150a;
+  background: #76ff9d;
+  border-color: rgba(226, 255, 235, 0.62);
+}
+
+.matrix-controls-range {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 38px;
+  align-items: center;
+  gap: 8px;
+}
+
+.matrix-controls-range output,
+.matrix-controls-stats,
+.matrix-controls-status {
+  color: rgba(217, 255, 229, 0.72);
+  font-variant-numeric: tabular-nums;
+}
+
+.matrix-controls-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+.matrix-controls-stats,
+.matrix-controls-status {
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 560px) {
+  .matrix-controls {
+    top: 8px;
+    right: 8px;
+    left: 8px;
+    width: auto;
+  }
+
+  .matrix-controls-field {
+    grid-template-columns: 1fr;
+    gap: 5px;
+  }
+}

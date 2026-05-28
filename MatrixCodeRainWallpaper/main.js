@@ -305,7 +305,9 @@ const DEFAULT_PRESET = {
     digitGapColumns: 1,
     colonWidthRatio: 0.18,
     colonDotSizeRatio: 0.12,
-    maskAlphaThreshold: 36
+    maskCoverageThreshold: 0.28,
+    digitErodeRatio: 0.075,
+    digitErodeMinPx: 2
   },
   wallpaperProperties: {
     density: 62,
@@ -2096,6 +2098,7 @@ function buildClockMaskFromMatrixDigits(text) {
   const gap = clockDigitGap(sampleScale);
   let cursorX = startX;
   const colonSquares = [];
+  const digitDraws = [];
 
   maskContext.fillStyle = "#fff";
   maskContext.font = `${fontPx}px ${FONT_FAMILY}`;
@@ -2115,6 +2118,7 @@ function buildClockMaskFromMatrixDigits(text) {
       cursorX += clockColonWidth(fontPx, sampleScale);
     } else {
       maskContext.fillText(char, cursorX, baseline);
+      digitDraws.push({ char, x: cursorX, baseline });
       cursorX += Math.max(1, maskContext.measureText(char).width);
     }
 
@@ -2123,22 +2127,39 @@ function buildClockMaskFromMatrixDigits(text) {
     }
   }
 
+  if (digitDraws.length > 0) {
+    maskContext.save();
+    maskContext.globalCompositeOperation = "destination-out";
+    maskContext.strokeStyle = "#fff";
+    maskContext.lineWidth = Math.max(clock.digitErodeMinPx, fontPx * clock.digitErodeRatio);
+    maskContext.lineJoin = "round";
+    maskContext.lineCap = "round";
+    maskContext.font = `${fontPx}px ${FONT_FAMILY}`;
+    maskContext.textAlign = "left";
+    maskContext.textBaseline = "alphabetic";
+    for (const digitDraw of digitDraws) {
+      maskContext.strokeText(digitDraw.char, digitDraw.x, digitDraw.baseline);
+    }
+    maskContext.restore();
+  }
+
   const image = maskContext.getImageData(0, 0, maskWidth, maskHeight).data;
   const nextMask = new Uint8Array(rows * gridColumns);
   const nextCells = [];
 
   for (let rowIndex = 0; rowIndex < rows; rowIndex += 1) {
     for (let columnIndex = 0; columnIndex < gridColumns; columnIndex += 1) {
-      let maxAlpha = 0;
+      let alphaSum = 0;
       for (let sampleY = 0; sampleY < sampleScale; sampleY += 1) {
         const y = rowIndex * sampleScale + sampleY;
         for (let sampleX = 0; sampleX < sampleScale; sampleX += 1) {
           const x = columnIndex * sampleScale + sampleX;
-          maxAlpha = Math.max(maxAlpha, image[(y * maskWidth + x) * 4 + 3]);
+          alphaSum += image[(y * maskWidth + x) * 4 + 3];
         }
       }
 
-      if (maxAlpha >= clock.maskAlphaThreshold) {
+      const coverage = alphaSum / (sampleScale * sampleScale * 255);
+      if (coverage >= clock.maskCoverageThreshold) {
         markClockMaskCell(nextMask, nextCells, columnIndex, rowIndex);
       }
     }

@@ -2323,73 +2323,45 @@ function markClockCellGroup(nextMask, nextCells, nextEmphasisMask, nextHighlight
   markClockMaskCell(nextEmphasisMask, null, columnIndex, rowIndex);
 }
 
-const LCD_SEGMENT_POLYGONS = {
-  a: [[1, 0], [5, 0], [5.55, 0.55], [5, 1.1], [1, 1.1], [0.45, 0.55]],
-  g: [[1, 4.45], [5, 4.45], [5.55, 5], [5, 5.55], [1, 5.55], [0.45, 5]],
-  d: [[1, 8.9], [5, 8.9], [5.55, 9.45], [5, 10], [1, 10], [0.45, 9.45]],
-  f: [[0, 1], [0.55, 0.55], [1.12, 1.1], [1.12, 4.35], [0.55, 4.9], [0, 4.35]],
-  b: [[6, 1], [5.45, 0.55], [4.88, 1.1], [4.88, 4.35], [5.45, 4.9], [6, 4.35]],
-  e: [[0, 5.65], [0.55, 5.1], [1.12, 5.65], [1.12, 8.9], [0.55, 9.45], [0, 8.9]],
-  c: [[6, 5.65], [5.45, 5.1], [4.88, 5.65], [4.88, 8.9], [5.45, 9.45], [6, 8.9]]
+const LCD_DIGIT_WIDTH = 11;
+const LCD_DIGIT_HEIGHT = 15;
+const LCD_COLON_WIDTH = 3;
+const LCD_SEGMENT_CELLS = {
+  a: [[2, 0], [3, 0], [4, 0], [5, 0], [6, 0], [7, 0], [8, 0], [1, 1], [2, 1], [3, 1], [4, 1], [5, 1], [6, 1], [7, 1], [8, 1], [9, 1]],
+  g: [[2, 6], [3, 6], [4, 6], [5, 6], [6, 6], [7, 6], [8, 6], [1, 7], [2, 7], [3, 7], [4, 7], [5, 7], [6, 7], [7, 7], [8, 7], [9, 7], [2, 8], [3, 8], [4, 8], [5, 8], [6, 8], [7, 8], [8, 8]],
+  d: [[1, 13], [2, 13], [3, 13], [4, 13], [5, 13], [6, 13], [7, 13], [8, 13], [9, 13], [2, 14], [3, 14], [4, 14], [5, 14], [6, 14], [7, 14], [8, 14]],
+  f: [[1, 2], [0, 3], [1, 3], [0, 4], [1, 4], [0, 5], [1, 5], [1, 6]],
+  b: [[9, 2], [9, 3], [10, 3], [9, 4], [10, 4], [9, 5], [10, 5], [9, 6]],
+  e: [[1, 8], [0, 9], [1, 9], [0, 10], [1, 10], [0, 11], [1, 11], [1, 12]],
+  c: [[9, 8], [9, 9], [10, 9], [9, 10], [10, 10], [9, 11], [10, 11], [9, 12]]
 };
 
-function pointInPolygon(x, y, polygon) {
-  let inside = false;
-  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i, i += 1) {
-    const xi = polygon[i][0];
-    const yi = polygon[i][1];
-    const xj = polygon[j][0];
-    const yj = polygon[j][1];
-    const intersects = ((yi > y) !== (yj > y))
-      && x < ((xj - xi) * (y - yi)) / (yj - yi || 1) + xi;
-    if (intersects) {
-      inside = !inside;
+function markClockScaledCell(nextMask, nextCells, nextEmphasisMask, nextHighlightMask, startColumn, startRow, scale, cellColumn, cellRow) {
+  for (let rowOffset = 0; rowOffset < scale; rowOffset += 1) {
+    for (let columnOffset = 0; columnOffset < scale; columnOffset += 1) {
+      markClockCellGroup(
+        nextMask,
+        nextCells,
+        nextEmphasisMask,
+        nextHighlightMask,
+        startColumn + cellColumn * scale + columnOffset,
+        startRow + cellRow * scale + rowOffset
+      );
     }
   }
-  return inside;
 }
 
-function markClockLcdPolygon(nextMask, nextCells, nextEmphasisMask, nextHighlightMask, startColumn, startRow, unitScale, polygon) {
-  const scaledPolygon = polygon.map(([x, y]) => [
-    startColumn + x * unitScale,
-    startRow + y * unitScale
-  ]);
-  const minColumn = Math.floor(Math.min(...scaledPolygon.map((point) => point[0])));
-  const maxColumn = Math.ceil(Math.max(...scaledPolygon.map((point) => point[0])));
-  const minRow = Math.floor(Math.min(...scaledPolygon.map((point) => point[1])));
-  const maxRow = Math.ceil(Math.max(...scaledPolygon.map((point) => point[1])));
-  const samples = [[0.5, 0.5], [0.32, 0.32], [0.68, 0.32], [0.32, 0.68], [0.68, 0.68]];
-
-  for (let rowIndex = minRow; rowIndex <= maxRow; rowIndex += 1) {
-    for (let columnIndex = minColumn; columnIndex <= maxColumn; columnIndex += 1) {
-      if (samples.some(([xOffset, yOffset]) => pointInPolygon(columnIndex + xOffset, rowIndex + yOffset, scaledPolygon))) {
-        markClockCellGroup(nextMask, nextCells, nextEmphasisMask, nextHighlightMask, columnIndex, rowIndex);
-      }
-    }
+function markClockLcdSegment(nextMask, nextCells, nextEmphasisMask, nextHighlightMask, startColumn, startRow, scale, segment) {
+  const cells = LCD_SEGMENT_CELLS[segment] || [];
+  for (const [cellColumn, cellRow] of cells) {
+    markClockScaledCell(nextMask, nextCells, nextEmphasisMask, nextHighlightMask, startColumn, startRow, scale, cellColumn, cellRow);
   }
 }
 
 function markClockLcdColon(nextMask, nextCells, nextEmphasisMask, nextHighlightMask, startColumn, startRow, scale) {
-  const dotSize = Math.max(1, Math.ceil(scale * 0.75));
-  const centerColumn = startColumn + Math.max(0, Math.round(scale * 0.35));
-  const centers = [
-    startRow + Math.round(2.15 * scale),
-    startRow + Math.round(4.85 * scale)
-  ];
-
-  for (const centerRow of centers) {
-    for (let rowOffset = 0; rowOffset < dotSize; rowOffset += 1) {
-      for (let columnOffset = 0; columnOffset < dotSize; columnOffset += 1) {
-        markClockCellGroup(
-          nextMask,
-          nextCells,
-          nextEmphasisMask,
-          nextHighlightMask,
-          centerColumn + columnOffset,
-          centerRow + rowOffset
-        );
-      }
-    }
+  const colonCells = [[1, 4], [1, 10]];
+  for (const [cellColumn, cellRow] of colonCells) {
+    markClockScaledCell(nextMask, nextCells, nextEmphasisMask, nextHighlightMask, startColumn, startRow, scale, cellColumn, cellRow);
   }
 }
 
@@ -2399,45 +2371,45 @@ function buildClockMaskFromLcdSegments(text) {
   const nextEmphasisMask = new Uint8Array(rows * gridColumns);
   const nextHighlightMask = new Uint8Array(rows * gridColumns);
   const nextCells = [];
-  const digitWidth = 6;
-  const digitHeight = 10;
-  const colonWidth = 1.2;
-  const gap = 1.35;
+  const digitWidth = LCD_DIGIT_WIDTH;
+  const digitHeight = LCD_DIGIT_HEIGHT;
+  const colonWidth = LCD_COLON_WIDTH;
+  const gap = 2;
   const baseWidth = Array.from(text).reduce((sum, char, index) => {
     const charWidth = char === ":" ? colonWidth : digitWidth;
     return sum + charWidth + (index < text.length - 1 ? gap : 0);
   }, 0);
   const maxWidth = Math.max(1, gridColumns * clock.maxWidthPortion);
   const maxHeight = Math.max(1, rows * clock.maxHeightPortion);
-  const unitScale = Math.max(1, Math.min(maxWidth / baseWidth, maxHeight / digitHeight));
-  const totalWidth = baseWidth * unitScale;
-  const totalHeight = digitHeight * unitScale;
-  const startColumn = clamp((gridColumns - totalWidth) / 2, 0, Math.max(0, gridColumns - totalWidth));
-  const startRow = clamp((rows * clock.verticalCenter) - (totalHeight / 2), 0, Math.max(0, rows - totalHeight));
+  const scale = Math.max(1, Math.floor(Math.min(maxWidth / baseWidth, maxHeight / digitHeight)));
+  const totalWidth = baseWidth * scale;
+  const totalHeight = digitHeight * scale;
+  const startColumn = clampInt((gridColumns - totalWidth) / 2, 0, Math.max(0, gridColumns - totalWidth));
+  const startRow = clampInt((rows * clock.verticalCenter) - (totalHeight / 2), 0, Math.max(0, rows - totalHeight));
   let cursorColumn = startColumn;
 
   for (const char of text) {
     if (char === ":") {
-      markClockLcdColon(nextMask, nextCells, nextEmphasisMask, nextHighlightMask, cursorColumn, startRow, unitScale);
-      cursorColumn += (colonWidth + gap) * unitScale;
+      markClockLcdColon(nextMask, nextCells, nextEmphasisMask, nextHighlightMask, cursorColumn, startRow, scale);
+      cursorColumn += (colonWidth + gap) * scale;
       continue;
     }
 
     const segments = LCD_SEGMENTS[char] || "";
     for (const segment of segments) {
-      markClockLcdPolygon(
+      markClockLcdSegment(
         nextMask,
         nextCells,
         nextEmphasisMask,
         nextHighlightMask,
         cursorColumn,
         startRow,
-        unitScale,
-        LCD_SEGMENT_POLYGONS[segment]
+        scale,
+        segment
       );
     }
 
-    cursorColumn += (digitWidth + gap) * unitScale;
+    cursorColumn += (digitWidth + gap) * scale;
   }
 
   return {

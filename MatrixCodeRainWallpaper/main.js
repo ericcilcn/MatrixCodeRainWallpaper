@@ -17,9 +17,7 @@ const DEBUG_STATE_ENABLED = URL_PARAMS.has("debugstate");
 const CONTROLS_ENABLED = parseBooleanParam(URL_PARAMS.get("controls")) ?? URL_PARAMS.has("controls");
 const LAYOUT_OVERRIDE = normalizeLayoutMode(URL_PARAMS.get("layout"));
 const CLOCK_OVERRIDE = parseBooleanParam(URL_PARAMS.get("clock"));
-const CLOCK_STYLES = new Set(["dotmatrix"]);
 const AUDIO_COLOR_MODES = new Set(["spectrum", "neon", "matrix_tint"]);
-const CLOCK_STYLE_OVERRIDE = normalizeClockStyle(URL_PARAMS.get("clockstyle"));
 const FONT_STYLE_OVERRIDE = normalizeFontStyle(URL_PARAMS.get("fontstyle"));
 const AUDIO_OVERRIDE = parseBooleanParam(URL_PARAMS.get("audio"));
 const AUDIO_COLOR_MODE_OVERRIDE = normalizeAudioColorMode(URL_PARAMS.get("audiocolormode"));
@@ -475,7 +473,6 @@ const DEFAULT_PRESET = {
     fontstyle: "trilogy",
     glow: true,
     clock: true,
-    clockstyle: "dotmatrix",
     clockbrightness: 110,
     audioenabled: false,
     audiointensity: 65,
@@ -493,7 +490,6 @@ const settings = {
   fontstyle: FONT_STYLE_OVERRIDE ?? DEFAULT_PRESET.wallpaperProperties.fontstyle,
   glow: DEFAULT_PRESET.wallpaperProperties.glow,
   clock: CLOCK_OVERRIDE ?? DEFAULT_PRESET.wallpaperProperties.clock,
-  clockstyle: CLOCK_STYLE_OVERRIDE ?? DEFAULT_PRESET.wallpaperProperties.clockstyle,
   clockbrightness: clamp(CLOCK_BRIGHTNESS_OVERRIDE ?? DEFAULT_PRESET.wallpaperProperties.clockbrightness, 60, 160),
   audioenabled: AUDIO_OVERRIDE ?? DEFAULT_PRESET.wallpaperProperties.audioenabled,
   audiointensity: clamp(AUDIO_INTENSITY_OVERRIDE ?? DEFAULT_PRESET.wallpaperProperties.audiointensity, 0, 100),
@@ -582,30 +578,6 @@ function normalizeLayoutMode(value) {
 
   const normalized = value.trim().toLowerCase();
   return ["phone", "tablet", "desktop"].includes(normalized) ? normalized : null;
-}
-
-function normalizeClockStyle(value) {
-  if (typeof value !== "string") {
-    return null;
-  }
-
-  const normalized = value.trim().toLowerCase().replace(/[-_\s]/g, "");
-  if (["dot", "dots", "dotmatrix", "5x7", "5×7"].includes(normalized)) {
-    return "dotmatrix";
-  }
-  if (normalized === "seven" || normalized === "sevensegment" || normalized === "segments") {
-    return "dotmatrix";
-  }
-  if (["lcd", "lcdsegment", "lcdsegments", "liquidcrystal", "sevensegmentlcd"].includes(normalized)) {
-    return "dotmatrix";
-  }
-  if (normalized === "matrix" || normalized === "matrixfont" || normalized === "77054" || normalized === "77054db") {
-    return "dotmatrix";
-  }
-  if (CLOCK_STYLES.has(normalized)) {
-    return normalized;
-  }
-  return null;
 }
 
 function normalizeFontStyle(value) {
@@ -2889,7 +2861,7 @@ function updateClockMask() {
   }
 
   const text = currentClockText();
-  const key = `${settings.clockstyle}:${text}:${rows}:${gridColumns}`;
+  const key = `${text}:${rows}:${gridColumns}`;
   if (key === clockMaskKey
     && clockMask.length === rows * gridColumns
     && clockEmphasisMask.length === rows * gridColumns
@@ -3486,8 +3458,6 @@ function collectMatrixRainState() {
     clock: {
       enabled: settings.clock,
       override: CLOCK_OVERRIDE,
-      style: settings.clockstyle,
-      styleOverride: CLOCK_STYLE_OVERRIDE,
       mask: "5x7-dot-matrix-clock",
       text: clockText,
       activeCells: clockMask.reduce((sum, value) => sum + value, 0),
@@ -3858,15 +3828,6 @@ window.wallpaperPropertyListener = {
     if (Object.prototype.hasOwnProperty.call(properties, "clock")) {
       settings.clock = (CONTROLS_ENABLED ? null : CLOCK_OVERRIDE) ?? Boolean(properties.clock.value);
       clockMaskKey = "";
-      needsAppearanceRefresh = true;
-    }
-
-    if (Object.prototype.hasOwnProperty.call(properties, "clockstyle")) {
-      settings.clockstyle = (CONTROLS_ENABLED ? null : CLOCK_STYLE_OVERRIDE)
-        ?? normalizeClockStyle(String(properties.clockstyle.value))
-        ?? DEFAULT_PRESET.wallpaperProperties.clockstyle;
-      clockMaskKey = "";
-      clearClockGridCells();
       needsAppearanceRefresh = true;
     }
 

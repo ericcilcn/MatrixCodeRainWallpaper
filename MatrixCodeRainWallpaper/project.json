@@ -59,6 +59,22 @@
         "value": true,
         "order": 70
       },
+      "clockstyle": {
+        "text": "Clock style",
+        "type": "combo",
+        "value": "sevensegment",
+        "options": [
+          {
+            "label": "Seven segment",
+            "value": "sevensegment"
+          },
+          {
+            "label": "Matrix font 77054",
+            "value": "matrixfont"
+          }
+        ],
+        "order": 80
+      },
       "clockbrightness": {
         "text": "Clock brightness",
         "type": "slider",
@@ -66,7 +82,7 @@
         "min": 60,
         "max": 160,
         "editable": true,
-        "order": 80
+        "order": 90
       }
     },
     "supportsaudioprocessing": false

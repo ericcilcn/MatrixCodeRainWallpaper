@@ -75,22 +75,6 @@
         "value": true,
         "order": 80
       },
-      "clockstyle": {
-        "text": "Clock style",
-        "type": "combo",
-        "value": "dotmatrix",
-        "options": [
-          {
-            "label": "7 x 9 dot matrix",
-            "value": "dotmatrix"
-          },
-          {
-            "label": "Matrix font 77054",
-            "value": "matrixfont"
-          }
-        ],
-        "order": 90
-      },
       "clockbrightness": {
         "text": "Clock brightness",
         "type": "slider",

@@ -17,7 +17,7 @@ const DEBUG_STATE_ENABLED = URL_PARAMS.has("debugstate");
 const CONTROLS_ENABLED = parseBooleanParam(URL_PARAMS.get("controls")) ?? URL_PARAMS.has("controls");
 const LAYOUT_OVERRIDE = normalizeLayoutMode(URL_PARAMS.get("layout"));
 const CLOCK_OVERRIDE = parseBooleanParam(URL_PARAMS.get("clock"));
-const CLOCK_STYLES = new Set(["dotmatrix", "matrixfont"]);
+const CLOCK_STYLES = new Set(["dotmatrix"]);
 const AUDIO_COLOR_MODES = new Set(["spectrum", "neon", "matrix_tint"]);
 const CLOCK_STYLE_OVERRIDE = normalizeClockStyle(URL_PARAMS.get("clockstyle"));
 const FONT_STYLE_OVERRIDE = normalizeFontStyle(URL_PARAMS.get("fontstyle"));
@@ -42,123 +42,101 @@ let GLYPH_MEASURE_POOL = CHAR_POOL;
 const GLYPH_STYLES = ["dim", "body", "bright", "head"];
 const DOT_CLOCK_GLYPHS = {
   "0": [
-    "0111110",
-    "1000001",
-    "1000011",
-    "1000101",
-    "1001001",
-    "1010001",
-    "1100001",
-    "1000001",
-    "0111110"
+    "11111",
+    "10001",
+    "10001",
+    "10001",
+    "10001",
+    "10001",
+    "11111"
   ],
   "1": [
-    "0011000",
-    "0111000",
-    "0011000",
-    "0011000",
-    "0011000",
-    "0011000",
-    "0011000",
-    "0011000",
-    "0111110"
+    "00100",
+    "01100",
+    "00100",
+    "00100",
+    "00100",
+    "00100",
+    "01110"
   ],
   "2": [
-    "0111110",
-    "1000001",
-    "0000001",
-    "0000010",
-    "0000100",
-    "0001000",
-    "0010000",
-    "0100000",
-    "1111111"
+    "11110",
+    "00001",
+    "00001",
+    "11110",
+    "10000",
+    "10000",
+    "11111"
   ],
   "3": [
-    "0111110",
-    "1000001",
-    "0000001",
-    "0000010",
-    "0011100",
-    "0000010",
-    "0000001",
-    "1000001",
-    "0111110"
+    "11110",
+    "00001",
+    "00001",
+    "01110",
+    "00001",
+    "00001",
+    "11110"
   ],
   "4": [
-    "0000110",
-    "0001110",
-    "0010110",
-    "0100110",
-    "1000110",
-    "1111111",
-    "0000110",
-    "0000110",
-    "0000110"
+    "10001",
+    "10001",
+    "10001",
+    "11111",
+    "00001",
+    "00001",
+    "00001"
   ],
   "5": [
-    "1111111",
-    "1000000",
-    "1000000",
-    "1111110",
-    "0000001",
-    "0000001",
-    "0000001",
-    "1000001",
-    "0111110"
+    "11111",
+    "10000",
+    "10000",
+    "11110",
+    "00001",
+    "00001",
+    "11110"
   ],
   "6": [
-    "0011110",
-    "0100000",
-    "1000000",
-    "1111110",
-    "1000001",
-    "1000001",
-    "1000001",
-    "1000001",
-    "0111110"
+    "01111",
+    "10000",
+    "10000",
+    "11110",
+    "10001",
+    "10001",
+    "01110"
   ],
   "7": [
-    "1111111",
-    "0000001",
-    "0000010",
-    "0000100",
-    "0001000",
-    "0010000",
-    "0010000",
-    "0010000",
-    "0010000"
+    "11111",
+    "00001",
+    "00010",
+    "00100",
+    "01000",
+    "01000",
+    "01000"
   ],
   "8": [
-    "0111110",
-    "1000001",
-    "1000001",
-    "1000001",
-    "0111110",
-    "1000001",
-    "1000001",
-    "1000001",
-    "0111110"
+    "01110",
+    "10001",
+    "10001",
+    "01110",
+    "10001",
+    "10001",
+    "01110"
   ],
   "9": [
-    "0111110",
-    "1000001",
-    "1000001",
-    "1000001",
-    "0111111",
-    "0000001",
-    "0000001",
-    "0000010",
-    "0111100"
+    "01110",
+    "10001",
+    "10001",
+    "01111",
+    "00001",
+    "00001",
+    "11110"
   ],
   ":": [
     "0",
-    "0",
     "1",
     "0",
     "0",
     "1",
-    "0",
     "0",
     "0"
   ]
@@ -441,7 +419,7 @@ const DEFAULT_PRESET = {
     enabled: true,
     verticalCenter: 0.43,
     maxWidthPortion: 0.66,
-    maxHeightPortion: 0.23,
+    maxHeightPortion: 0.25,
     gapColumns: 1,
     visibilityFloor: 0.92,
     alphaFloor: 1.18,
@@ -612,7 +590,7 @@ function normalizeClockStyle(value) {
   }
 
   const normalized = value.trim().toLowerCase().replace(/[-_\s]/g, "");
-  if (["dot", "dots", "dotmatrix", "7x9", "7×9"].includes(normalized)) {
+  if (["dot", "dots", "dotmatrix", "5x7", "5×7"].includes(normalized)) {
     return "dotmatrix";
   }
   if (normalized === "seven" || normalized === "sevensegment" || normalized === "segments") {
@@ -622,7 +600,7 @@ function normalizeClockStyle(value) {
     return "dotmatrix";
   }
   if (normalized === "matrix" || normalized === "matrixfont" || normalized === "77054" || normalized === "77054db") {
-    return "matrixfont";
+    return "dotmatrix";
   }
   if (CLOCK_STYLES.has(normalized)) {
     return normalized;
@@ -2735,7 +2713,7 @@ function buildClockMaskFromDotMatrix(text) {
   const nextEmphasisMask = new Uint8Array(rows * gridColumns);
   const nextHighlightMask = new Uint8Array(rows * gridColumns);
   const nextCells = [];
-  const baseHeight = 9;
+  const baseHeight = 7;
   const baseWidth = clockTextBaseWidth(text);
   const maxWidth = Math.max(1, gridColumns * clock.maxWidthPortion);
   const maxHeight = Math.max(1, rows * clock.maxHeightPortion);
@@ -2919,9 +2897,7 @@ function updateClockMask() {
     return;
   }
 
-  const builder = settings.clockstyle === "matrixfont"
-    ? buildClockMaskFromMatrixDigits
-    : buildClockMaskFromDotMatrix;
+  const builder = buildClockMaskFromDotMatrix;
   const { nextMask, nextEmphasisMask, nextHighlightMask, nextCells } = builder(text);
 
   clockMask = nextMask;
@@ -3512,9 +3488,7 @@ function collectMatrixRainState() {
       override: CLOCK_OVERRIDE,
       style: settings.clockstyle,
       styleOverride: CLOCK_STYLE_OVERRIDE,
-      mask: settings.clockstyle === "matrixfont"
-        ? "matrix-font-digits"
-        : "7x9-dot-matrix-clock",
+      mask: "5x7-dot-matrix-clock",
       text: clockText,
       activeCells: clockMask.reduce((sum, value) => sum + value, 0),
       emphasisCells: clockEmphasisMask.reduce((sum, value) => sum + value, 0),
@@ -3631,7 +3605,6 @@ function buildControlsUrl() {
   url.searchParams.set("audiocolormode", settings.audiocolormode);
   url.searchParams.set("audiodebug", controlsUrlValue(audioDebugEnabled));
   url.searchParams.set("clock", controlsUrlValue(settings.clock));
-  url.searchParams.set("clockstyle", settings.clockstyle);
   url.searchParams.set("clockbrightness", controlsUrlValue(settings.clockbrightness));
   url.searchParams.set("fontstyle", settings.fontstyle);
 
@@ -3777,12 +3750,6 @@ function initializeControlsPanel() {
     }),
     createControlsToggle("Clock", settings.clock, (value) => {
       applyPreviewProperties({ clock: propertyValue(value) });
-    }),
-    createControlsSelect("Clock style", settings.clockstyle, [
-      { label: "7 x 9 dot matrix", value: "dotmatrix" },
-      { label: "Matrix font 77054", value: "matrixfont" }
-    ], (value) => {
-      applyPreviewProperties({ clockstyle: propertyValue(value) });
     }),
     createControlsRange("Clock brightness", settings.clockbrightness, 60, 160, (value) => {
       applyPreviewProperties({ clockbrightness: propertyValue(value) });

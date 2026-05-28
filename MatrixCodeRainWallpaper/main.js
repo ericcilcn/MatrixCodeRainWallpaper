@@ -8,7 +8,9 @@ const DPR_LIMIT = 2;
 const BASE_COLOR = { r: 54, g: 217, b: 105 };
 const GLYPH_EDGE_ALPHA = 0.72;
 const PATTERN_SEED = 0x4d415452;
-const DEBUG_STATE_ENABLED = new URLSearchParams(window.location.search).has("debugstate");
+const URL_PARAMS = new URLSearchParams(window.location.search);
+const DEBUG_STATE_ENABLED = URL_PARAMS.has("debugstate");
+const LAYOUT_OVERRIDE = URL_PARAMS.get("layout");
 const CHAR_POOL = `"*+012345789:<>z|¦©╌▪アウエオカキケコサシスセソタツテナニヌネハヒホマミムメモヤヨラリワー꞊\uE937`;
 const CHAR_LIST = Array.from(CHAR_POOL);
 const GLYPH_INDEX = new Map(CHAR_LIST.map((char, index) => [char, index]));
@@ -111,7 +113,57 @@ const DEFAULT_PRESET = {
     rowGapPx: 1,
     fontInsetPx: 1,
     fontOversizePx: 4,
-    glyphAspectRatio: 0.8
+    glyphAspectRatio: 0.8,
+    responsive: {
+      phone: {
+        portrait: {
+          columnPitchPx: 11,
+          rowPitchPx: 16,
+          minColumns: 30,
+          maxColumns: 56,
+          minRows: 42,
+          maxRows: 84,
+          glyphScale: 0.9,
+          fontOversizePx: 3,
+          dprLimit: 1.5
+        },
+        landscape: {
+          columnPitchPx: 12,
+          rowPitchPx: 17,
+          minColumns: 48,
+          maxColumns: 92,
+          minRows: 24,
+          maxRows: 54,
+          glyphScale: 0.88,
+          fontOversizePx: 3,
+          dprLimit: 1.5
+        }
+      },
+      tablet: {
+        portrait: {
+          columnPitchPx: 14,
+          rowPitchPx: 20,
+          minColumns: 46,
+          maxColumns: 84,
+          minRows: 48,
+          maxRows: 108,
+          glyphScale: 0.92,
+          fontOversizePx: 3,
+          dprLimit: 1.75
+        },
+        landscape: {
+          columnPitchPx: 15,
+          rowPitchPx: 21,
+          minColumns: 68,
+          maxColumns: 122,
+          minRows: 36,
+          maxRows: 76,
+          glyphScale: 0.92,
+          fontOversizePx: 3,
+          dprLimit: 1.75
+        }
+      }
+    }
   },
   rotatingCells: {
     minRotateTicks: 3,
@@ -268,6 +320,7 @@ let cellHeight = 36;
 let fontSize = 27;
 let glyphScaleX = 1;
 let glyphScaleY = 1;
+let activeLayoutProfile = null;
 let activeColumns = [];
 let palettes = [];
 let glyphCache = new Map();
@@ -284,6 +337,10 @@ let debugStateElement = null;
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
+}
+
+function clampInt(value, min, max) {
+  return Math.max(min, Math.min(max, Math.round(value)));
 }
 
 function seededRange(seed, min, max) {
@@ -1980,6 +2037,87 @@ function frame(now) {
   render(now);
 }
 
+function isTouchViewport() {
+  const touchPoints = Number(navigator.maxTouchPoints || 0);
+  const coarsePointer = typeof window.matchMedia === "function"
+    && window.matchMedia("(pointer: coarse)").matches;
+  return touchPoints > 0 || coarsePointer;
+}
+
+function resolveLayoutMode(viewWidth, viewHeight) {
+  if (LAYOUT_OVERRIDE === "phone" || LAYOUT_OVERRIDE === "tablet" || LAYOUT_OVERRIDE === "desktop") {
+    return LAYOUT_OVERRIDE;
+  }
+
+  if (!isTouchViewport()) {
+    return "desktop";
+  }
+
+  const shortest = Math.min(viewWidth, viewHeight);
+  const longest = Math.max(viewWidth, viewHeight);
+
+  if (shortest <= 540 || longest <= 960) {
+    return "phone";
+  }
+
+  if (shortest <= 1180 && longest <= 1600) {
+    return "tablet";
+  }
+
+  return "desktop";
+}
+
+function resolveLayoutMetrics(viewWidth, viewHeight) {
+  const layout = DEFAULT_PRESET.layout;
+  const orientation = viewWidth >= viewHeight ? "landscape" : "portrait";
+  const mode = resolveLayoutMode(viewWidth, viewHeight);
+
+  if (mode === "desktop") {
+    const columns = layout.visibleColumns || Math.round(layout.referenceWidth / layout.columnPitchPx);
+    const rowCount = layout.visibleRows || Math.round(layout.referenceHeight / layout.rowPitchPx);
+
+    return {
+      mode,
+      orientation,
+      columns,
+      rows: rowCount,
+      columnGapPx: layout.columnGapPx,
+      rowGapPx: layout.rowGapPx,
+      fontInsetPx: layout.fontInsetPx,
+      fontOversizePx: layout.fontOversizePx,
+      glyphAspectRatio: layout.glyphAspectRatio,
+      glyphScale: 1,
+      dprLimit: DPR_LIMIT,
+      minFontSize: 9,
+      maxFontSize: 72,
+      minGlyphScale: 0.72,
+      maxGlyphScale: 1.35
+    };
+  }
+
+  const profile = layout.responsive[mode][orientation];
+  const columns = clampInt(viewWidth / profile.columnPitchPx, profile.minColumns, profile.maxColumns);
+  const rowCount = clampInt(viewHeight / profile.rowPitchPx, profile.minRows, profile.maxRows);
+
+  return {
+    mode,
+    orientation,
+    columns,
+    rows: rowCount,
+    columnGapPx: layout.columnGapPx,
+    rowGapPx: layout.rowGapPx,
+    fontInsetPx: layout.fontInsetPx,
+    fontOversizePx: profile.fontOversizePx,
+    glyphAspectRatio: layout.glyphAspectRatio,
+    glyphScale: profile.glyphScale,
+    dprLimit: profile.dprLimit,
+    minFontSize: 8,
+    maxFontSize: 42,
+    minGlyphScale: 0.68,
+    maxGlyphScale: 1.22
+  };
+}
+
 function resize() {
   if (palettes.length === 0) {
     buildPalettes();
@@ -1987,24 +2125,23 @@ function resize() {
 
   width = window.innerWidth;
   height = window.innerHeight;
-  dpr = Math.min(window.devicePixelRatio || 1, DPR_LIMIT);
-  const layout = DEFAULT_PRESET.layout;
-  const targetRows = layout.visibleRows || Math.round(layout.referenceHeight / layout.rowPitchPx);
-  const targetColumns = layout.visibleColumns || Math.round(layout.referenceWidth / layout.columnPitchPx);
-  cellHeight = height / targetRows;
-  cellWidth = width / targetColumns;
-  rows = targetRows;
-  const glyphAdjust = settings.glyphscale / 100;
+  const layout = resolveLayoutMetrics(width, height);
+  activeLayoutProfile = layout;
+  dpr = Math.min(window.devicePixelRatio || 1, layout.dprLimit);
+  cellHeight = height / layout.rows;
+  cellWidth = width / layout.columns;
+  rows = layout.rows;
+  const glyphAdjust = (settings.glyphscale / 100) * layout.glyphScale;
   fontSize = fitFontSizeForPitch(
-    clamp(Math.round((cellHeight - layout.rowGapPx - layout.fontInsetPx + layout.fontOversizePx) * glyphAdjust), 9, 72),
+    clamp(Math.round((cellHeight - layout.rowGapPx - layout.fontInsetPx + layout.fontOversizePx) * glyphAdjust), layout.minFontSize, layout.maxFontSize),
     Math.max(1, cellWidth - layout.columnGapPx)
   );
   const glyphBounds = measureMedianGlyphBounds(fontSize);
-  glyphScaleY = clamp(((cellHeight - layout.rowGapPx - layout.fontInsetPx) * glyphAdjust) / glyphBounds.height, 0.72, 1.35);
+  glyphScaleY = clamp(((cellHeight - layout.rowGapPx - layout.fontInsetPx) * glyphAdjust) / glyphBounds.height, layout.minGlyphScale, layout.maxGlyphScale);
   const fittedGlyphScaleX = ((cellWidth - layout.columnGapPx - layout.fontInsetPx) * glyphAdjust) / glyphBounds.width;
   const aspectGlyphScaleX = (glyphScaleY * (layout.glyphAspectRatio || 0.8) * glyphBounds.height) / glyphBounds.width;
-  glyphScaleX = clamp(Math.min(fittedGlyphScaleX, aspectGlyphScaleX), 0.72, 1.35);
-  gridColumns = targetColumns;
+  glyphScaleX = clamp(Math.min(fittedGlyphScaleX, aspectGlyphScaleX), layout.minGlyphScale, layout.maxGlyphScale);
+  gridColumns = layout.columns;
 
   canvas.width = Math.ceil(width * dpr);
   canvas.height = Math.ceil(height * dpr);
@@ -2105,6 +2242,7 @@ function collectMatrixRainState() {
     glyphScaleX,
     glyphScaleY,
     dpr,
+    layoutProfile: activeLayoutProfile,
     layout: DEFAULT_PRESET.layout,
     speedRowsPerSecond: DEFAULT_PRESET.speedRowsPerSecond,
     settingsSpeed: settings.speed,

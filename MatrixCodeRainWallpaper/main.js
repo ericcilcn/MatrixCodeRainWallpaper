@@ -18,6 +18,7 @@ const CONTROLS_ENABLED = parseBooleanParam(URL_PARAMS.get("controls")) ?? URL_PA
 const LAYOUT_OVERRIDE = normalizeLayoutMode(URL_PARAMS.get("layout"));
 const CLOCK_OVERRIDE = parseBooleanParam(URL_PARAMS.get("clock"));
 const AUDIO_COLOR_MODES = new Set(["spectrum", "neon", "matrix_tint"]);
+const AUDIO_SPECTRUM_LAYOUTS = new Set(["separated", "continuous"]);
 const AUDIO_HUE_STEPS = 48;
 const AUDIO_SPECTRUM_BINS = 64;
 const AUDIO_SPECTRUM_HUES = {
@@ -28,6 +29,7 @@ const AUDIO_SPECTRUM_HUES = {
 const FONT_STYLE_OVERRIDE = normalizeFontStyle(URL_PARAMS.get("fontstyle"));
 const AUDIO_OVERRIDE = parseBooleanParam(URL_PARAMS.get("audio"));
 const AUDIO_COLOR_MODE_OVERRIDE = normalizeAudioColorMode(URL_PARAMS.get("audiocolormode"));
+const AUDIO_SPECTRUM_LAYOUT_OVERRIDE = normalizeAudioSpectrumLayout(URL_PARAMS.get("audiospectrumlayout"));
 const CLOCK_BRIGHTNESS_OVERRIDE = parseNumberParam(URL_PARAMS.get("clockbrightness"));
 const AUDIO_INTENSITY_OVERRIDE = parseNumberParam(URL_PARAMS.get("audiointensity"));
 const AUDIO_SENSITIVITY_OVERRIDE = parseNumberParam(URL_PARAMS.get("audiosensitivity"));
@@ -455,8 +457,10 @@ const DEFAULT_PRESET = {
     spectrumTopRows: 0,
     spectrumMaxRowsRatio: 0.31,
     spectrumMinBars: 24,
-    spectrumMaxBars: 576,
-    spectrumColumnStep: 1,
+    spectrumMaxBars: 58,
+    spectrumColumnStep: 2,
+    spectrumContinuousMaxBars: 576,
+    spectrumContinuousColumnStep: 1,
     spectrumGroupingPower: 1.55,
     spectrumRiseRowsPerSecond: 86,
     spectrumFallRowsPerSecond: 24,
@@ -486,7 +490,8 @@ const DEFAULT_PRESET = {
     audioenabled: false,
     audiointensity: 65,
     audiosensitivity: 55,
-    audiocolormode: "spectrum"
+    audiocolormode: "spectrum",
+    audiospectrumlayout: "separated"
   },
   baseColor: BASE_COLOR
 };
@@ -504,6 +509,7 @@ const settings = {
   audiointensity: clamp(AUDIO_INTENSITY_OVERRIDE ?? DEFAULT_PRESET.wallpaperProperties.audiointensity, 0, 100),
   audiosensitivity: clamp(AUDIO_SENSITIVITY_OVERRIDE ?? DEFAULT_PRESET.wallpaperProperties.audiosensitivity, 10, 100),
   audiocolormode: AUDIO_COLOR_MODE_OVERRIDE ?? DEFAULT_PRESET.wallpaperProperties.audiocolormode,
+  audiospectrumlayout: AUDIO_SPECTRUM_LAYOUT_OVERRIDE ?? DEFAULT_PRESET.wallpaperProperties.audiospectrumlayout,
   color: DEFAULT_PRESET.baseColor,
   fps: 0
 };
@@ -632,6 +638,24 @@ function normalizeAudioColorMode(value) {
     return "matrix_tint";
   }
   if (AUDIO_COLOR_MODES.has(normalized)) {
+    return normalized;
+  }
+  return null;
+}
+
+function normalizeAudioSpectrumLayout(value) {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const normalized = value.trim().toLowerCase().replace(/[-\s]/g, "_");
+  if (["separated", "separate", "split", "spaced", "gapped", "classic"].includes(normalized)) {
+    return "separated";
+  }
+  if (["continuous", "full", "solid", "dense", "filled"].includes(normalized)) {
+    return "continuous";
+  }
+  if (AUDIO_SPECTRUM_LAYOUTS.has(normalized)) {
     return normalized;
   }
   return null;
@@ -1257,15 +1281,31 @@ function activeAudioLevel() {
     : clamp((audioState.level - minLevel) / (1 - minLevel), 0, 1);
 }
 
+function audioSpectrumLayoutGeometryValues() {
+  const audio = DEFAULT_PRESET.audioResponsive;
+  if (settings.audiospectrumlayout === "continuous") {
+    return {
+      columnStep: audio.spectrumContinuousColumnStep,
+      maxBars: audio.spectrumContinuousMaxBars
+    };
+  }
+
+  return {
+    columnStep: audio.spectrumColumnStep,
+    maxBars: audio.spectrumMaxBars
+  };
+}
+
 function audioSpectrumGeometry() {
   const audio = DEFAULT_PRESET.audioResponsive;
+  const layout = audioSpectrumLayoutGeometryValues();
   const startColumn = clampInt(Math.round(gridColumns * audio.spectrumStartColumnRatio), 0, Math.max(0, gridColumns - 1));
   const endColumn = clampInt(Math.round(gridColumns * audio.spectrumEndColumnRatio), startColumn, Math.max(0, gridColumns - 1));
   const availableColumns = Math.max(1, endColumn - startColumn + 1);
   const barCount = clampInt(
-    Math.floor(availableColumns / Math.max(1, audio.spectrumColumnStep)),
+    Math.floor(availableColumns / Math.max(1, layout.columnStep)),
     Math.min(audio.spectrumMinBars, availableColumns),
-    Math.min(audio.spectrumMaxBars, availableColumns)
+    Math.min(layout.maxBars, availableColumns)
   );
   const topRow = clampInt(audio.spectrumTopRows, 0, Math.max(0, rows - 1));
   const clockTopRow = clockCells.length > 0
@@ -3609,6 +3649,7 @@ function collectMatrixRainState() {
       spectrumMaxRows: spectrumGeometry.maxRows,
       spectrumPeakCells: audioState.spectrumPeakCells,
       spectrumMotion: "winamp-falloff",
+      spectrumLayout: settings.audiospectrumlayout,
       spectrumColorBlend: Number(audioState.colorBlend.toFixed(3)),
       nextColorShuffleCooldown: Math.max(0, audioState.nextColorShuffleTick - logicalTick),
       spectrumColumns: {
@@ -3710,6 +3751,7 @@ function buildControlsUrl() {
   url.searchParams.set("audiointensity", controlsUrlValue(settings.audiointensity));
   url.searchParams.set("audiosensitivity", controlsUrlValue(settings.audiosensitivity));
   url.searchParams.set("audiocolormode", settings.audiocolormode);
+  url.searchParams.set("audiospectrumlayout", settings.audiospectrumlayout);
   url.searchParams.set("audiodebug", controlsUrlValue(audioDebugEnabled));
   url.searchParams.set("clock", controlsUrlValue(settings.clock));
   url.searchParams.set("clockbrightness", controlsUrlValue(settings.clockbrightness));
@@ -3789,7 +3831,7 @@ function updateControlsStats(panel) {
   const state = collectMatrixRainState();
   stats.textContent = [
     `audio ${state.audio.enabled ? "on" : "off"} level ${state.audio.level}`,
-    `${state.audio.spectrumMotion} cells ${state.audio.audioRainCells}`,
+    `${state.audio.spectrumMotion} ${state.audio.spectrumLayout} cells ${state.audio.audioRainCells}`,
     `max rows ${state.audio.spectrumMaxRows}`,
     `${state.gridColumns} x ${state.rows}`,
     state.layoutProfile ? state.layoutProfile.mode : "layout"
@@ -3855,6 +3897,12 @@ function initializeControlsPanel() {
       { label: "Matrix tint", value: "matrix_tint" }
     ], (value) => {
       applyPreviewProperties({ audiocolormode: propertyValue(value) });
+    }),
+    createControlsSelect("Audio spectrum columns", settings.audiospectrumlayout, [
+      { label: "Separated", value: "separated" },
+      { label: "Continuous", value: "continuous" }
+    ], (value) => {
+      applyPreviewProperties({ audiospectrumlayout: propertyValue(value) });
     }),
     createControlsToggle("Clock", settings.clock, (value) => {
       applyPreviewProperties({ clock: propertyValue(value) });
@@ -3995,6 +4043,13 @@ window.wallpaperPropertyListener = {
       settings.audiocolormode = (CONTROLS_ENABLED ? null : AUDIO_COLOR_MODE_OVERRIDE)
         ?? normalizeAudioColorMode(String(properties.audiocolormode.value))
         ?? DEFAULT_PRESET.wallpaperProperties.audiocolormode;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(properties, "audiospectrumlayout")) {
+      settings.audiospectrumlayout = (CONTROLS_ENABLED ? null : AUDIO_SPECTRUM_LAYOUT_OVERRIDE)
+        ?? normalizeAudioSpectrumLayout(String(properties.audiospectrumlayout.value))
+        ?? DEFAULT_PRESET.wallpaperProperties.audiospectrumlayout;
+      clearAudioRain();
     }
 
     if (Object.prototype.hasOwnProperty.call(properties, "color")) {

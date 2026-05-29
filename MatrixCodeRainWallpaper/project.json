@@ -127,6 +127,22 @@
           }
         ],
         "order": 140
+      },
+      "audiospectrumlayout": {
+        "text": "Audio spectrum columns",
+        "type": "combo",
+        "value": "separated",
+        "options": [
+          {
+            "label": "Separated",
+            "value": "separated"
+          },
+          {
+            "label": "Continuous",
+            "value": "continuous"
+          }
+        ],
+        "order": 150
       }
     },
     "supportsaudioprocessing": true

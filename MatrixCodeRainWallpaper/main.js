@@ -447,7 +447,7 @@ const DEFAULT_PRESET = {
     trebleWeight: 0.92,
     spectrumStartColumnRatio: 0.08,
     spectrumEndColumnRatio: 0.92,
-    spectrumTopRows: 2,
+    spectrumTopRows: 0,
     spectrumMaxRowsRatio: 0.31,
     spectrumMinBars: 24,
     spectrumMaxBars: 58,

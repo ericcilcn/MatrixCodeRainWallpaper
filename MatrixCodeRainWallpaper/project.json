@@ -85,13 +85,13 @@
         "order": 100
       },
       "audioenabled": {
-        "text": "Audio rain",
+        "text": "Audio spectrum",
         "type": "bool",
         "value": false,
         "order": 110
       },
       "audiointensity": {
-        "text": "Audio rain intensity",
+        "text": "Audio spectrum intensity",
         "type": "slider",
         "value": 65,
         "min": 0,
@@ -100,7 +100,7 @@
         "order": 120
       },
       "audiosensitivity": {
-        "text": "Audio rain sensitivity",
+        "text": "Audio spectrum sensitivity",
         "type": "slider",
         "value": 55,
         "min": 10,
@@ -109,7 +109,7 @@
         "order": 130
       },
       "audiocolormode": {
-        "text": "Audio rain color",
+        "text": "Audio spectrum color",
         "type": "combo",
         "value": "spectrum",
         "options": [

@@ -19,12 +19,7 @@ const LAYOUT_OVERRIDE = normalizeLayoutMode(URL_PARAMS.get("layout"));
 const CLOCK_OVERRIDE = parseBooleanParam(URL_PARAMS.get("clock"));
 const AUDIO_COLOR_MODES = new Set(["spectrum", "neon", "matrix_tint"]);
 const AUDIO_HUE_STEPS = 48;
-const AUDIO_BAND_KEYS = ["bass", "mid", "treble"];
-const AUDIO_BANDS = {
-  bass: { start: 0.08, end: 0.34, minCells: 5, maxCells: 8, cooldownMin: 18, cooldownMax: 34 },
-  mid: { start: 0.34, end: 0.66, minCells: 4, maxCells: 7, cooldownMin: 16, cooldownMax: 30 },
-  treble: { start: 0.66, end: 0.92, minCells: 3, maxCells: 6, cooldownMin: 14, cooldownMax: 26 }
-};
+const AUDIO_SPECTRUM_BINS = 64;
 const FONT_STYLE_OVERRIDE = normalizeFontStyle(URL_PARAMS.get("fontstyle"));
 const AUDIO_OVERRIDE = parseBooleanParam(URL_PARAMS.get("audio"));
 const AUDIO_COLOR_MODE_OVERRIDE = normalizeAudioColorMode(URL_PARAMS.get("audiocolormode"));
@@ -450,25 +445,24 @@ const DEFAULT_PRESET = {
     bassWeight: 1.24,
     midWeight: 1,
     trebleWeight: 0.92,
-    baseChancePerTick: 0.006,
-    maxChancePerTick: 0.42,
-    globalMinGapTicks: 5,
-    globalMaxGapTicks: 11,
-    maxAudioStreamsPerColumn: 2,
-    minLengthRows: 0.12,
-    maxLengthRows: 0.28,
-    minEndRows: 0.36,
-    maxEndRows: 0.88,
-    minSpeedScale: 1.04,
-    maxSpeedScale: 1.52,
-    minDensity: 1,
-    maxDensity: 1,
-    headChanceBase: 0.42,
-    headChanceGain: 0.48,
-    minLifeTicks: 10,
-    maxLifeTicks: 24,
-    minAlpha: 0.76,
-    maxAlpha: 1.72
+    spectrumStartColumnRatio: 0.08,
+    spectrumEndColumnRatio: 0.92,
+    spectrumTopRows: 2,
+    spectrumMaxRowsRatio: 0.31,
+    spectrumMinBars: 24,
+    spectrumMaxBars: 58,
+    spectrumColumnStep: 2,
+    spectrumGroupingPower: 1.55,
+    spectrumAttack: 0.64,
+    spectrumRelease: 0.26,
+    spectrumFloor: 0.018,
+    spectrumCurve: 0.72,
+    spectrumPeakHoldTicks: 7,
+    spectrumPeakFallRows: 0.72,
+    spectrumCharRotateTicks: 2,
+    spectrumClockMarginRows: 2,
+    spectrumMinAlpha: 0.58,
+    spectrumMaxAlpha: 1
   },
   wallpaperProperties: {
     density: 62,
@@ -544,16 +538,12 @@ let audioState = {
   treble: 0,
   level: 0,
   peak: 0,
+  spectrumBins: Array(AUDIO_SPECTRUM_BINS).fill(0),
+  spectrumBars: [],
+  spectrumCells: 0,
+  spectrumPeakCells: 0,
   lastInputTime: 0,
-  debugPhase: 0,
-  nextGlobalWaveTick: 0,
-  nextBandWaveTicks: {
-    bass: 0,
-    mid: 0,
-    treble: 0
-  },
-  lastWaveBand: "none",
-  waveCount: 0
+  debugPhase: 0
 };
 
 function clamp(value, min, max) {
@@ -1109,6 +1099,23 @@ function applyAudioLevels(bass, mid, treble, markInput = false) {
   }
 }
 
+function smoothAudioSpectrumValue(current, target) {
+  const audio = DEFAULT_PRESET.audioResponsive;
+  const factor = target > current ? audio.spectrumAttack : audio.spectrumRelease;
+  return current + (target - current) * factor;
+}
+
+function applyAudioSpectrumBins(rawBins) {
+  const sensitivity = audioSensitivityScale();
+  const intensity = clamp(settings.audiointensity / 65, 0, 1.65);
+
+  for (let index = 0; index < AUDIO_SPECTRUM_BINS; index += 1) {
+    const raw = rawBins && Number.isFinite(rawBins[index]) ? rawBins[index] : 0;
+    const target = clamp(raw * sensitivity * (0.72 + intensity * 0.28), 0, 1);
+    audioState.spectrumBins[index] = smoothAudioSpectrumValue(audioState.spectrumBins[index] || 0, target);
+  }
+}
+
 function audioBandRms(audioArray, start, end, halfCount) {
   let sum = 0;
   let count = 0;
@@ -1124,6 +1131,32 @@ function audioBandRms(audioArray, start, end, halfCount) {
   return count > 0 ? Math.sqrt(sum / count) : 0;
 }
 
+function audioSpectrumBinsFromArray(audioArray, halfCount) {
+  const bins = Array(AUDIO_SPECTRUM_BINS).fill(0);
+  if (halfCount <= 0) {
+    return bins;
+  }
+
+  for (let bin = 0; bin < AUDIO_SPECTRUM_BINS; bin += 1) {
+    const sourceStart = Math.floor((bin / AUDIO_SPECTRUM_BINS) * halfCount);
+    const sourceEnd = Math.max(sourceStart + 1, Math.floor(((bin + 1) / AUDIO_SPECTRUM_BINS) * halfCount));
+    let sum = 0;
+    let count = 0;
+
+    for (let index = sourceStart; index < sourceEnd && index < halfCount; index += 1) {
+      const left = clamp(Number(audioArray[index]) || 0, 0, 1);
+      const right = clamp(Number(audioArray[index + halfCount]) || 0, 0, 1);
+      const mono = (left + right) * 0.5;
+      sum += mono * mono;
+      count += 1;
+    }
+
+    bins[bin] = count > 0 ? Math.sqrt(sum / count) : 0;
+  }
+
+  return bins;
+}
+
 function updateAudioFromArray(audioArray) {
   if (!audioArray || audioArray.length < 4) {
     return;
@@ -1136,6 +1169,7 @@ function updateAudioFromArray(audioArray) {
     audioBandRms(audioArray, 32, halfCount, halfCount),
     true
   );
+  applyAudioSpectrumBins(audioSpectrumBinsFromArray(audioArray, halfCount));
 }
 
 function updateAudioDebugSignal() {
@@ -1147,9 +1181,18 @@ function updateAudioDebugSignal() {
   const bass = clamp(0.06 + bassPulse * 0.9 + Math.max(0, Math.sin(time * 1.7)) * 0.08, 0, 1);
   const mid = clamp(0.05 + midPulse * 0.72 + Math.max(0, Math.sin(time * 3.1 + 1.2)) * 0.18, 0, 1);
   const treble = clamp(0.04 + treblePulse * 0.72 + Math.max(0, Math.sin(time * 7.4 + 2.5)) * 0.16 + Math.random() * 0.04, 0, 1);
+  const bins = Array.from({ length: AUDIO_SPECTRUM_BINS }, (_, index) => {
+    const unit = index / Math.max(1, AUDIO_SPECTRUM_BINS - 1);
+    const bassShape = Math.exp(-Math.pow((unit - 0.16) / 0.12, 2)) * bass;
+    const midShape = Math.exp(-Math.pow((unit - 0.5) / 0.17, 2)) * mid;
+    const trebleShape = Math.exp(-Math.pow((unit - 0.82) / 0.14, 2)) * treble;
+    const ripple = 0.72 + 0.28 * Math.sin(time * 8.5 + index * 0.47);
+    return clamp((bassShape + midShape + trebleShape + 0.018 * Math.random()) * ripple, 0, 1);
+  });
 
   audioState.debugPhase = time;
   applyAudioLevels(bass, mid, treble, false);
+  applyAudioSpectrumBins(bins);
 }
 
 function updateAudioResponsiveState() {
@@ -1160,6 +1203,7 @@ function updateAudioResponsiveState() {
 
   if (performance.now() - audioState.lastInputTime > DEFAULT_PRESET.audioResponsive.silenceAfterMs) {
     applyAudioLevels(0, 0, 0, false);
+    applyAudioSpectrumBins(null);
   }
 }
 
@@ -1174,37 +1218,130 @@ function activeAudioLevel() {
     : clamp((audioState.level - minLevel) / (1 - minLevel), 0, 1);
 }
 
-function activeAudioBandLevel(band) {
-  if (!settings.audioenabled) {
-    return 0;
-  }
+function audioSpectrumGeometry() {
+  const audio = DEFAULT_PRESET.audioResponsive;
+  const startColumn = clampInt(Math.round(gridColumns * audio.spectrumStartColumnRatio), 0, Math.max(0, gridColumns - 1));
+  const endColumn = clampInt(Math.round(gridColumns * audio.spectrumEndColumnRatio), startColumn, Math.max(0, gridColumns - 1));
+  const availableColumns = Math.max(1, endColumn - startColumn + 1);
+  const barCount = clampInt(
+    Math.floor(availableColumns / Math.max(1, audio.spectrumColumnStep)),
+    Math.min(audio.spectrumMinBars, availableColumns),
+    Math.min(audio.spectrumMaxBars, availableColumns)
+  );
+  const topRow = clampInt(audio.spectrumTopRows, 0, Math.max(0, rows - 1));
+  const clockTopRow = clockCells.length > 0
+    ? clockCells.reduce((minimum, cell) => Math.min(minimum, cell.rowIndex), rows)
+    : rows;
+  const clockSafeRows = Math.max(0, clockTopRow - audio.spectrumClockMarginRows - topRow);
+  const maxRowsByScreen = Math.max(3, Math.round(rows * audio.spectrumMaxRowsRatio));
+  const maxRows = clampInt(Math.min(maxRowsByScreen, clockSafeRows), 1, Math.max(1, rows - topRow));
 
-  const minLevel = DEFAULT_PRESET.audioResponsive.minLevel;
-  const value = audioState[band] || 0;
-  return value <= minLevel
-    ? 0
-    : clamp((value - minLevel) / (1 - minLevel), 0, 1);
+  return {
+    startColumn,
+    endColumn,
+    availableColumns,
+    barCount,
+    topRow,
+    maxRows
+  };
 }
 
-function audioWaveBaseHueIndex(seed, band) {
-  const unit = hashUnit(seed ^ 0x2b7f);
+function ensureAudioSpectrumBars(barCount) {
+  while (audioState.spectrumBars.length < barCount) {
+    audioState.spectrumBars.push({
+      value: 0,
+      peakRows: 0,
+      peakHold: 0
+    });
+  }
+  if (audioState.spectrumBars.length > barCount) {
+    audioState.spectrumBars.length = barCount;
+  }
+}
+
+function audioSpectrumBinRange(barIndex, barCount) {
+  const audio = DEFAULT_PRESET.audioResponsive;
+  const startUnit = Math.pow(barIndex / Math.max(1, barCount), audio.spectrumGroupingPower);
+  const endUnit = Math.pow((barIndex + 1) / Math.max(1, barCount), audio.spectrumGroupingPower);
+  const start = clampInt(Math.floor(startUnit * AUDIO_SPECTRUM_BINS), 0, AUDIO_SPECTRUM_BINS - 1);
+  const end = clampInt(Math.max(start + 1, Math.ceil(endUnit * AUDIO_SPECTRUM_BINS)), start + 1, AUDIO_SPECTRUM_BINS);
+  return { start, end };
+}
+
+function audioSpectrumBarLevel(barIndex, barCount) {
+  const range = audioSpectrumBinRange(barIndex, barCount);
+  let sum = 0;
+  let count = 0;
+
+  for (let index = range.start; index < range.end; index += 1) {
+    const value = audioState.spectrumBins[index] || 0;
+    sum += value * value;
+    count += 1;
+  }
+
+  return count > 0 ? Math.sqrt(sum / count) : 0;
+}
+
+function audioSpectrumHueIndex(barIndex, barCount) {
+  const unit = barCount <= 1 ? 0 : barIndex / (barCount - 1);
+
   if (settings.audiocolormode === "matrix_tint") {
-    return Math.round(seededRange(seed ^ 0x16d3, 18, 24)) % AUDIO_HUE_STEPS;
+    return Math.round(18 + unit * 8) % AUDIO_HUE_STEPS;
   }
 
   if (settings.audiocolormode === "neon") {
-    const neonAnchors = [46, 6, 24, 31, 39];
-    return neonAnchors[Math.floor(unit * neonAnchors.length) % neonAnchors.length];
+    const hue = (300 + unit * 300 + Math.sin(renderSeconds * 0.42 + unit * Math.PI) * 18 + 360) % 360;
+    return Math.round((hue / 360) * AUDIO_HUE_STEPS) % AUDIO_HUE_STEPS;
   }
 
-  return Math.floor(unit * AUDIO_HUE_STEPS) % AUDIO_HUE_STEPS;
+  // Classic spectrum layout: warm lows on the left, green/cyan mids, cool highs on the right.
+  const hue = 38 + unit * 238;
+  return Math.round((hue / 360) * AUDIO_HUE_STEPS) % AUDIO_HUE_STEPS;
 }
 
-function audioGradientPaletteName(baseHueIndex, memberIndex, memberCount, seed) {
-  const center = (memberCount - 1) / 2;
-  const offset = Math.round((memberIndex - center) * 0.9 + seededRange(seed ^ Math.imul(memberIndex + 1, 0x9e37), -0.4, 0.4));
-  const hueIndex = (baseHueIndex + offset + AUDIO_HUE_STEPS) % AUDIO_HUE_STEPS;
-  return `audioHue${hueIndex}`;
+function audioSpectrumPaletteName(barIndex, barCount) {
+  return `audioHue${audioSpectrumHueIndex(barIndex, barCount)}`;
+}
+
+function updateAudioSpectrumBars() {
+  const geometry = audioSpectrumGeometry();
+  const audio = DEFAULT_PRESET.audioResponsive;
+  const globalLevel = activeAudioLevel();
+  const intensity = clamp(settings.audiointensity / 100, 0, 1);
+  let cells = 0;
+  let peakCells = 0;
+
+  ensureAudioSpectrumBars(geometry.barCount);
+
+  for (let barIndex = 0; barIndex < geometry.barCount; barIndex += 1) {
+    const bar = audioState.spectrumBars[barIndex];
+    const rawLevel = settings.audioenabled
+      ? Math.max(audioSpectrumBarLevel(barIndex, geometry.barCount), globalLevel * 0.08)
+      : 0;
+    const target = rawLevel <= audio.spectrumFloor
+      ? 0
+      : Math.pow(clamp((rawLevel - audio.spectrumFloor) / (1 - audio.spectrumFloor), 0, 1), audio.spectrumCurve);
+    const nextValue = smoothAudioSpectrumValue(bar.value, target * (0.72 + intensity * 0.34));
+    const barRows = clampInt(Math.round(nextValue * geometry.maxRows), 0, geometry.maxRows);
+
+    bar.value = nextValue;
+    if (barRows >= bar.peakRows) {
+      bar.peakRows = barRows;
+      bar.peakHold = audio.spectrumPeakHoldTicks;
+    } else if (bar.peakHold > 0) {
+      bar.peakHold -= 1;
+    } else {
+      bar.peakRows = Math.max(barRows, bar.peakRows - audio.spectrumPeakFallRows);
+    }
+
+    cells += barRows;
+    if (Math.round(bar.peakRows) > barRows) {
+      peakCells += 1;
+    }
+  }
+
+  audioState.spectrumCells = cells;
+  audioState.spectrumPeakCells = peakCells;
 }
 
 function rowVisibility(rowIndex) {
@@ -1753,54 +1890,6 @@ function createLowerFragmentStream(column, seed, startRow, length) {
     transient: true,
     cellLifeTicks: Math.floor(seededRange(seed ^ 0x44f1, fragments.minLifeTicks, fragments.maxLifeTicks)),
     alphaBase: seededRange(seed ^ 0x9e3d, fragments.minAlpha, fragments.maxAlpha)
-  };
-}
-
-function countColumnAudioStreams(column) {
-  return column.streams.reduce((sum, stream) => sum + (stream.audioRain && !stream.finished ? 1 : 0), 0);
-}
-
-function createAudioWaveStream(column, seed, wave) {
-  const audio = DEFAULT_PRESET.audioResponsive;
-  const ordinal = column.nextStreamOrdinal;
-  column.nextStreamOrdinal += 1;
-  const length = Math.max(4, Math.round(rows * wave.lengthScale));
-  const startRow = -2 + wave.rowOffset;
-  const endRow = Math.max(
-    Math.min(rows + length + 2, Math.floor(rows * wave.endUnit)),
-    Math.min(rows - 1, length)
-  );
-  const alphaBase = seededRange(seed ^ 0x9e3d, audio.minAlpha, audio.minAlpha + (audio.maxAlpha - audio.minAlpha) * Math.max(0.24, wave.level));
-  const headChance = clamp(audio.headChanceBase + wave.level * audio.headChanceGain, 0, 1);
-
-  return {
-    id: `audio:${wave.band}:${wave.id}:${column.index}:${ordinal}:${seed}`,
-    seed,
-    negative: false,
-    mode: "audio",
-    long: false,
-    headRow: startRow,
-    headCellRow: null,
-    progress: hashUnit(seed ^ 0x1c51) * 0.4,
-    patternSalt: seed,
-    length,
-    density: seededRange(seed ^ 0x68a31, audio.minDensity, audio.maxDensity),
-    rotatorRate: seededRange(seed ^ 0x4f81, 0.24, 0.62),
-    headChance,
-    brightHead: hashUnit(seed ^ 0x57ac) < headChance,
-    cooldownTicks: 0,
-    paletteName: wave.paletteName,
-    toneMultiplier: 1 + wave.level * 0.34,
-    speed: wave.speed,
-    endRow,
-    finished: false,
-    transient: true,
-    cellLifeTicks: Math.floor(seededRange(seed ^ 0x44f1, audio.minLifeTicks, audio.maxLifeTicks) * (1 + wave.level * 0.35)),
-    alphaBase,
-    audioRain: true,
-    audioLevel: wave.level,
-    audioBand: wave.band,
-    audioWaveId: wave.id
   };
 }
 
@@ -2409,150 +2498,8 @@ function releaseLowerFragments() {
   }
 }
 
-function audioWaveMembers(seed, count) {
-  const shapeRoll = hashUnit(seed ^ 0x6c31);
-  const members = [];
-  const center = (count - 1) / 2;
-
-  if (shapeRoll < 0.42) {
-    for (let index = 0; index < count; index += 1) {
-      members.push({
-        columnOffset: Math.round(index - center),
-        rowOffset: 0
-      });
-    }
-  } else if (shapeRoll < 0.76) {
-    const rowPattern = [0, 1, 0, 2, 1, 0, 2, 1];
-    for (let index = 0; index < count; index += 1) {
-      members.push({
-        columnOffset: Math.round(index - center),
-        rowOffset: rowPattern[index % rowPattern.length]
-      });
-    }
-  } else {
-    const columnCount = Math.max(2, Math.ceil(count / 2));
-    for (let columnOffset = 0; columnOffset < columnCount && members.length < count; columnOffset += 1) {
-      for (let rowOffset = 0; rowOffset < 2 && members.length < count; rowOffset += 1) {
-        members.push({
-          columnOffset: Math.round(columnOffset - (columnCount - 1) / 2),
-          rowOffset
-        });
-      }
-    }
-  }
-
-  return members;
-}
-
-function audioWaveCandidateColumns(centerColumn, members) {
-  return members.map((member) => {
-    const columnIndex = clampInt(centerColumn + member.columnOffset, 0, gridColumns - 1);
-    const column = activeColumns[columnIndex + 2];
-    return column && column.index === columnIndex
-      ? { column, columnIndex, rowOffset: member.rowOffset }
-      : null;
-  }).filter(Boolean);
-}
-
-function releaseAudioWave(band, level, seed) {
-  const audio = DEFAULT_PRESET.audioResponsive;
-  const descriptor = AUDIO_BANDS[band];
-  const intensity = clamp(settings.audiointensity / 100, 0, 1);
-  const countRange = descriptor.maxCells - descriptor.minCells;
-  const memberCount = descriptor.minCells + Math.round(countRange * clamp(level * 0.85 + hashUnit(seed ^ 0xb71d) * 0.35, 0, 1));
-  const regionStart = Math.round(gridColumns * descriptor.start);
-  const regionEnd = Math.round(gridColumns * descriptor.end);
-  const centerColumn = clampInt(
-    seededRange(seed ^ 0x51db, regionStart, regionEnd),
-    0,
-    Math.max(0, gridColumns - 1)
-  );
-  const members = audioWaveMembers(seed, memberCount);
-  const candidates = audioWaveCandidateColumns(centerColumn, members);
-  const writable = [];
-
-  for (let index = 0; index < candidates.length; index += 1) {
-    const candidate = candidates[index];
-    if (countColumnAudioStreams(candidate.column) >= audio.maxAudioStreamsPerColumn) {
-      continue;
-    }
-    if (candidate.column.streams.length >= DEFAULT_PRESET.maxConcurrentStreamsPerColumn + audio.maxAudioStreamsPerColumn) {
-      continue;
-    }
-    writable.push({
-      ...candidate,
-      memberIndex: index
-    });
-  }
-
-  if (writable.length < 3) {
-    return false;
-  }
-
-  const waveId = audioState.waveCount + 1;
-  const baseHueIndex = audioWaveBaseHueIndex(seed, band);
-  const speedScale = seededRange(seed ^ 0xa38f, audio.minSpeedScale, audio.maxSpeedScale) * (0.92 + level * 0.22);
-  const speed = DEFAULT_PRESET.speedRowsPerSecond * clamp(settings.speed / 55, 0.32, 2.05) * speedScale;
-  const lengthScale = seededRange(seed ^ 0x72a9, audio.minLengthRows, audio.maxLengthRows) * (0.92 + level * 0.28);
-  const endUnit = seededRange(seed ^ 0x257c, audio.minEndRows, audio.maxEndRows);
-
-  for (let index = 0; index < writable.length; index += 1) {
-    const candidate = writable[index];
-    const streamSeed = hashInt(seed ^ Math.imul(candidate.columnIndex + 19, 1597334677) ^ Math.imul(candidate.rowOffset + 3, 374761393));
-    candidate.column.streams.push(createAudioWaveStream(candidate.column, streamSeed, {
-      id: waveId,
-      band,
-      level,
-      rowOffset: candidate.rowOffset,
-      paletteName: audioGradientPaletteName(baseHueIndex, candidate.memberIndex, members.length, seed),
-      speed,
-      lengthScale,
-      endUnit
-    }));
-  }
-
-  const bandGap = Math.floor(seededRange(seed ^ 0x73ad, descriptor.cooldownMin, descriptor.cooldownMax) * (1.1 - level * 0.28));
-  const globalGap = Math.floor(seededRange(seed ^ 0x192f, audio.globalMinGapTicks, audio.globalMaxGapTicks) * (1.08 - intensity * 0.24));
-  audioState.nextBandWaveTicks[band] = logicalTick + Math.max(8, bandGap);
-  audioState.nextGlobalWaveTick = logicalTick + Math.max(3, globalGap);
-  audioState.lastWaveBand = band;
-  audioState.waveCount = waveId;
-  return true;
-}
-
 function releaseAudioRain() {
-  if (activeAudioLevel() <= 0 || activeColumns.length === 0 || logicalTick < audioState.nextGlobalWaveTick) {
-    return;
-  }
-
-  const audio = DEFAULT_PRESET.audioResponsive;
-  const intensity = clamp(settings.audiointensity / 100, 0, 1);
-  const seedBase = hashInt(PATTERN_SEED ^ Math.imul(logicalTick + 101, 2246822519));
-  const candidates = AUDIO_BAND_KEYS.map((band, index) => ({
-    band,
-    seed: hashInt(seedBase ^ Math.imul(index + 1, 1597334677)),
-    level: activeAudioBandLevel(band)
-  })).sort((a, b) => b.level - a.level);
-
-  for (const candidate of candidates) {
-    if (candidate.level <= 0 || logicalTick < audioState.nextBandWaveTicks[candidate.band]) {
-      continue;
-    }
-
-    const power = Math.pow(candidate.level, 1.28);
-    const chance = clamp(
-      audio.baseChancePerTick + power * intensity * (audio.maxChancePerTick - audio.baseChancePerTick),
-      0,
-      audio.maxChancePerTick
-    );
-    if (hashUnit(candidate.seed ^ 0x4b1d) > chance) {
-      continue;
-    }
-
-    if (releaseAudioWave(candidate.band, candidate.level, candidate.seed)) {
-      break;
-    }
-  }
+  updateAudioSpectrumBars();
 }
 
 function logicStep() {
@@ -2895,14 +2842,15 @@ function clearClockGridCells() {
 }
 
 function clearAudioRain() {
-  audioState.nextGlobalWaveTick = 0;
-  audioState.nextBandWaveTicks = {
-    bass: 0,
-    mid: 0,
-    treble: 0
-  };
-  audioState.lastWaveBand = "none";
-  audioState.waveCount = 0;
+  audioState.spectrumBins = Array(AUDIO_SPECTRUM_BINS).fill(0);
+  audioState.spectrumBars = [];
+  audioState.spectrumCells = 0;
+  audioState.spectrumPeakCells = 0;
+  audioState.bass = 0;
+  audioState.mid = 0;
+  audioState.treble = 0;
+  audioState.level = 0;
+  audioState.peak = 0;
 
   for (const column of activeColumns) {
     if (!column || !column.cells) {
@@ -3142,6 +3090,96 @@ function drawGlyph(cell, column, rowIndex) {
   );
 }
 
+function audioSpectrumColumnIndex(geometry, barIndex) {
+  if (geometry.barCount <= 1) {
+    return geometry.startColumn;
+  }
+
+  return clampInt(
+    Math.round(geometry.startColumn + (barIndex / (geometry.barCount - 1)) * (geometry.endColumn - geometry.startColumn)),
+    geometry.startColumn,
+    geometry.endColumn
+  );
+}
+
+function drawAudioSpectrumGlyph(columnIndex, rowIndex, barIndex, barCount, styleName, alpha) {
+  if (
+    isClockMaskCell(columnIndex, rowIndex)
+    || isClockEmphasisCell(columnIndex, rowIndex)
+    || isClockHighlightCell(columnIndex, rowIndex)
+  ) {
+    return;
+  }
+
+  const rotateTicks = Math.max(1, DEFAULT_PRESET.audioResponsive.spectrumCharRotateTicks);
+  const bucket = Math.floor(logicalTick / rotateTicks);
+  const salt = hashInt(Math.imul(bucket + 1, 1103515245) ^ Math.imul(barIndex + 17, 668265263));
+  const char = chooseStableChar(PATTERN_SEED ^ 0xa9d10, columnIndex, rowIndex, salt);
+  const palette = paletteByName(audioSpectrumPaletteName(barIndex, barCount));
+  const sprite = createGlyph(char, styleName, palette);
+  const x = (columnIndex + 0.5) * cellWidth;
+  const y = (rowIndex + 0.5) * cellHeight;
+
+  ctx.globalAlpha = clamp(alpha * clamp(settings.brightness / 82, 0.48, 1.24), 0, 1);
+  ctx.drawImage(
+    sprite.canvas,
+    sprite.sx,
+    sprite.sy,
+    sprite.sw,
+    sprite.sh,
+    Math.round(x - sprite.cssWidth / 2),
+    Math.round(y - sprite.cssHeight / 2),
+    sprite.cssWidth,
+    sprite.cssHeight
+  );
+}
+
+function drawAudioSpectrumOverlay() {
+  if (!settings.audioenabled || audioState.spectrumBars.length === 0 || gridColumns <= 0 || rows <= 0) {
+    return;
+  }
+
+  const geometry = audioSpectrumGeometry();
+  const audio = DEFAULT_PRESET.audioResponsive;
+  const intensity = clamp(settings.audiointensity / 100, 0, 1);
+
+  for (let barIndex = 0; barIndex < geometry.barCount; barIndex += 1) {
+    const bar = audioState.spectrumBars[barIndex];
+    if (!bar) {
+      continue;
+    }
+
+    const barRows = clampInt(Math.round(bar.value * geometry.maxRows), 0, geometry.maxRows);
+    const columnIndex = audioSpectrumColumnIndex(geometry, barIndex);
+    const alphaBase = audio.spectrumMinAlpha + (audio.spectrumMaxAlpha - audio.spectrumMinAlpha) * clamp(bar.value + intensity * 0.18, 0, 1);
+
+    for (let offset = 0; offset < barRows; offset += 1) {
+      const rowIndex = geometry.topRow + offset;
+      if (rowIndex >= rows) {
+        break;
+      }
+
+      const tip = offset === barRows - 1;
+      const nearTip = barRows > 2 && offset >= barRows - 3;
+      const styleName = tip ? "head" : (nearTip ? "bright" : "body");
+      const depth = barRows <= 1 ? 1 : offset / (barRows - 1);
+      const alpha = tip
+        ? Math.min(1, alphaBase * 1.26)
+        : alphaBase * (0.72 + depth * 0.26);
+
+      drawAudioSpectrumGlyph(columnIndex, rowIndex, barIndex, geometry.barCount, styleName, alpha);
+    }
+
+    const peakRows = clampInt(Math.round(bar.peakRows), 0, geometry.maxRows);
+    if (peakRows > barRows + 1) {
+      const peakRow = geometry.topRow + peakRows - 1;
+      if (peakRow < rows) {
+        drawAudioSpectrumGlyph(columnIndex, peakRow, barIndex, geometry.barCount, "head", 0.78 + intensity * 0.18);
+      }
+    }
+  }
+}
+
 function render(now = performance.now()) {
   renderSeconds = now / 1000;
   updateClockMask();
@@ -3160,6 +3198,8 @@ function render(now = performance.now()) {
       }
     }
   }
+
+  drawAudioSpectrumOverlay();
 
   ctx.globalAlpha = 1;
   ctx.globalCompositeOperation = "source-over";
@@ -3428,6 +3468,7 @@ function collectMatrixRainState() {
   metrics.rotatingCellRatio = metrics.visibleCells > 0
     ? metrics.rotatingCells / metrics.visibleCells
     : 0;
+  const spectrumGeometry = audioSpectrumGeometry();
 
   return {
     rows,
@@ -3469,16 +3510,14 @@ function collectMatrixRainState() {
       bass: Number(audioState.bass.toFixed(4)),
       mid: Number(audioState.mid.toFixed(4)),
       treble: Number(audioState.treble.toFixed(4)),
-      audioRainCells: metrics.audioRainCells,
-      audioBandCells: metrics.audioBandCells,
-      columnsWithAudioRain: metrics.columnsWithAudioRain,
-      lastWaveBand: audioState.lastWaveBand,
-      waveCount: audioState.waveCount,
-      nextWaveCooldown: Math.max(0, audioState.nextGlobalWaveTick - logicalTick),
-      nextBandCooldowns: {
-        bass: Math.max(0, audioState.nextBandWaveTicks.bass - logicalTick),
-        mid: Math.max(0, audioState.nextBandWaveTicks.mid - logicalTick),
-        treble: Math.max(0, audioState.nextBandWaveTicks.treble - logicalTick)
+      audioRainCells: audioState.spectrumCells,
+      spectrumBars: spectrumGeometry.barCount,
+      spectrumTopRow: spectrumGeometry.topRow,
+      spectrumMaxRows: spectrumGeometry.maxRows,
+      spectrumPeakCells: audioState.spectrumPeakCells,
+      spectrumColumns: {
+        start: spectrumGeometry.startColumn,
+        end: spectrumGeometry.endColumn
       }
     },
     speedRowsPerSecond: DEFAULT_PRESET.speedRowsPerSecond,
@@ -3654,7 +3693,8 @@ function updateControlsStats(panel) {
   const state = collectMatrixRainState();
   stats.textContent = [
     `audio ${state.audio.enabled ? "on" : "off"} level ${state.audio.level}`,
-    `audio cells ${state.audio.audioRainCells}`,
+    `spectrum cells ${state.audio.audioRainCells}`,
+    `max rows ${state.audio.spectrumMaxRows}`,
     `${state.gridColumns} x ${state.rows}`,
     state.layoutProfile ? state.layoutProfile.mode : "layout"
   ].join(" / ");
@@ -3693,7 +3733,7 @@ function initializeControlsPanel() {
   body.className = "matrix-controls-body";
 
   body.append(
-    createControlsToggle("Audio rain", settings.audioenabled, (value) => {
+    createControlsToggle("Audio spectrum", settings.audioenabled, (value) => {
       applyPreviewProperties({ audioenabled: propertyValue(value) });
       if (value) {
         refreshAppearance();
@@ -3707,13 +3747,13 @@ function initializeControlsPanel() {
       }
       refreshAppearance();
     }),
-    createControlsRange("Audio intensity", settings.audiointensity, 0, 100, (value) => {
+    createControlsRange("Audio spectrum intensity", settings.audiointensity, 0, 100, (value) => {
       applyPreviewProperties({ audiointensity: propertyValue(value) });
     }),
-    createControlsRange("Audio sensitivity", settings.audiosensitivity, 10, 100, (value) => {
+    createControlsRange("Audio spectrum sensitivity", settings.audiosensitivity, 10, 100, (value) => {
       applyPreviewProperties({ audiosensitivity: propertyValue(value) });
     }),
-    createControlsSelect("Audio color", settings.audiocolormode, [
+    createControlsSelect("Audio spectrum color", settings.audiocolormode, [
       { label: "Spectrum", value: "spectrum" },
       { label: "Neon", value: "neon" },
       { label: "Matrix tint", value: "matrix_tint" }

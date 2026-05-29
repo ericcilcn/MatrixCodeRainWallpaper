@@ -458,7 +458,7 @@ const DEFAULT_PRESET = {
     spectrumMaxBars: 58,
     spectrumColumnStep: 2,
     spectrumGroupingPower: 1.55,
-    spectrumAttack: 0.86,
+    spectrumAttack: 0.985,
     spectrumRelease: 0.26,
     spectrumFloor: 0.018,
     spectrumCurve: 0.72,
@@ -467,7 +467,12 @@ const DEFAULT_PRESET = {
     spectrumCharRotateTicks: 2,
     spectrumClockMarginRows: 2,
     spectrumMinAlpha: 0.58,
-    spectrumMaxAlpha: 1
+    spectrumMaxAlpha: 1,
+    spectrumColorNoiseScale: 3.2,
+    spectrumColorDriftSpeed: 0.038,
+    spectrumColorTransitionRate: 0.055,
+    spectrumColorPeakThreshold: 0.62,
+    spectrumColorPeakCooldownTicks: 42
   },
   wallpaperProperties: {
     density: 62,
@@ -547,6 +552,10 @@ let audioState = {
   spectrumBars: [],
   spectrumCells: 0,
   spectrumPeakCells: 0,
+  colorCurrentSeed: 0x1fc56d43,
+  colorTargetSeed: 0x8e4c0b91,
+  colorBlend: 1,
+  nextColorShuffleTick: 0,
   lastInputTime: 0,
   debugPhase: 0
 };
@@ -1291,10 +1300,51 @@ function audioHueStep(hue) {
   return Math.round((((hue % 360) + 360) % 360) / 360 * AUDIO_HUE_STEPS) % AUDIO_HUE_STEPS;
 }
 
+function smoothStep(value) {
+  const t = clamp(value, 0, 1);
+  return t * t * (3 - 2 * t);
+}
+
+function audioColorField(seed, unit) {
+  const audio = DEFAULT_PRESET.audioResponsive;
+  const drift = renderSeconds * audio.spectrumColorDriftSpeed;
+  const x = unit * audio.spectrumColorNoiseScale + drift;
+  const phaseA = hashUnit(seed ^ 0x2d37) * Math.PI * 2;
+  const phaseB = hashUnit(seed ^ 0x6a09) * Math.PI * 2;
+  const phaseC = hashUnit(seed ^ 0x9e37) * Math.PI * 2;
+  const value = 0.5
+    + Math.sin(x * Math.PI * 2 + phaseA) * 0.28
+    + Math.sin(x * Math.PI * 3.7 + phaseB) * 0.16
+    + Math.sin(x * Math.PI * 7.1 + phaseC) * 0.08;
+
+  return clamp(value, 0, 0.999);
+}
+
+function updateAudioColorField(level) {
+  const audio = DEFAULT_PRESET.audioResponsive;
+
+  audioState.colorBlend = Math.min(1, audioState.colorBlend + audio.spectrumColorTransitionRate);
+
+  if (
+    settings.audioenabled
+    && level > audio.spectrumColorPeakThreshold
+    && logicalTick >= audioState.nextColorShuffleTick
+  ) {
+    audioState.colorCurrentSeed = audioState.colorTargetSeed;
+    audioState.colorTargetSeed = hashInt(audioState.colorTargetSeed ^ Math.imul(logicalTick + 1, 2246822519));
+    audioState.colorBlend = 0;
+    audioState.nextColorShuffleTick = logicalTick + audio.spectrumColorPeakCooldownTicks;
+  }
+}
+
 function audioSpectrumHueIndex(barIndex, barCount) {
   const unit = barCount <= 1 ? 0 : barIndex / (barCount - 1);
   const hues = AUDIO_SPECTRUM_HUES[settings.audiocolormode] || AUDIO_SPECTRUM_HUES.spectrum;
-  const bandIndex = clampInt(Math.floor(unit * hues.length), 0, hues.length - 1);
+  const blend = smoothStep(audioState.colorBlend);
+  const currentField = audioColorField(audioState.colorCurrentSeed, unit);
+  const targetField = audioColorField(audioState.colorTargetSeed, unit);
+  const colorUnit = currentField * (1 - blend) + targetField * blend;
+  const bandIndex = clampInt(Math.floor(colorUnit * hues.length), 0, hues.length - 1);
   const wobble = settings.audiocolormode === "neon"
     ? Math.sin(renderSeconds * 0.42 + barIndex * 0.7) * 3.5
     : 0;
@@ -1316,6 +1366,7 @@ function updateAudioSpectrumBars() {
   let peakCells = 0;
 
   ensureAudioSpectrumBars(geometry.barCount);
+  updateAudioColorField(globalLevel);
 
   for (let barIndex = 0; barIndex < geometry.barCount; barIndex += 1) {
     const bar = audioState.spectrumBars[barIndex];
@@ -2850,6 +2901,8 @@ function clearAudioRain() {
   audioState.spectrumBars = [];
   audioState.spectrumCells = 0;
   audioState.spectrumPeakCells = 0;
+  audioState.colorBlend = 1;
+  audioState.nextColorShuffleTick = 0;
   audioState.bass = 0;
   audioState.mid = 0;
   audioState.treble = 0;
@@ -3528,6 +3581,8 @@ function collectMatrixRainState() {
       spectrumTopRow: spectrumGeometry.topRow,
       spectrumMaxRows: spectrumGeometry.maxRows,
       spectrumPeakCells: audioState.spectrumPeakCells,
+      spectrumColorBlend: Number(audioState.colorBlend.toFixed(3)),
+      nextColorShuffleCooldown: Math.max(0, audioState.nextColorShuffleTick - logicalTick),
       spectrumColumns: {
         start: spectrumGeometry.startColumn,
         end: spectrumGeometry.endColumn

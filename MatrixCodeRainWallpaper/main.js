@@ -20,6 +20,11 @@ const CLOCK_OVERRIDE = parseBooleanParam(URL_PARAMS.get("clock"));
 const AUDIO_COLOR_MODES = new Set(["spectrum", "neon", "matrix_tint"]);
 const AUDIO_HUE_STEPS = 48;
 const AUDIO_SPECTRUM_BINS = 64;
+const AUDIO_SPECTRUM_HUES = {
+  spectrum: [0, 26, 52, 188, 222, 276],
+  neon: [330, 0, 24, 50, 190, 220, 256, 286],
+  matrix_tint: [52, 188, 222]
+};
 const FONT_STYLE_OVERRIDE = normalizeFontStyle(URL_PARAMS.get("fontstyle"));
 const AUDIO_OVERRIDE = parseBooleanParam(URL_PARAMS.get("audio"));
 const AUDIO_COLOR_MODE_OVERRIDE = normalizeAudioColorMode(URL_PARAMS.get("audiocolormode"));
@@ -453,12 +458,12 @@ const DEFAULT_PRESET = {
     spectrumMaxBars: 58,
     spectrumColumnStep: 2,
     spectrumGroupingPower: 1.55,
-    spectrumAttack: 0.64,
+    spectrumAttack: 0.86,
     spectrumRelease: 0.26,
     spectrumFloor: 0.018,
     spectrumCurve: 0.72,
     spectrumPeakHoldTicks: 7,
-    spectrumPeakFallRows: 0.72,
+    spectrumPeakFallRows: 1.15,
     spectrumCharRotateTicks: 2,
     spectrumClockMarginRows: 2,
     spectrumMinAlpha: 0.58,
@@ -1282,21 +1287,20 @@ function audioSpectrumBarLevel(barIndex, barCount) {
   return count > 0 ? Math.sqrt(sum / count) : 0;
 }
 
+function audioHueStep(hue) {
+  return Math.round((((hue % 360) + 360) % 360) / 360 * AUDIO_HUE_STEPS) % AUDIO_HUE_STEPS;
+}
+
 function audioSpectrumHueIndex(barIndex, barCount) {
   const unit = barCount <= 1 ? 0 : barIndex / (barCount - 1);
+  const hues = AUDIO_SPECTRUM_HUES[settings.audiocolormode] || AUDIO_SPECTRUM_HUES.spectrum;
+  const bandIndex = clampInt(Math.floor(unit * hues.length), 0, hues.length - 1);
+  const wobble = settings.audiocolormode === "neon"
+    ? Math.sin(renderSeconds * 0.42 + barIndex * 0.7) * 3.5
+    : 0;
 
-  if (settings.audiocolormode === "matrix_tint") {
-    return Math.round(18 + unit * 8) % AUDIO_HUE_STEPS;
-  }
-
-  if (settings.audiocolormode === "neon") {
-    const hue = (300 + unit * 300 + Math.sin(renderSeconds * 0.42 + unit * Math.PI) * 18 + 360) % 360;
-    return Math.round((hue / 360) * AUDIO_HUE_STEPS) % AUDIO_HUE_STEPS;
-  }
-
-  // Classic spectrum layout: warm lows on the left, green/cyan mids, cool highs on the right.
-  const hue = 38 + unit * 238;
-  return Math.round((hue / 360) * AUDIO_HUE_STEPS) % AUDIO_HUE_STEPS;
+  // Keep the audio overlay away from green; yellow jumps directly to cyan.
+  return audioHueStep(hues[bandIndex] + wobble);
 }
 
 function audioSpectrumPaletteName(barIndex, barCount) {

@@ -458,7 +458,7 @@ const DEFAULT_PRESET = {
     spectrumMaxBars: 58,
     spectrumColumnStep: 2,
     spectrumGroupingPower: 1.55,
-    spectrumAttack: 0.985,
+    spectrumAttack: 1,
     spectrumRelease: 0.26,
     spectrumFloor: 0.018,
     spectrumCurve: 0.72,
@@ -1115,7 +1115,11 @@ function applyAudioLevels(bass, mid, treble, markInput = false) {
 
 function smoothAudioSpectrumValue(current, target) {
   const audio = DEFAULT_PRESET.audioResponsive;
-  const factor = target > current ? audio.spectrumAttack : audio.spectrumRelease;
+  if (target >= current) {
+    return target;
+  }
+
+  const factor = audio.spectrumRelease;
   return current + (target - current) * factor;
 }
 
@@ -1126,7 +1130,7 @@ function applyAudioSpectrumBins(rawBins) {
   for (let index = 0; index < AUDIO_SPECTRUM_BINS; index += 1) {
     const raw = rawBins && Number.isFinite(rawBins[index]) ? rawBins[index] : 0;
     const target = clamp(raw * sensitivity * (0.72 + intensity * 0.28), 0, 1);
-    audioState.spectrumBins[index] = smoothAudioSpectrumValue(audioState.spectrumBins[index] || 0, target);
+    audioState.spectrumBins[index] = target;
   }
 }
 

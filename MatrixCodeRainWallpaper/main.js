@@ -3119,7 +3119,16 @@ function drawAudioSpectrumGlyph(columnIndex, rowIndex, barIndex, barCount, style
   const sprite = createGlyph(char, styleName, palette);
   const x = (columnIndex + 0.5) * cellWidth;
   const y = (rowIndex + 0.5) * cellHeight;
+  const clearX = Math.floor(columnIndex * cellWidth);
+  const clearY = Math.floor(rowIndex * cellHeight);
+  const clearWidth = Math.ceil(cellWidth);
+  const clearHeight = Math.ceil(cellHeight);
 
+  ctx.globalAlpha = 1;
+  ctx.shadowBlur = 0;
+  ctx.shadowColor = "transparent";
+  ctx.fillStyle = "#000";
+  ctx.fillRect(clearX, clearY, clearWidth, clearHeight);
   ctx.globalAlpha = clamp(alpha * clamp(settings.brightness / 82, 0.48, 1.24), 0, 1);
   ctx.drawImage(
     sprite.canvas,

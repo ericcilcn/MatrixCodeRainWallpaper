@@ -458,12 +458,12 @@ const DEFAULT_PRESET = {
     spectrumMaxBars: 58,
     spectrumColumnStep: 2,
     spectrumGroupingPower: 1.55,
-    spectrumAttack: 1,
-    spectrumRelease: 0.26,
+    spectrumRiseRowsPerSecond: 86,
+    spectrumFallRowsPerSecond: 24,
     spectrumFloor: 0.018,
     spectrumCurve: 0.72,
-    spectrumPeakHoldTicks: 7,
-    spectrumPeakFallRows: 0.72,
+    spectrumPeakHoldMs: 430,
+    spectrumPeakFallRowsPerSecond: 22,
     spectrumCharRotateTicks: 2,
     spectrumClockMarginRows: 2,
     spectrumMinAlpha: 0.58,
@@ -557,6 +557,7 @@ let audioState = {
   colorBlend: 1,
   nextColorShuffleTick: 0,
   lastInputTime: 0,
+  spectrumLastUpdateTime: 0,
   debugPhase: 0
 };
 
@@ -1113,14 +1114,17 @@ function applyAudioLevels(bass, mid, treble, markInput = false) {
   }
 }
 
-function smoothAudioSpectrumValue(current, target) {
+function smoothAudioSpectrumRows(currentRows, targetRows, elapsedSeconds) {
   const audio = DEFAULT_PRESET.audioResponsive;
-  if (target >= current) {
-    return target;
+  const clampedElapsed = clamp(elapsedSeconds, 0, 0.08);
+
+  if (targetRows >= currentRows) {
+    const maxRise = audio.spectrumRiseRowsPerSecond * clampedElapsed;
+    return Math.min(targetRows, currentRows + maxRise);
   }
 
-  const factor = audio.spectrumRelease;
-  return current + (target - current) * factor;
+  const maxFall = audio.spectrumFallRowsPerSecond * clampedElapsed;
+  return Math.max(targetRows, currentRows - maxFall);
 }
 
 function applyAudioSpectrumBins(rawBins) {
@@ -1193,8 +1197,8 @@ function updateAudioFromArray(audioArray) {
 
 function updateAudioDebugSignal() {
   const time = logicalTick / tickRate();
-  const cycleTicks = Math.max(8, Math.round(tickRate() * 0.32));
-  const pulseTicks = 2;
+  const cycleTicks = Math.max(9, Math.round(tickRate() * 0.42));
+  const pulseTicks = 4;
   const cycleIndex = Math.floor(logicalTick / cycleTicks);
   const cycleAge = logicalTick % cycleTicks;
   const pulseActive = cycleAge < pulseTicks;
@@ -1383,31 +1387,38 @@ function updateAudioSpectrumBars() {
   const audio = DEFAULT_PRESET.audioResponsive;
   const globalLevel = activeAudioLevel();
   const intensity = clamp(settings.audiointensity / 100, 0, 1);
+  const now = performance.now();
+  const elapsedSeconds = audioState.spectrumLastUpdateTime > 0
+    ? (now - audioState.spectrumLastUpdateTime) / 1000
+    : 1 / tickRate();
   let cells = 0;
   let peakCells = 0;
 
+  audioState.spectrumLastUpdateTime = now;
   ensureAudioSpectrumBars(geometry.barCount);
   updateAudioColorField(globalLevel);
 
   for (let barIndex = 0; barIndex < geometry.barCount; barIndex += 1) {
     const bar = audioState.spectrumBars[barIndex];
     const rawLevel = settings.audioenabled
-      ? Math.max(audioSpectrumBarLevel(barIndex, geometry.barCount), globalLevel * 0.08)
+      ? audioSpectrumBarLevel(barIndex, geometry.barCount)
       : 0;
     const target = rawLevel <= audio.spectrumFloor
       ? 0
       : Math.pow(clamp((rawLevel - audio.spectrumFloor) / (1 - audio.spectrumFloor), 0, 1), audio.spectrumCurve);
-    const nextValue = smoothAudioSpectrumValue(bar.value, target * (0.72 + intensity * 0.34));
+    const targetRows = target * (0.72 + intensity * 0.34) * geometry.maxRows;
+    const nextRows = smoothAudioSpectrumRows(bar.value * geometry.maxRows, targetRows, elapsedSeconds);
+    const nextValue = geometry.maxRows > 0 ? nextRows / geometry.maxRows : 0;
     const barRows = clampInt(Math.round(nextValue * geometry.maxRows), 0, geometry.maxRows);
 
     bar.value = nextValue;
     if (barRows >= bar.peakRows) {
       bar.peakRows = barRows;
-      bar.peakHold = audio.spectrumPeakHoldTicks;
+      bar.peakHold = audio.spectrumPeakHoldMs / 1000;
     } else if (bar.peakHold > 0) {
-      bar.peakHold -= 1;
+      bar.peakHold = Math.max(0, bar.peakHold - elapsedSeconds);
     } else {
-      bar.peakRows = Math.max(barRows, bar.peakRows - audio.spectrumPeakFallRows);
+      bar.peakRows = Math.max(barRows, bar.peakRows - audio.spectrumPeakFallRowsPerSecond * elapsedSeconds);
     }
 
     cells += barRows;
@@ -3597,6 +3608,7 @@ function collectMatrixRainState() {
       spectrumTopRow: spectrumGeometry.topRow,
       spectrumMaxRows: spectrumGeometry.maxRows,
       spectrumPeakCells: audioState.spectrumPeakCells,
+      spectrumMotion: "winamp-falloff",
       spectrumColorBlend: Number(audioState.colorBlend.toFixed(3)),
       nextColorShuffleCooldown: Math.max(0, audioState.nextColorShuffleTick - logicalTick),
       spectrumColumns: {
@@ -3777,7 +3789,7 @@ function updateControlsStats(panel) {
   const state = collectMatrixRainState();
   stats.textContent = [
     `audio ${state.audio.enabled ? "on" : "off"} level ${state.audio.level}`,
-    `spectrum cells ${state.audio.audioRainCells}`,
+    `${state.audio.spectrumMotion} cells ${state.audio.audioRainCells}`,
     `max rows ${state.audio.spectrumMaxRows}`,
     `${state.gridColumns} x ${state.rows}`,
     state.layoutProfile ? state.layoutProfile.mode : "layout"

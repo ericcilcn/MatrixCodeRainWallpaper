@@ -1188,6 +1188,7 @@ function updateAudioFromArray(audioArray) {
     true
   );
   applyAudioSpectrumBins(audioSpectrumBinsFromArray(audioArray, halfCount));
+  updateAudioSpectrumBars();
 }
 
 function updateAudioDebugSignal() {
@@ -1211,6 +1212,7 @@ function updateAudioDebugSignal() {
   audioState.debugPhase = time;
   applyAudioLevels(bass, mid, treble, false);
   applyAudioSpectrumBins(bins);
+  updateAudioSpectrumBars();
 }
 
 function updateAudioResponsiveState() {
@@ -1222,6 +1224,7 @@ function updateAudioResponsiveState() {
   if (performance.now() - audioState.lastInputTime > DEFAULT_PRESET.audioResponsive.silenceAfterMs) {
     applyAudioLevels(0, 0, 0, false);
     applyAudioSpectrumBins(null);
+    updateAudioSpectrumBars();
   }
 }
 
@@ -2557,10 +2560,6 @@ function releaseLowerFragments() {
   }
 }
 
-function releaseAudioRain() {
-  updateAudioSpectrumBars();
-}
-
 function logicStep() {
   logicalTick += 1;
   updateAudioResponsiveState();
@@ -2601,7 +2600,6 @@ function logicStep() {
   releaseAmbientSmallColumns();
   releaseStandaloneRotators();
   releaseLowerFragments();
-  releaseAudioRain();
 
   for (const column of activeColumns) {
     shapeColumnSingletons(column);

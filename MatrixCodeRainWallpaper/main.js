@@ -463,7 +463,7 @@ const DEFAULT_PRESET = {
     spectrumFloor: 0.018,
     spectrumCurve: 0.72,
     spectrumPeakHoldTicks: 7,
-    spectrumPeakFallRows: 1.15,
+    spectrumPeakFallRows: 0.72,
     spectrumCharRotateTicks: 2,
     spectrumClockMarginRows: 2,
     spectrumMinAlpha: 0.58,

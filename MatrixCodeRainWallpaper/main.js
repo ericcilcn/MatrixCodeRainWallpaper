@@ -1193,21 +1193,35 @@ function updateAudioFromArray(audioArray) {
 
 function updateAudioDebugSignal() {
   const time = logicalTick / tickRate();
-  const phase = (time % 6) / 6;
-  const bassPulse = Math.pow(Math.max(0, Math.sin((phase * 3) * Math.PI)), 3.1);
-  const midPulse = Math.pow(Math.max(0, Math.sin(((phase * 3) - 1) * Math.PI)), 2.6);
-  const treblePulse = Math.pow(Math.max(0, Math.sin(((phase * 3) - 2) * Math.PI)), 2.2);
-  const bass = clamp(0.06 + bassPulse * 0.9 + Math.max(0, Math.sin(time * 1.7)) * 0.08, 0, 1);
-  const mid = clamp(0.05 + midPulse * 0.72 + Math.max(0, Math.sin(time * 3.1 + 1.2)) * 0.18, 0, 1);
-  const treble = clamp(0.04 + treblePulse * 0.72 + Math.max(0, Math.sin(time * 7.4 + 2.5)) * 0.16 + Math.random() * 0.04, 0, 1);
+  const cycleTicks = Math.max(8, Math.round(tickRate() * 0.32));
+  const pulseTicks = 2;
+  const cycleIndex = Math.floor(logicalTick / cycleTicks);
+  const cycleAge = logicalTick % cycleTicks;
+  const pulseActive = cycleAge < pulseTicks;
+  const pulseSeed = hashInt(PATTERN_SEED ^ Math.imul(cycleIndex + 1, 1597334677));
+  const peaks = Array.from({ length: 5 }, (_, peakIndex) => {
+    const seed = hashInt(pulseSeed ^ Math.imul(peakIndex + 3, 2246822519));
+    return {
+      center: hashUnit(seed),
+      width: seededRange(seed ^ 0x45d9, 0.045, 0.15),
+      height: seededRange(seed ^ 0x27d4, 0.42, 1)
+    };
+  });
   const bins = Array.from({ length: AUDIO_SPECTRUM_BINS }, (_, index) => {
     const unit = index / Math.max(1, AUDIO_SPECTRUM_BINS - 1);
-    const bassShape = Math.exp(-Math.pow((unit - 0.16) / 0.12, 2)) * bass;
-    const midShape = Math.exp(-Math.pow((unit - 0.5) / 0.17, 2)) * mid;
-    const trebleShape = Math.exp(-Math.pow((unit - 0.82) / 0.14, 2)) * treble;
-    const ripple = 0.72 + 0.28 * Math.sin(time * 8.5 + index * 0.47);
-    return clamp((bassShape + midShape + trebleShape + 0.018 * Math.random()) * ripple, 0, 1);
+    let level = 0;
+
+    for (const peak of peaks) {
+      level += Math.exp(-Math.pow((unit - peak.center) / peak.width, 2)) * peak.height;
+    }
+
+    const perBinLift = seededRange(pulseSeed ^ Math.imul(index + 11, 3266489917), 0.02, 0.16);
+    const ripple = 0.82 + 0.18 * Math.sin(cycleIndex * 1.7 + index * 0.53);
+    return pulseActive ? clamp((level + perBinLift) * ripple, 0, 1) : 0;
   });
+  const bass = Math.sqrt(bins.slice(0, 8).reduce((sum, value) => sum + value * value, 0) / 8);
+  const mid = Math.sqrt(bins.slice(8, 32).reduce((sum, value) => sum + value * value, 0) / 24);
+  const treble = Math.sqrt(bins.slice(32).reduce((sum, value) => sum + value * value, 0) / 32);
 
   audioState.debugPhase = time;
   applyAudioLevels(bass, mid, treble, false);

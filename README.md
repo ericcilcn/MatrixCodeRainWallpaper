@@ -4,6 +4,15 @@ A lightweight Wallpaper Engine web wallpaper that recreates a Matrix-style code 
 
 Live preview: [ericcilcn.github.io/MatrixCodeRainWallpaper](https://ericcilcn.github.io/MatrixCodeRainWallpaper/)
 
+## Support
+
+Matrix Code Rain Wallpaper is free to use. Official support pages for this project and Ericcil's other lightweight tools are listed here:
+
+- [Ko-fi](https://ko-fi.com/ericcil)
+- [爱发电 / Afdian](https://ifdian.net/a/Ericcil)
+
+Creator-page and Workshop description drafts are in [docs/support-pages.md](docs/support-pages.md).
+
 ## Screenshots
 
 ### Matrix rain

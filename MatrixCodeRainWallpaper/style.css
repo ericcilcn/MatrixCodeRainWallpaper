@@ -78,7 +78,7 @@ canvas {
 
 .matrix-controls-body {
   display: grid;
-  gap: 10px;
+  gap: 12px;
   padding: 12px;
 }
 
@@ -91,6 +91,43 @@ canvas {
   grid-template-columns: minmax(104px, 0.8fr) minmax(0, 1.2fr);
   align-items: center;
   gap: 10px;
+}
+
+.matrix-controls-group {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid rgba(118, 255, 157, 0.16);
+  border-radius: 6px;
+  background: rgba(2, 18, 7, 0.62);
+}
+
+.matrix-controls-group h2 {
+  margin: 0;
+  color: rgba(217, 255, 229, 0.96);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.matrix-controls-group-body,
+.matrix-controls-details-body {
+  display: grid;
+  gap: 8px;
+}
+
+.matrix-controls-details {
+  display: grid;
+  gap: 8px;
+}
+
+.matrix-controls-details summary {
+  color: rgba(217, 255, 229, 0.78);
+  list-style-position: inside;
+  user-select: none;
+}
+
+.matrix-controls-details-body {
+  padding-top: 2px;
 }
 
 .matrix-controls-field > span {
@@ -118,6 +155,13 @@ canvas {
 .matrix-controls input[type="range"] {
   width: 100%;
   accent-color: #76ff9d;
+}
+
+.matrix-controls input[type="color"] {
+  justify-self: start;
+  width: 52px;
+  min-height: 30px;
+  padding: 2px;
 }
 
 .matrix-controls select,

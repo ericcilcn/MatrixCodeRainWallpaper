@@ -5,144 +5,249 @@
   "type": "web",
   "general": {
     "properties": {
+      "fontstyle": {
+        "text": "ui_rain_font",
+        "type": "combo",
+        "value": "trilogy",
+        "options": [
+          {
+            "label": "ui_font_trilogy",
+            "value": "trilogy"
+          },
+          {
+            "label": "ui_font_resurrections",
+            "value": "resurrections"
+          }
+        ],
+        "order": 10
+      },
+      "clock": {
+        "text": "ui_clock",
+        "type": "bool",
+        "value": true,
+        "order": 100
+      },
+      "audioenabled": {
+        "text": "ui_audio_spectrum",
+        "type": "bool",
+        "value": true,
+        "order": 200
+      },
+      "baseadvanced": {
+        "text": "ui_base_advanced",
+        "type": "bool",
+        "value": false,
+        "order": 20
+      },
       "density": {
-        "text": "Density",
+        "text": "ui_density",
         "type": "slider",
         "value": 62,
         "min": 30,
         "max": 95,
         "editable": true,
-        "order": 10
+        "order": 30,
+        "condition": "baseadvanced.value == true"
       },
       "speed": {
-        "text": "Speed",
+        "text": "ui_speed",
         "type": "slider",
         "value": 55,
         "min": 20,
         "max": 100,
         "editable": true,
-        "order": 20
+        "order": 40,
+        "condition": "baseadvanced.value == true"
       },
       "brightness": {
-        "text": "Brightness",
+        "text": "ui_brightness",
         "type": "slider",
-        "value": 100,
+        "value": 70,
         "min": 35,
         "max": 100,
         "editable": true,
-        "order": 30
+        "order": 50,
+        "condition": "baseadvanced.value == true"
       },
       "glyphscale": {
-        "text": "Glyph scale",
+        "text": "ui_character_size",
         "type": "slider",
         "value": 100,
         "min": 75,
         "max": 130,
         "editable": true,
-        "order": 40
+        "order": 60,
+        "condition": "baseadvanced.value == true"
       },
-      "fontstyle": {
-        "text": "Rain font",
-        "type": "combo",
-        "value": "trilogy",
-        "options": [
-          {
-            "label": "Matrix Code trilogy",
-            "value": "trilogy"
-          },
-          {
-            "label": "Matrix Resurrections",
-            "value": "resurrections"
-          }
-        ],
-        "order": 50
+      "characterspacing": {
+        "text": "ui_character_spacing",
+        "type": "slider",
+        "value": 70,
+        "min": 40,
+        "max": 240,
+        "editable": true,
+        "order": 70,
+        "condition": "baseadvanced.value == true"
       },
       "glow": {
-        "text": "Glow",
+        "text": "ui_glow",
         "type": "bool",
         "value": true,
-        "order": 60
+        "order": 80,
+        "condition": "baseadvanced.value == true"
       },
       "color": {
-        "text": "Color",
+        "text": "ui_custom_color",
         "type": "color",
         "value": "0.21 0.85 0.41",
-        "order": 70
-      },
-      "clock": {
-        "text": "Clock",
-        "type": "bool",
-        "value": true,
-        "order": 80
+        "order": 90,
+        "condition": "baseadvanced.value == true"
       },
       "clockbrightness": {
-        "text": "Clock brightness",
+        "text": "ui_clock_brightness",
         "type": "slider",
         "value": 110,
         "min": 60,
         "max": 160,
         "editable": true,
-        "order": 100
+        "order": 110,
+        "condition": "clock.value == true"
       },
-      "audioenabled": {
-        "text": "Audio spectrum",
+      "clockcolor": {
+        "text": "ui_clock_color",
+        "type": "color",
+        "value": "0.70 1.00 0.78",
+        "order": 120,
+        "condition": "clock.value == true"
+      },
+      "audioadvanced": {
+        "text": "ui_audio_advanced",
         "type": "bool",
         "value": false,
-        "order": 110
+        "order": 210,
+        "condition": "audioenabled.value == true"
       },
-      "audiointensity": {
-        "text": "Audio spectrum intensity",
+      "audioresponse": {
+        "text": "ui_audio_response",
         "type": "slider",
-        "value": 65,
+        "value": 100,
         "min": 0,
         "max": 100,
         "editable": true,
-        "order": 120
+        "order": 220,
+        "condition": "audioenabled.value == true && audioadvanced.value == true"
       },
-      "audiosensitivity": {
-        "text": "Audio spectrum sensitivity",
+      "audiobrightness": {
+        "text": "ui_audio_brightness",
         "type": "slider",
-        "value": 55,
-        "min": 10,
-        "max": 100,
+        "value": 100,
+        "min": 30,
+        "max": 160,
         "editable": true,
-        "order": 130
+        "order": 230,
+        "condition": "audioenabled.value == true && audioadvanced.value == true"
       },
       "audiocolormode": {
-        "text": "Audio spectrum color",
+        "text": "ui_audio_color",
         "type": "combo",
-        "value": "spectrum",
+        "value": "frequency_gradient",
         "options": [
           {
-            "label": "Spectrum",
-            "value": "spectrum"
+            "label": "ui_audio_color_level_layers",
+            "value": "level_layers"
           },
           {
-            "label": "Neon",
-            "value": "neon"
+            "label": "ui_audio_color_frequency_gradient",
+            "value": "frequency_gradient"
           },
           {
-            "label": "Matrix tint",
+            "label": "ui_audio_color_neon_blocks",
+            "value": "neon_blocks"
+          },
+          {
+            "label": "ui_audio_color_matrix_tint",
             "value": "matrix_tint"
           }
         ],
-        "order": 140
+        "order": 240,
+        "condition": "audioenabled.value == true && audioadvanced.value == true"
+      }
+    },
+    "localization": {
+      "en-us": {
+        "ui_rain_font": "Rain font",
+        "ui_font_trilogy": "Matrix Code trilogy",
+        "ui_font_resurrections": "Matrix Resurrections",
+        "ui_clock": "Clock",
+        "ui_audio_spectrum": "Audio spectrum",
+        "ui_base_advanced": "Base advanced",
+        "ui_density": "Density",
+        "ui_speed": "Speed",
+        "ui_brightness": "Rain brightness",
+        "ui_character_size": "Character size",
+        "ui_character_spacing": "Character spacing",
+        "ui_glow": "Glow",
+        "ui_custom_color": "Custom color",
+        "ui_clock_brightness": "Clock brightness",
+        "ui_clock_color": "Clock color",
+        "ui_audio_advanced": "Audio advanced",
+        "ui_audio_response": "Audio response",
+        "ui_audio_brightness": "Audio brightness",
+        "ui_audio_color": "Audio color",
+        "ui_audio_color_level_layers": "Aurora gradient",
+        "ui_audio_color_frequency_gradient": "Frequency gradient",
+        "ui_audio_color_neon_blocks": "Neon blocks",
+        "ui_audio_color_matrix_tint": "Matrix tint"
       },
-      "audiospectrumlayout": {
-        "text": "Audio spectrum columns",
-        "type": "combo",
-        "value": "separated",
-        "options": [
-          {
-            "label": "Separated",
-            "value": "separated"
-          },
-          {
-            "label": "Continuous",
-            "value": "continuous"
-          }
-        ],
-        "order": 150
+      "zh-chs": {
+        "ui_rain_font": "代码雨字体",
+        "ui_font_trilogy": "黑客帝国三部曲",
+        "ui_font_resurrections": "黑客帝国复活",
+        "ui_clock": "时钟",
+        "ui_audio_spectrum": "音频示波器",
+        "ui_base_advanced": "基础高级选项",
+        "ui_density": "密度",
+        "ui_speed": "速度",
+        "ui_brightness": "雨亮度",
+        "ui_character_size": "字符大小",
+        "ui_character_spacing": "字符间距",
+        "ui_glow": "发光",
+        "ui_custom_color": "自定义颜色",
+        "ui_clock_brightness": "时钟亮度",
+        "ui_clock_color": "时钟颜色",
+        "ui_audio_advanced": "音频高级选项",
+        "ui_audio_response": "音频响应",
+        "ui_audio_brightness": "音频亮度",
+        "ui_audio_color": "音频颜色",
+        "ui_audio_color_level_layers": "极光渐变",
+        "ui_audio_color_frequency_gradient": "频率渐变",
+        "ui_audio_color_neon_blocks": "霓虹色块",
+        "ui_audio_color_matrix_tint": "矩阵绿色"
+      },
+      "zh-cht": {
+        "ui_rain_font": "代碼雨字體",
+        "ui_font_trilogy": "駭客任務三部曲",
+        "ui_font_resurrections": "駭客任務復活",
+        "ui_clock": "時鐘",
+        "ui_audio_spectrum": "音訊示波器",
+        "ui_base_advanced": "基礎進階選項",
+        "ui_density": "密度",
+        "ui_speed": "速度",
+        "ui_brightness": "雨亮度",
+        "ui_character_size": "字元大小",
+        "ui_character_spacing": "字元間距",
+        "ui_glow": "發光",
+        "ui_custom_color": "自訂顏色",
+        "ui_clock_brightness": "時鐘亮度",
+        "ui_clock_color": "時鐘顏色",
+        "ui_audio_advanced": "音訊進階選項",
+        "ui_audio_response": "音訊響應",
+        "ui_audio_brightness": "音訊亮度",
+        "ui_audio_color": "音訊顏色",
+        "ui_audio_color_level_layers": "極光漸變",
+        "ui_audio_color_frequency_gradient": "頻率漸變",
+        "ui_audio_color_neon_blocks": "霓虹色塊",
+        "ui_audio_color_matrix_tint": "矩陣綠色"
       }
     },
     "supportsaudioprocessing": true

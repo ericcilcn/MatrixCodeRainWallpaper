@@ -96,7 +96,7 @@ const CONTROL_TEXT = {
     brightness: "Rain brightness",
     characterSize: "Character size",
     characterSpacing: "Character spacing",
-    glow: "Glow",
+    glow: "Head glyph glow",
     color: "Custom color",
     clock: "Clock",
     clockBrightness: "Clock brightness",
@@ -139,7 +139,7 @@ const CONTROL_TEXT = {
     brightness: "雨亮度",
     characterSize: "字符大小",
     characterSpacing: "字符间距",
-    glow: "发光",
+    glow: "首字符发光",
     color: "自定义颜色",
     clock: "时钟",
     clockBrightness: "时钟亮度",
@@ -182,7 +182,7 @@ const CONTROL_TEXT = {
     brightness: "雨亮度",
     characterSize: "字元大小",
     characterSpacing: "字元間距",
-    glow: "發光",
+    glow: "首字元發光",
     color: "自訂顏色",
     clock: "時鐘",
     clockBrightness: "時鐘亮度",
@@ -358,7 +358,7 @@ const DEFAULT_PRESET = {
     occurrence: 28,
     variance: 14,
     negativeOccurrence: 0.4,
-    intensity: 90,
+    intensity: 128,
     fallingHeadChance: 0.72
   },
   speedVariability: 90,
@@ -694,6 +694,7 @@ const DEFAULT_PRESET = {
     spectrumColorTransitionRate: 0.055,
     spectrumColorPeakThreshold: 0.62,
     spectrumColorPeakCooldownTicks: 42,
+    spectrumZeroStartTicks: 8,
     debugLevel: 0.34
   },
   wallpaperProperties: {
@@ -775,7 +776,9 @@ let introState = {
   startedAt: 0,
   startTick: 0,
   progress: settings.skipintro ? 1 : 0,
-  completed: settings.skipintro
+  completed: settings.skipintro,
+  clockKey: "",
+  clockDrops: []
 };
 let debugStateElement = null;
 let clockMask = new Uint8Array(0);
@@ -811,6 +814,7 @@ let audioState = {
   audioListenerRegisterCount: 0,
   audioListenerRegisterReason: "",
   spectrumLastUpdateTime: 0,
+  zeroStartUntilTick: 0,
   debugPhase: 0
 };
 let audioListenerRecoveryTimers = [];
@@ -2030,7 +2034,7 @@ function updateAudioSpectrumBars() {
 
   for (let barIndex = 0; barIndex < geometry.barCount; barIndex += 1) {
     const bar = audioState.spectrumBars[barIndex];
-    const rawLevel = settings.audioenabled
+    const rawLevel = settings.audioenabled && logicalTick >= audioState.zeroStartUntilTick
       ? audioSpectrumBarLevel(barIndex, geometry.barCount)
       : 0;
     const target = rawLevel <= audio.spectrumFloor
@@ -2982,6 +2986,15 @@ function updateCell(column, rowIndex) {
     return;
   }
 
+  if (cell.clockIntroDrop) {
+    cell.age += 1;
+    cell.justWritten = false;
+    cell.life = Number.MAX_SAFE_INTEGER;
+    cell.alpha = cell.baseAlpha;
+    cell.target = cell.baseAlpha;
+    return;
+  }
+
   if (cell.staticCell) {
     updateAmbientCell(column, rowIndex, cell);
     return;
@@ -3351,6 +3364,9 @@ function logicStep() {
     }
   }
 
+  updateColdStartClockFormation();
+  updateIntroRevealProgress(performance.now());
+
   if (!coldStarting || allowAmbient) {
     releaseSplash();
     releaseAmbientSingles();
@@ -3376,13 +3392,7 @@ function paintGlyph(context, char, styleName, palette, x, y) {
   if (settings.glow) {
     if (styleName === "head") {
       context.shadowColor = palette.glow;
-      context.shadowBlur = fontSize * 0.18;
-    } else if (styleName === "bright") {
-      context.shadowColor = palette.glow;
-      context.shadowBlur = fontSize * 0.06;
-    } else if (styleName === "body") {
-      context.shadowColor = palette.glow;
-      context.shadowBlur = fontSize * 0.012;
+      context.shadowBlur = fontSize * 0.34;
     }
   }
 
@@ -3393,7 +3403,7 @@ function paintGlyph(context, char, styleName, palette, x, y) {
 }
 
 function glyphAtlasKey(styleName, palette) {
-  return `${cellWidth}:${cellHeight}:${fontSize}:${glyphScaleX}:${glyphScaleY}:${dpr}:${activeFontStyle}:${activeFontFamily}:${styleName}:${settings.glow}:${GLYPH_EDGE_ALPHA}:${palette.name}:${palette.dim}:${palette.body}:${palette.bright}:${palette.head}`;
+  return `${cellWidth}:${cellHeight}:${fontSize}:${glyphScaleX}:${glyphScaleY}:${dpr}:${activeFontStyle}:${activeFontFamily}:${styleName}:headglow:${settings.glow}:${GLYPH_EDGE_ALPHA}:${palette.name}:${palette.dim}:${palette.body}:${palette.bright}:${palette.head}:${palette.glow}`;
 }
 
 function createGlyphAtlas(styleName, palette) {
@@ -3479,7 +3489,7 @@ function createGlyph(char, styleName, palette) {
 }
 
 function paletteForCell(cell, column, clockHighlightHit) {
-  if (clockHighlightHit || cell.clockCell) {
+  if (clockHighlightHit || cell.clockCell || cell.clockIntroDrop) {
     return paletteByName("clock");
   }
 
@@ -3617,6 +3627,20 @@ function updateClockMask() {
   clockText = text;
 }
 
+function clearIntroClockDrops() {
+  for (const column of activeColumns) {
+    if (!column || !column.cells) {
+      continue;
+    }
+
+    for (let rowIndex = 0; rowIndex < column.cells.length; rowIndex += 1) {
+      if (column.cells[rowIndex] && column.cells[rowIndex].clockIntroDrop) {
+        column.cells[rowIndex] = null;
+      }
+    }
+  }
+}
+
 function isClockMaskCell(columnIndex, rowIndex) {
   return settings.clock
     && columnIndex >= 0
@@ -3665,6 +3689,8 @@ function clearAudioRain() {
   audioState.spectrumPeakCells = 0;
   audioState.colorBlend = 1;
   audioState.nextColorShuffleTick = 0;
+  audioState.spectrumLastUpdateTime = performance.now();
+  audioState.zeroStartUntilTick = logicalTick + DEFAULT_PRESET.audioResponsive.spectrumZeroStartTicks;
   audioState.bass = 0;
   audioState.mid = 0;
   audioState.treble = 0;
@@ -3707,6 +3733,78 @@ function clockCellBaseAlpha(columnIndex, rowIndex) {
     ? clock.alphaFloor
     : clock.displayAlphaFloor;
   return floor * (settings.clockbrightness / 100);
+}
+
+function clockIntroBaseAlpha(columnIndex, rowIndex) {
+  return Math.max(
+    clockCellBaseAlpha(columnIndex, rowIndex),
+    DEFAULT_PRESET.clock.alphaFloor * (settings.clockbrightness / 100) * 1.08
+  );
+}
+
+function makeClockGridCell(column, rowIndex, salt, options = {}) {
+  const char = clockGlyphChar(column.index, rowIndex, salt);
+  const intro = Boolean(options.intro);
+  const baseAlpha = intro
+    ? clockIntroBaseAlpha(column.index, rowIndex)
+    : clockCellBaseAlpha(column.index, rowIndex);
+
+  return {
+    char,
+    stableChar: char,
+    salt,
+    age: 0,
+    life: Number.MAX_SAFE_INTEGER,
+    alpha: baseAlpha,
+    target: baseAlpha,
+    baseAlpha,
+    paletteName: "clock",
+    rotator: true,
+    nextRotateTick: logicalTick + clockRotateDelay(salt, rowIndex),
+    streamId: intro ? `clockintro:settle:${column.index}:${rowIndex}` : `clock:${column.index}:${rowIndex}`,
+    negative: false,
+    head: intro,
+    headPreviousGlowHead: false,
+    headStreamId: null,
+    transient: false,
+    staticCell: false,
+    clockCell: true,
+    clockIntroDrop: false,
+    glowHead: intro || isClockEmphasisCell(column.index, rowIndex),
+    justWritten: true
+  };
+}
+
+function makeClockIntroDropCell(column, rowIndex, drop) {
+  const baseAlpha = clockIntroBaseAlpha(column.index, drop.targetRow);
+  const salt = hashInt(drop.salt ^ Math.imul(rowIndex + 1, 1103515245) ^ Math.imul(logicalTick + 1, 2246822519));
+  const char = clockGlyphChar(column.index, drop.targetRow, salt);
+
+  return {
+    char,
+    stableChar: char,
+    salt,
+    age: 0,
+    life: Number.MAX_SAFE_INTEGER,
+    alpha: baseAlpha,
+    target: baseAlpha,
+    baseAlpha,
+    paletteName: "clock",
+    rotator: false,
+    nextRotateTick: Number.POSITIVE_INFINITY,
+    streamId: `clockintro:drop:${drop.id}`,
+    negative: false,
+    head: true,
+    headPreviousGlowHead: false,
+    headStreamId: `clockintro:${drop.id}`,
+    transient: true,
+    staticCell: false,
+    clockCell: false,
+    clockIntroDrop: true,
+    clockIntroDropId: drop.id,
+    glowHead: true,
+    justWritten: true
+  };
 }
 
 function updateClockCell(column, rowIndex, cell) {
@@ -3777,31 +3875,7 @@ function ensureClockGridCells() {
       continue;
     }
 
-    const salt = clockCell.salt;
-    const char = clockGlyphChar(column.index, rowIndex, salt);
-    column.cells[rowIndex] = {
-      char,
-      stableChar: char,
-      salt,
-      age: 0,
-      life: Number.MAX_SAFE_INTEGER,
-      alpha: baseAlpha,
-      target: baseAlpha,
-      baseAlpha,
-      paletteName: "clock",
-      rotator: true,
-      nextRotateTick: logicalTick + clockRotateDelay(salt, rowIndex),
-      streamId: `clock:${column.index}:${rowIndex}`,
-      negative: false,
-      head: false,
-      headPreviousGlowHead: false,
-      headStreamId: null,
-      transient: false,
-      staticCell: false,
-      clockCell: true,
-      glowHead: emphasis,
-      justWritten: true
-    };
+    column.cells[rowIndex] = makeClockGridCell(column, rowIndex, clockCell.salt);
   }
 }
 
@@ -4088,12 +4162,15 @@ function drawAudioSpectrumOverlay() {
 }
 
 function resetIntroReveal(now = performance.now()) {
+  clearIntroClockDrops();
   if (settings.skipintro) {
     introState.active = false;
     introState.startedAt = 0;
     introState.startTick = 0;
     introState.progress = 1;
     introState.completed = true;
+    introState.clockKey = "";
+    introState.clockDrops = [];
     return;
   }
 
@@ -4102,6 +4179,8 @@ function resetIntroReveal(now = performance.now()) {
   introState.startTick = logicalTick;
   introState.progress = 0;
   introState.completed = false;
+  introState.clockKey = "";
+  introState.clockDrops = [];
 }
 
 function updateIntroRevealProgress(now) {
@@ -4123,7 +4202,7 @@ function updateIntroRevealProgress(now) {
   const progress = Math.max(tickProgress, timeProgress);
   introState.progress = progress;
 
-  if (progress >= 1) {
+  if (progress >= 1 && coldStartClockComplete()) {
     completeColdStartRain();
   }
 
@@ -4139,10 +4218,23 @@ function completeColdStartRain() {
     return;
   }
 
+  clearClockGridCells();
+  clearIntroClockDrops();
   introState.active = false;
   introState.progress = 1;
   introState.completed = true;
   stabilizeStartupActivity();
+  if (settings.clock) {
+    updateClockMask();
+    ensureClockGridCells();
+  }
+  resetWallpaperAudioInput();
+}
+
+function coldStartClockComplete() {
+  return !settings.clock
+    || introState.clockDrops.length > 0
+    && introState.clockDrops.every((drop) => drop.settled);
 }
 
 function coldStartColumnStartTick(column) {
@@ -4209,13 +4301,115 @@ function coldStartAllowsAmbient() {
   return introState.progress >= DEFAULT_PRESET.coldStartRain.allowAmbientAt;
 }
 
+function initializeColdStartClockDrops() {
+  if (!settings.clock || !coldStartActive()) {
+    introState.clockKey = "";
+    introState.clockDrops = [];
+    return;
+  }
+
+  updateClockMask();
+  const nextKey = `${clockMaskKey}:${introState.startTick}`;
+  if (introState.clockKey === nextKey && introState.clockDrops.length > 0) {
+    return;
+  }
+
+  clearClockGridCells();
+  clearIntroClockDrops();
+  const cold = DEFAULT_PRESET.coldStartRain;
+  const durationTicks = Math.max(1, Math.round(tickRate() * cold.durationMs / 1000));
+  const blackHoldTicks = Math.round(tickRate() * cold.blackHoldMs / 1000);
+  const firstDropTicks = Math.round(tickRate() * cold.firstDropMs / 1000);
+  const firstSettleTick = introState.startTick + blackHoldTicks + firstDropTicks + Math.round(tickRate() * 1.55);
+  const latestSettleTick = introState.startTick + durationTicks - Math.round(tickRate() * 0.22);
+  const settleSpreadTicks = Math.max(1, latestSettleTick - firstSettleTick);
+
+  introState.clockKey = nextKey;
+  introState.clockDrops = clockCells.map((clockCell, index) => {
+    const seed = hashInt(clockCell.salt ^ Math.imul(index + 1, 1597334677));
+    const targetRow = clockCell.rowIndex;
+    const startRow = -2 - Math.floor(hashUnit(seed ^ 0x49af) * 5);
+    const settleBias = Math.pow(hashUnit(seed ^ 0x91bd), 0.72);
+    const settleTick = firstSettleTick + Math.floor(settleBias * settleSpreadTicks);
+    const speedRowsPerSecond = seededRange(seed ^ 0x2db1, 28, 42);
+    const travelTicks = Math.max(6, Math.ceil(((targetRow - startRow) / speedRowsPerSecond) * tickRate()));
+    const startTick = Math.max(introState.startTick + blackHoldTicks, settleTick - travelTicks);
+
+    return {
+      id: index,
+      columnIndex: clockCell.columnIndex,
+      targetRow,
+      startRow,
+      startTick,
+      settleTick,
+      salt: clockCell.salt,
+      previousRow: null,
+      settled: false
+    };
+  });
+}
+
+function settleColdStartClockDrop(drop, column) {
+  if (Number.isInteger(drop.previousRow)) {
+    const previous = column.cells[drop.previousRow];
+    if (previous && previous.clockIntroDrop && previous.clockIntroDropId === drop.id) {
+      column.cells[drop.previousRow] = null;
+    }
+  }
+
+  column.cells[drop.targetRow] = makeClockGridCell(column, drop.targetRow, drop.salt, { intro: true });
+  drop.previousRow = drop.targetRow;
+  drop.settled = true;
+}
+
+function updateColdStartClockFormation() {
+  if (!coldStartActive() || !settings.clock) {
+    return;
+  }
+
+  initializeColdStartClockDrops();
+  if (introState.clockDrops.length === 0) {
+    return;
+  }
+
+  for (const drop of introState.clockDrops) {
+    const column = activeColumns[drop.columnIndex + 2];
+    if (!column || column.index !== drop.columnIndex || drop.settled || logicalTick < drop.startTick) {
+      continue;
+    }
+
+    const travelProgress = drop.settleTick <= drop.startTick
+      ? 1
+      : clamp((logicalTick - drop.startTick) / (drop.settleTick - drop.startTick), 0, 1);
+    const easedProgress = 1 - Math.pow(1 - travelProgress, 1.9);
+    const row = clampInt(
+      Math.round(drop.startRow + (drop.targetRow - drop.startRow) * easedProgress),
+      0,
+      drop.targetRow
+    );
+
+    if (logicalTick >= drop.settleTick || row >= drop.targetRow) {
+      settleColdStartClockDrop(drop, column);
+      continue;
+    }
+
+    if (Number.isInteger(drop.previousRow) && drop.previousRow !== row) {
+      const previous = column.cells[drop.previousRow];
+      if (previous && previous.clockIntroDrop && previous.clockIntroDropId === drop.id) {
+        column.cells[drop.previousRow] = null;
+      }
+    }
+
+    column.cells[row] = makeClockIntroDropCell(column, row, drop);
+    drop.previousRow = row;
+  }
+}
+
 function render(now = performance.now()) {
   renderSeconds = now / 1000;
   updateIntroRevealProgress(now);
   if (coldStartActive()) {
-    if (clockCells.length > 0) {
-      clearClockGridCells();
-    }
+    updateClockMask();
   } else {
     updateClockMask();
     ensureClockGridCells();
@@ -4591,6 +4785,7 @@ function collectMatrixRainState() {
       spectrumMotion: "cava-integral-falloff",
       spectrumLayout: "continuous",
       spectrumReverse: Boolean(settings.audiospectrumreverse),
+      zeroStartTicksRemaining: Math.max(0, audioState.zeroStartUntilTick - logicalTick),
       spectrumColorBlend: Number(audioState.colorBlend.toFixed(3)),
       nextColorShuffleCooldown: Math.max(0, audioState.nextColorShuffleTick - logicalTick),
       spectrumLowBars: audioState.spectrumBars.slice(0, 16).map((bar, index) => ({
@@ -4633,7 +4828,9 @@ function collectMatrixRainState() {
       progress: Number(introState.progress.toFixed(3)),
       durationMs: DEFAULT_PRESET.coldStartRain.durationMs,
       mode: "main-rain-cold-start",
-      releasedColumns: activeColumns.filter((column) => column.coldStartReleased).length
+      releasedColumns: activeColumns.filter((column) => column.coldStartReleased).length,
+      clockDrops: introState.clockDrops.length,
+      settledClockDrops: introState.clockDrops.filter((drop) => drop.settled).length
     },
     metrics,
     columns: activeColumns.map((column) => ({
@@ -5013,6 +5210,7 @@ function start() {
   buildPalettes();
   started = true;
   resize();
+  clearAudioRain();
   lastFrameTime = performance.now();
   fpsRemainder = 0;
   cancelAnimationFrame(animationFrame);
@@ -5096,6 +5294,10 @@ window.wallpaperPropertyListener = {
     if (Object.prototype.hasOwnProperty.call(properties, "audioenabled")) {
       const nextAudioEnabled = (CONTROLS_ENABLED ? null : AUDIO_OVERRIDE) ?? Boolean(properties.audioenabled.value);
       if (settings.audioenabled && !nextAudioEnabled) {
+        clearAudioRain();
+        needsAppearanceRefresh = true;
+      }
+      if (!settings.audioenabled && nextAudioEnabled) {
         clearAudioRain();
         needsAppearanceRefresh = true;
       }
@@ -5185,6 +5387,7 @@ function resetWallpaperAudioInput() {
   audioState.inputPeak = 0;
   audioState.inputAverage = 0;
   audioState.inputGain = 1;
+  audioState.zeroStartUntilTick = logicalTick + DEFAULT_PRESET.audioResponsive.spectrumZeroStartTicks;
   applyAudioLevels(0, 0, 0, false);
   applyAudioSpectrumBins(null);
   updateAudioSpectrumBars();

@@ -49,8 +49,8 @@ Creator-page and Workshop description drafts are in [docs/support-pages.md](docs
 - 实时 Canvas 渲染，字符固定在网格内，模拟 Matrix 风格代码雨。
 - Local bundled fonts, including Matrix Code and a Resurrections-style option.
 - 内置本地字体，支持 Matrix Code 三部曲风格和 Resurrections 风格字体。
-- Wallpaper Engine user properties for font, clock, rain brightness, character size, spacing, glow, and color.
-- Wallpaper Engine 属性面板可调字体、时钟、雨亮度、字符大小、字符间距、发光和颜色。
+- Wallpaper Engine user properties for font, clock, rain brightness, character size, spacing, head-glyph glow, and color.
+- Wallpaper Engine 属性面板可调字体、时钟、雨亮度、字符大小、字符间距、首字符发光和颜色。
 - Optional dot-matrix clock rendered from code-rain glyph cells.
 - 可选点阵时钟，使用代码雨字符格组成时间显示。
 - Optional audio spectrum layer using Wallpaper Engine audio data.

@@ -3759,8 +3759,8 @@ function makeClockGridCell(column, rowIndex, salt, options = {}) {
     target: baseAlpha,
     baseAlpha,
     paletteName: "clock",
-    rotator: true,
-    nextRotateTick: logicalTick + clockRotateDelay(salt, rowIndex),
+    rotator: !intro,
+    nextRotateTick: intro ? Number.POSITIVE_INFINITY : logicalTick + clockRotateDelay(salt, rowIndex),
     streamId: intro ? `clockintro:settle:${column.index}:${rowIndex}` : `clock:${column.index}:${rowIndex}`,
     negative: false,
     head: intro,
@@ -3770,6 +3770,7 @@ function makeClockGridCell(column, rowIndex, salt, options = {}) {
     staticCell: false,
     clockCell: true,
     clockIntroDrop: false,
+    clockIntroSettled: intro,
     glowHead: intro || isClockEmphasisCell(column.index, rowIndex),
     justWritten: true
   };
@@ -3777,7 +3778,7 @@ function makeClockGridCell(column, rowIndex, salt, options = {}) {
 
 function makeClockIntroDropCell(column, rowIndex, drop) {
   const baseAlpha = clockIntroBaseAlpha(column.index, drop.targetRow);
-  const salt = hashInt(drop.salt ^ Math.imul(rowIndex + 1, 1103515245) ^ Math.imul(logicalTick + 1, 2246822519));
+  const salt = drop.salt;
   const char = clockGlyphChar(column.index, drop.targetRow, salt);
 
   return {
@@ -3816,7 +3817,8 @@ function updateClockCell(column, rowIndex, cell) {
   cell.age += 1;
   cell.justWritten = false;
 
-  if (!Number.isFinite(cell.nextRotateTick) || cell.nextRotateTick <= logicalTick) {
+  const holdIntroPixel = Boolean(cell.clockIntroSettled && coldStartActive());
+  if (!holdIntroPixel && (!Number.isFinite(cell.nextRotateTick) || cell.nextRotateTick <= logicalTick)) {
     cell.salt = hashInt(cell.salt ^ Math.imul(logicalTick + rowIndex + 3, 1597334677));
     cell.char = clockGlyphChar(column.index, rowIndex, cell.salt);
     cell.stableChar = cell.char;
@@ -3830,7 +3832,7 @@ function updateClockCell(column, rowIndex, cell) {
   cell.headPreviousGlowHead = false;
   cell.glowHead = isClockEmphasisCell(column.index, rowIndex);
   cell.paletteName = "clock";
-  cell.rotator = true;
+  cell.rotator = !holdIntroPixel;
   cell.baseAlpha = clockCellBaseAlpha(column.index, rowIndex);
   cell.target = cell.baseAlpha;
   cell.alpha = cell.baseAlpha;
@@ -3865,6 +3867,7 @@ function ensureClockGridCells() {
       current.clockCell = true;
       current.staticCell = false;
       current.transient = false;
+      current.clockIntroSettled = false;
       current.paletteName = "clock";
       current.rotator = true;
       current.glowHead = emphasis;
@@ -4323,13 +4326,18 @@ function initializeColdStartClockDrops() {
   const firstSettleTick = introState.startTick + blackHoldTicks + firstDropTicks + Math.round(tickRate() * 1.55);
   const latestSettleTick = introState.startTick + durationTicks - Math.round(tickRate() * 1);
   const settleSpreadTicks = Math.max(1, latestSettleTick - firstSettleTick);
+  const targetRows = clockCells.map((clockCell) => clockCell.rowIndex);
+  const firstTargetRow = Math.min(...targetRows);
+  const lastTargetRow = Math.max(...targetRows);
+  const targetRowSpan = Math.max(1, lastTargetRow - firstTargetRow);
 
   introState.clockKey = nextKey;
   introState.clockDrops = clockCells.map((clockCell, index) => {
     const seed = hashInt(clockCell.salt ^ Math.imul(index + 1, 1597334677));
     const targetRow = clockCell.rowIndex;
     const startRow = -2 - Math.floor(hashUnit(seed ^ 0x49af) * 5);
-    const settleBias = Math.pow(hashUnit(seed ^ 0x91bd), 0.72);
+    const rowBias = (targetRow - firstTargetRow) / targetRowSpan;
+    const settleBias = clamp(rowBias * 0.86 + hashUnit(seed ^ 0x91bd) * 0.14, 0, 1);
     const settleTick = firstSettleTick + Math.floor(settleBias * settleSpreadTicks);
     const speedRowsPerSecond = seededRange(seed ^ 0x2db1, 28, 42);
     const travelTicks = Math.max(6, Math.ceil(((targetRow - startRow) / speedRowsPerSecond) * tickRate()));

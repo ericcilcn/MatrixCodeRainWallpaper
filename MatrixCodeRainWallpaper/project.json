@@ -1,6 +1,6 @@
 {
   "title": "Matrix Code Rain",
-  "description": "A lightweight real-time Matrix-style code rain wallpaper rendered with HTML5 Canvas.",
+  "description": "A lightweight real-time Matrix-style code rain wallpaper rendered with HTML5 Canvas.\n\nLive preview: https://ericcilcn.github.io/MatrixCodeRainWallpaper/\nGitHub: https://github.com/ericcilcn/MatrixCodeRainWallpaper\nSteam Workshop: https://steamcommunity.com/sharedfiles/filedetails/?id=3734941477\n\nSupport future updates (optional):\nKo-fi: https://ko-fi.com/ericcil\nAfdian: https://ifdian.net/a/Ericcil",
   "file": "index.html",
   "type": "web",
   "general": {

@@ -392,20 +392,22 @@ const DEFAULT_PRESET = {
     quietDelayMinTicks: 160,
     quietDelayMaxTicks: 620
   },
-  introReveal: {
-    // Matched to the 2026-05-31 startup recording: almost black for the first
-    // half second, fast fill through the middle, then a short settle into the
-    // already-prewarmed stable rain.
-    durationMs: 3325,
-    globalStart: 0.06,
-    globalEnd: 0.68,
-    rowDelayMax: 0.34,
-    rowFadeSpan: 0.26,
-    rowJitter: 0.035,
-    columnDelayMax: 0.16,
-    columnJitter: 0.035,
-    rowPower: 1.14,
-    minAlpha: 0.002
+  introRain: {
+    // Based on the 2026-05-31 native Matrix clip: black first, then independent
+    // columns fall in from the top before blending into the prewarmed renderer.
+    durationMs: 5200,
+    blackHoldMs: 260,
+    firstDropMs: 420,
+    columnStartSpreadMs: 1500,
+    speedRowsPerSecond: 24,
+    speedVarianceRowsPerSecond: 8,
+    lengthMinRows: 9,
+    lengthMaxRows: 25,
+    activeColumnRatio: 0.76,
+    stableBlendStart: 0.72,
+    stableBlendEnd: 0.96,
+    introFadeStart: 0.86,
+    minAlpha: 0.012
   },
   initialWarmupSeconds: 20,
   bottomFade: {
@@ -817,7 +819,7 @@ function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
 
-function smoothStep(edge0, edge1, value) {
+function smoothStepRange(edge0, edge1, value) {
   if (edge0 === edge1) {
     return value < edge0 ? 0 : 1;
   }
@@ -4094,7 +4096,7 @@ function updateIntroRevealProgress(now) {
     return 1;
   }
 
-  const duration = Math.max(1, DEFAULT_PRESET.introReveal.durationMs);
+  const duration = Math.max(1, DEFAULT_PRESET.introRain.durationMs);
   const progress = clamp((now - introState.startedAt) / duration, 0, 1);
   introState.progress = progress;
 
@@ -4105,7 +4107,44 @@ function updateIntroRevealProgress(now) {
   return progress;
 }
 
-function drawIntroRevealOverlay(now) {
+function introColumnStartMs(column, intro) {
+  const activeRoll = hashUnit(column.seed ^ 0x3b7d131f);
+  if (activeRoll > intro.activeColumnRatio) {
+    return Infinity;
+  }
+
+  const startRoll = Math.pow(hashUnit(column.seed ^ 0x8f3c5a91), 1.45);
+  return intro.firstDropMs + startRoll * intro.columnStartSpreadMs;
+}
+
+function drawIntroRainGlyph(column, rowIndex, styleName, alpha, seed) {
+  if (alpha <= DEFAULT_PRESET.introRain.minAlpha) {
+    return;
+  }
+
+  const palette = column.palette || paletteByName(column.paletteName) || paletteByName("normal");
+  const char = chooseStableChar(seed, column.index, rowIndex, Math.floor(logicalTick / 6));
+  const sprite = createGlyph(char, styleName, palette);
+  const x = column.x;
+  const y = (rowIndex + 0.5) * cellHeight;
+  const brightness = clamp(settings.brightness / 72, 0.45, 1.32);
+  const visibility = Math.max(rowVisibility(rowIndex), 0.52);
+
+  ctx.globalAlpha = clamp(alpha * visibility * brightness, 0, 1);
+  ctx.drawImage(
+    sprite.canvas,
+    sprite.sx,
+    sprite.sy,
+    sprite.sw,
+    sprite.sh,
+    Math.round(x - sprite.cssWidth / 2),
+    Math.round(y - sprite.cssHeight / 2),
+    sprite.cssWidth,
+    sprite.cssHeight
+  );
+}
+
+function drawIntroFallingRain(now) {
   if (settings.skipintro || !introState.active) {
     return;
   }
@@ -4115,34 +4154,51 @@ function drawIntroRevealOverlay(now) {
     return;
   }
 
-  const intro = DEFAULT_PRESET.introReveal;
-  const globalAlpha = 1 - smoothStep(intro.globalStart, intro.globalEnd, progress);
+  const intro = DEFAULT_PRESET.introRain;
+  const elapsedMs = Math.max(0, now - introState.startedAt);
+  const stableCoverAlpha = 1 - smoothStepRange(intro.stableBlendStart, intro.stableBlendEnd, progress);
+  const introAlpha = 1 - smoothStepRange(intro.introFadeStart, 1, progress);
+
   ctx.save();
   ctx.globalCompositeOperation = "source-over";
   ctx.fillStyle = "#000";
+  ctx.globalAlpha = clamp(stableCoverAlpha, 0, 1);
+  ctx.fillRect(0, 0, width, height);
+
+  if (elapsedMs < intro.blackHoldMs || introAlpha <= intro.minAlpha) {
+    ctx.restore();
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = "source-over";
+    return;
+  }
 
   for (const column of activeColumns) {
-    const columnDelay = hashUnit(column.seed ^ 0x3a5f9d23) * intro.columnDelayMax;
-    const x = Math.floor(column.index * cellWidth);
-    const nextX = Math.ceil((column.index + 1) * cellWidth);
+    const startMs = introColumnStartMs(column, intro);
+    if (!Number.isFinite(startMs) || elapsedMs < startMs) {
+      continue;
+    }
 
-    for (let rowIndex = 0; rowIndex < rows; rowIndex += 1) {
-      const rowRatio = rows <= 1 ? 0 : rowIndex / (rows - 1);
-      const rowJitter = (hashUnit((rowIndex + 1) * 0x9e3779b1) - 0.5) * intro.rowJitter;
-      const columnJitter = (hashUnit(column.seed ^ (rowIndex * 0x45d9f3b)) - 0.5) * intro.columnJitter;
-      const rowDelay = Math.pow(rowRatio, intro.rowPower) * intro.rowDelayMax;
-      const revealStart = clamp(columnDelay + rowDelay + rowJitter + columnJitter, 0, 0.68);
-      const rowReveal = smoothStep(revealStart, revealStart + intro.rowFadeSpan, progress);
-      const alpha = Math.max(globalAlpha * 0.84, 1 - rowReveal);
+    const columnElapsedSeconds = (elapsedMs - startMs) / 1000;
+    const speed = intro.speedRowsPerSecond
+      + (hashUnit(column.seed ^ 0xead39) - 0.5) * intro.speedVarianceRowsPerSecond;
+    const headRow = columnElapsedSeconds * speed;
+    if (headRow < -1) {
+      continue;
+    }
 
-      if (alpha <= intro.minAlpha) {
-        continue;
-      }
+    const lengthRows = Math.round(seededRange(column.seed ^ 0x6a09e667, intro.lengthMinRows, intro.lengthMaxRows));
+    const drawStart = Math.max(0, Math.floor(headRow - lengthRows));
+    const drawEnd = Math.min(rows - 1, Math.floor(headRow));
+    const headIndex = clampInt(Math.floor(headRow), 0, rows - 1);
+    const columnFade = smoothStepRange(startMs, startMs + 380, elapsedMs);
 
-      ctx.globalAlpha = clamp(alpha, 0, 1);
-      const y = Math.floor(rowIndex * cellHeight);
-      const nextY = Math.ceil((rowIndex + 1) * cellHeight);
-      ctx.fillRect(x, y, Math.max(1, nextX - x), Math.max(1, nextY - y));
+    for (let rowIndex = drawStart; rowIndex <= drawEnd; rowIndex += 1) {
+      const distanceFromHead = Math.max(0, headRow - rowIndex);
+      const tailUnit = clamp(distanceFromHead / Math.max(1, lengthRows), 0, 1);
+      const styleName = rowIndex === headIndex ? "head" : (tailUnit < 0.18 ? "bright" : "body");
+      const tailAlpha = Math.pow(1 - tailUnit, 0.78);
+      const alpha = introAlpha * columnFade * (styleName === "head" ? 1.14 : 0.78 * tailAlpha);
+      drawIntroRainGlyph(column, rowIndex, styleName, alpha, column.seed ^ 0x25a5);
     }
   }
 
@@ -4171,7 +4227,7 @@ function render(now = performance.now()) {
   }
 
   drawAudioSpectrumOverlay();
-  drawIntroRevealOverlay(now);
+  drawIntroFallingRain(now);
 
   ctx.globalAlpha = 1;
   ctx.globalCompositeOperation = "source-over";
@@ -4559,7 +4615,8 @@ function collectMatrixRainState() {
       skip: settings.skipintro,
       active: introState.active,
       progress: Number(introState.progress.toFixed(3)),
-      durationMs: DEFAULT_PRESET.introReveal.durationMs
+      durationMs: DEFAULT_PRESET.introRain.durationMs,
+      mode: "falling-rain"
     },
     metrics,
     columns: activeColumns.map((column) => ({

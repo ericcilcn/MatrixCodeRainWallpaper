@@ -392,22 +392,20 @@ const DEFAULT_PRESET = {
     quietDelayMinTicks: 160,
     quietDelayMaxTicks: 620
   },
-  introRain: {
-    // Based on the 2026-05-31 native Matrix clip: black first, then independent
-    // columns fall in from the top before blending into the prewarmed renderer.
+  coldStartRain: {
+    // Based on the 2026-05-31 native Matrix clip: black first, then the actual
+    // main rain streams are released from above the top edge and fall into the
+    // normal renderer state. This is not a separate visual overlay.
     durationMs: 5200,
     blackHoldMs: 260,
     firstDropMs: 420,
-    columnStartSpreadMs: 1500,
-    speedRowsPerSecond: 24,
+    columnStartSpreadMs: 1850,
+    startPower: 1.45,
+    speedRowsPerSecond: 34,
     speedVarianceRowsPerSecond: 8,
-    lengthMinRows: 9,
-    lengthMaxRows: 25,
-    activeColumnRatio: 0.76,
-    stableBlendStart: 0.72,
-    stableBlendEnd: 0.96,
-    introFadeStart: 0.86,
-    minAlpha: 0.012
+    activeColumnRatio: 0.3,
+    allowAmbientAt: 0.92,
+    holdActiveExtraTicks: 150
   },
   initialWarmupSeconds: 20,
   bottomFade: {
@@ -775,7 +773,9 @@ let started = false;
 let introState = {
   active: !settings.skipintro,
   startedAt: 0,
-  progress: settings.skipintro ? 1 : 0
+  startTick: 0,
+  progress: settings.skipintro ? 1 : 0,
+  completed: settings.skipintro
 };
 let debugStateElement = null;
 let clockMask = new Uint8Array(0);
@@ -817,14 +817,6 @@ let audioListenerRecoveryTimers = [];
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
-}
-
-function smoothStepRange(edge0, edge1, value) {
-  if (edge0 === edge1) {
-    return value < edge0 ? 0 : 1;
-  }
-  const t = clamp((value - edge0) / (edge1 - edge0), 0, 1);
-  return t * t * (3 - 2 * t);
 }
 
 function parseBooleanParam(value) {
@@ -2803,9 +2795,10 @@ function createStream(column, ordinal, initial, mode = "normal") {
   return stream;
 }
 
-function makeColumn(index, seed) {
+function makeColumn(index, seed, options = {}) {
   const streamCount = desiredStreamCount(seed);
-  const active = hashUnit(seed ^ 0x4d23a) < DEFAULT_PRESET.columnActivity.initialActiveChance;
+  const coldStart = Boolean(options.coldStart);
+  const active = !coldStart && hashUnit(seed ^ 0x4d23a) < DEFAULT_PRESET.columnActivity.initialActiveChance;
   const activitySeed = hashInt(seed ^ 0x359ac);
   const column = {
     index,
@@ -2819,13 +2812,19 @@ function makeColumn(index, seed) {
     active: false,
     activitySeed,
     nextActivityTick: 0,
+    coldStartReleased: false,
     cells: new Array(rows),
     streams: []
   };
 
   applyColumnTone(column, seed, false);
-  seedAmbientColumn(column);
-  setColumnActivity(column, active, activitySeed, true);
+  if (!coldStart) {
+    seedAmbientColumn(column);
+    setColumnActivity(column, active, activitySeed, true);
+  } else {
+    column.active = false;
+    column.nextActivityTick = Number.POSITIVE_INFINITY;
+  }
   return column;
 }
 
@@ -2909,6 +2908,10 @@ function setColumnActivity(column, active, seed, initial = false) {
 }
 
 function updateColumnActivity(column) {
+  if (coldStartActive()) {
+    return;
+  }
+
   if (logicalTick < column.nextActivityTick) {
     return;
   }
@@ -2961,13 +2964,13 @@ function rainColumns() {
   return activeColumns.filter((column) => column.active);
 }
 
-function buildColumns() {
+function buildColumns(coldStart = false) {
   const nextColumns = [];
   const seedBase = hashInt(PATTERN_SEED ^ Math.imul(rows, 131) ^ Math.imul(gridColumns, 521));
 
   for (let index = -2; index < gridColumns + 2; index += 1) {
     const seed = hashInt(seedBase ^ Math.imul(index + 4096, 2654435761));
-    nextColumns.push(makeColumn(index, seed));
+    nextColumns.push(makeColumn(index, seed, { coldStart }));
   }
 
   activeColumns = nextColumns;
@@ -3312,13 +3315,17 @@ function releaseLowerFragments() {
 function logicStep() {
   logicalTick += 1;
   updateAudioResponsiveState();
+  const coldStarting = releaseColdStartRain();
+  const allowAmbient = coldStartAllowsAmbient();
 
   for (const column of activeColumns) {
     updateColumnActivity(column);
 
     for (let rowIndex = 0; rowIndex < rows; rowIndex += 1) {
       updateCell(column, rowIndex);
-      maybeReplenishAmbientCell(column, rowIndex);
+      if (allowAmbient) {
+        maybeReplenishAmbientCell(column, rowIndex);
+      }
     }
 
     for (let i = column.streams.length - 1; i >= 0; i -= 1) {
@@ -3344,14 +3351,18 @@ function logicStep() {
     }
   }
 
-  releaseSplash();
-  releaseAmbientSingles();
-  releaseAmbientSmallColumns();
-  releaseStandaloneRotators();
-  releaseLowerFragments();
+  if (!coldStarting || allowAmbient) {
+    releaseSplash();
+    releaseAmbientSingles();
+    releaseAmbientSmallColumns();
+    releaseStandaloneRotators();
+    releaseLowerFragments();
+  }
 
-  for (const column of activeColumns) {
-    shapeColumnSingletons(column);
+  if (allowAmbient) {
+    for (const column of activeColumns) {
+      shapeColumnSingletons(column);
+    }
   }
 }
 
@@ -4080,137 +4091,135 @@ function resetIntroReveal(now = performance.now()) {
   if (settings.skipintro) {
     introState.active = false;
     introState.startedAt = 0;
+    introState.startTick = 0;
     introState.progress = 1;
+    introState.completed = true;
     return;
   }
 
   introState.active = true;
   introState.startedAt = now;
+  introState.startTick = logicalTick;
   introState.progress = 0;
+  introState.completed = false;
 }
 
 function updateIntroRevealProgress(now) {
-  if (settings.skipintro || !introState.active) {
+  if (settings.skipintro) {
     introState.active = false;
     introState.progress = 1;
+    introState.completed = true;
     return 1;
   }
 
-  const duration = Math.max(1, DEFAULT_PRESET.introRain.durationMs);
-  const progress = clamp((now - introState.startedAt) / duration, 0, 1);
+  if (!introState.active) {
+    return 1;
+  }
+
+  const durationTicks = Math.max(1, Math.round(tickRate() * DEFAULT_PRESET.coldStartRain.durationMs / 1000));
+  const tickProgress = clamp((logicalTick - introState.startTick) / durationTicks, 0, 1);
+  const duration = Math.max(1, DEFAULT_PRESET.coldStartRain.durationMs);
+  const timeProgress = clamp((now - introState.startedAt) / duration, 0, 1);
+  const progress = Math.max(tickProgress, timeProgress);
   introState.progress = progress;
 
   if (progress >= 1) {
-    introState.active = false;
+    completeColdStartRain();
   }
 
   return progress;
 }
 
-function introColumnStartMs(column, intro) {
-  const activeRoll = hashUnit(column.seed ^ 0x3b7d131f);
-  if (activeRoll > intro.activeColumnRatio) {
-    return Infinity;
-  }
-
-  const startRoll = Math.pow(hashUnit(column.seed ^ 0x8f3c5a91), 1.45);
-  return intro.firstDropMs + startRoll * intro.columnStartSpreadMs;
+function coldStartActive() {
+  return !settings.skipintro && introState.active && !introState.completed;
 }
 
-function drawIntroRainGlyph(column, rowIndex, styleName, alpha, seed) {
-  if (alpha <= DEFAULT_PRESET.introRain.minAlpha) {
+function completeColdStartRain() {
+  if (introState.completed) {
     return;
   }
 
-  const palette = column.palette || paletteByName(column.paletteName) || paletteByName("normal");
-  const char = chooseStableChar(seed, column.index, rowIndex, Math.floor(logicalTick / 6));
-  const sprite = createGlyph(char, styleName, palette);
-  const x = column.x;
-  const y = (rowIndex + 0.5) * cellHeight;
-  const brightness = clamp(settings.brightness / 72, 0.45, 1.32);
-  const visibility = Math.max(rowVisibility(rowIndex), 0.52);
-
-  ctx.globalAlpha = clamp(alpha * visibility * brightness, 0, 1);
-  ctx.drawImage(
-    sprite.canvas,
-    sprite.sx,
-    sprite.sy,
-    sprite.sw,
-    sprite.sh,
-    Math.round(x - sprite.cssWidth / 2),
-    Math.round(y - sprite.cssHeight / 2),
-    sprite.cssWidth,
-    sprite.cssHeight
-  );
+  introState.active = false;
+  introState.progress = 1;
+  introState.completed = true;
+  stabilizeStartupActivity();
 }
 
-function drawIntroFallingRain(now) {
-  if (settings.skipintro || !introState.active) {
-    return;
+function coldStartColumnStartTick(column) {
+  const cold = DEFAULT_PRESET.coldStartRain;
+  if (hashUnit(column.seed ^ 0x3b7d131f) > cold.activeColumnRatio) {
+    return Number.POSITIVE_INFINITY;
   }
 
-  const progress = updateIntroRevealProgress(now);
-  if (!introState.active && progress >= 1) {
-    return;
+  const blackHoldTicks = Math.round(tickRate() * cold.blackHoldMs / 1000);
+  const firstDropTicks = Math.round(tickRate() * cold.firstDropMs / 1000);
+  const spreadTicks = Math.round(tickRate() * cold.columnStartSpreadMs / 1000);
+  const startRoll = Math.pow(hashUnit(column.seed ^ 0x8f3c5a91), cold.startPower);
+  return introState.startTick + blackHoldTicks + firstDropTicks + Math.floor(startRoll * spreadTicks);
+}
+
+function primeColdStartColumn(column) {
+  const cold = DEFAULT_PRESET.coldStartRain;
+  const seed = hashInt(column.seed ^ 0xc01d57a7);
+  column.coldStartReleased = true;
+  setColumnActivity(column, true, seed, true);
+  column.nextActivityTick = introState.startTick
+    + Math.round(tickRate() * cold.durationMs / 1000)
+    + cold.holdActiveExtraTicks
+    + Math.floor(seededRange(seed ^ 0x5741, 0, cold.holdActiveExtraTicks));
+
+  for (const stream of column.streams) {
+    stream.headRow = Math.floor(seededRange(stream.seed ^ 0xa17f, -Math.max(3, stream.length * 0.65), 0));
+    stream.progress = hashUnit(stream.seed ^ 0x11d3) * 0.35;
+    stream.speed = cold.speedRowsPerSecond
+      + (hashUnit(stream.seed ^ 0xead39) - 0.5) * cold.speedVarianceRowsPerSecond;
+    stream.endRow = rows + stream.length + 2;
+    stream.cooldownTicks = 0;
+    stream.finished = false;
+  }
+}
+
+function releaseColdStartRain() {
+  if (!coldStartActive()) {
+    return false;
   }
 
-  const intro = DEFAULT_PRESET.introRain;
-  const elapsedMs = Math.max(0, now - introState.startedAt);
-  const stableCoverAlpha = 1 - smoothStepRange(intro.stableBlendStart, intro.stableBlendEnd, progress);
-  const introAlpha = 1 - smoothStepRange(intro.introFadeStart, 1, progress);
-
-  ctx.save();
-  ctx.globalCompositeOperation = "source-over";
-  ctx.fillStyle = "#000";
-  ctx.globalAlpha = clamp(stableCoverAlpha, 0, 1);
-  ctx.fillRect(0, 0, width, height);
-
-  if (elapsedMs < intro.blackHoldMs || introAlpha <= intro.minAlpha) {
-    ctx.restore();
-    ctx.globalAlpha = 1;
-    ctx.globalCompositeOperation = "source-over";
-    return;
+  updateIntroRevealProgress(performance.now());
+  if (!introState.active) {
+    return false;
   }
 
   for (const column of activeColumns) {
-    const startMs = introColumnStartMs(column, intro);
-    if (!Number.isFinite(startMs) || elapsedMs < startMs) {
+    if (column.coldStartReleased || column.index < 0 || column.index >= gridColumns) {
       continue;
     }
-
-    const columnElapsedSeconds = (elapsedMs - startMs) / 1000;
-    const speed = intro.speedRowsPerSecond
-      + (hashUnit(column.seed ^ 0xead39) - 0.5) * intro.speedVarianceRowsPerSecond;
-    const headRow = columnElapsedSeconds * speed;
-    if (headRow < -1) {
-      continue;
-    }
-
-    const lengthRows = Math.round(seededRange(column.seed ^ 0x6a09e667, intro.lengthMinRows, intro.lengthMaxRows));
-    const drawStart = Math.max(0, Math.floor(headRow - lengthRows));
-    const drawEnd = Math.min(rows - 1, Math.floor(headRow));
-    const headIndex = clampInt(Math.floor(headRow), 0, rows - 1);
-    const columnFade = smoothStepRange(startMs, startMs + 380, elapsedMs);
-
-    for (let rowIndex = drawStart; rowIndex <= drawEnd; rowIndex += 1) {
-      const distanceFromHead = Math.max(0, headRow - rowIndex);
-      const tailUnit = clamp(distanceFromHead / Math.max(1, lengthRows), 0, 1);
-      const styleName = rowIndex === headIndex ? "head" : (tailUnit < 0.18 ? "bright" : "body");
-      const tailAlpha = Math.pow(1 - tailUnit, 0.78);
-      const alpha = introAlpha * columnFade * (styleName === "head" ? 1.14 : 0.78 * tailAlpha);
-      drawIntroRainGlyph(column, rowIndex, styleName, alpha, column.seed ^ 0x25a5);
+    if (logicalTick >= coldStartColumnStartTick(column)) {
+      primeColdStartColumn(column);
     }
   }
 
-  ctx.restore();
-  ctx.globalAlpha = 1;
-  ctx.globalCompositeOperation = "source-over";
+  return true;
+}
+
+function coldStartAllowsAmbient() {
+  if (!coldStartActive()) {
+    return true;
+  }
+
+  return introState.progress >= DEFAULT_PRESET.coldStartRain.allowAmbientAt;
 }
 
 function render(now = performance.now()) {
   renderSeconds = now / 1000;
-  updateClockMask();
-  ensureClockGridCells();
+  updateIntroRevealProgress(now);
+  if (coldStartActive()) {
+    if (clockCells.length > 0) {
+      clearClockGridCells();
+    }
+  } else {
+    updateClockMask();
+    ensureClockGridCells();
+  }
   ctx.globalAlpha = 1;
   ctx.globalCompositeOperation = "source-over";
   ctx.fillStyle = "#000";
@@ -4226,8 +4235,9 @@ function render(now = performance.now()) {
     }
   }
 
-  drawAudioSpectrumOverlay();
-  drawIntroFallingRain(now);
+  if (!coldStartActive()) {
+    drawAudioSpectrumOverlay();
+  }
 
   ctx.globalAlpha = 1;
   ctx.globalCompositeOperation = "source-over";
@@ -4400,13 +4410,18 @@ function resize() {
   logicalTick = 0;
   releaseCounter = 0;
   tickAccumulator = 0;
-  buildColumns();
-  const prewarmSeconds = DEFAULT_PRESET.startup.prewarmSeconds || DEFAULT_PRESET.initialWarmupSeconds;
-  for (let i = 0; i < Math.round(tickRate() * prewarmSeconds); i += 1) {
-    logicStep();
-  }
-  stabilizeStartupActivity();
+  const coldStart = !settings.skipintro;
+  buildColumns(coldStart);
   resetIntroReveal(performance.now());
+
+  if (!coldStart) {
+    const prewarmSeconds = DEFAULT_PRESET.startup.prewarmSeconds || DEFAULT_PRESET.initialWarmupSeconds;
+    for (let i = 0; i < Math.round(tickRate() * prewarmSeconds); i += 1) {
+      logicStep();
+    }
+    stabilizeStartupActivity();
+    resetIntroReveal(performance.now());
+  }
   render(performance.now());
 }
 
@@ -4614,9 +4629,11 @@ function collectMatrixRainState() {
     intro: {
       skip: settings.skipintro,
       active: introState.active,
+      completed: introState.completed,
       progress: Number(introState.progress.toFixed(3)),
-      durationMs: DEFAULT_PRESET.introRain.durationMs,
-      mode: "falling-rain"
+      durationMs: DEFAULT_PRESET.coldStartRain.durationMs,
+      mode: "main-rain-cold-start",
+      releasedColumns: activeColumns.filter((column) => column.coldStartReleased).length
     },
     metrics,
     columns: activeColumns.map((column) => ({
@@ -5050,8 +5067,8 @@ window.wallpaperPropertyListener = {
       const nextSkipIntro = (CONTROLS_ENABLED ? null : SKIP_INTRO_OVERRIDE) ?? Boolean(properties.skipintro.value);
       if (settings.skipintro !== nextSkipIntro) {
         settings.skipintro = nextSkipIntro;
-        resetIntroReveal(performance.now());
-        needsAppearanceRefresh = true;
+        clearClockGridCells();
+        needsRestart = true;
       }
     }
 

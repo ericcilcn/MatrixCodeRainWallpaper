@@ -12,12 +12,12 @@ These links open the same web wallpaper with different URL parameters. Browser p
 
 下面这些链接会用不同 URL 参数打开同一个 Web 壁纸。普通浏览器无法读取 Wallpaper Engine 的真实音频数据，所以音频示例使用内置调试信号模拟。
 
-- [Default Matrix rain / 默认代码雨](https://ericcilcn.github.io/MatrixCodeRainWallpaper/)
-- [Hidden controls / 隐藏控制台](https://ericcilcn.github.io/MatrixCodeRainWallpaper/?controls=1&debugstate)
-- [Clock enabled / 点阵时钟](https://ericcilcn.github.io/MatrixCodeRainWallpaper/?clock=true&audio=false)
-- [Audio spectrum debug / 音频频谱模拟](https://ericcilcn.github.io/MatrixCodeRainWallpaper/?controls=1&debugstate&audio=true&audiodebug=1)
-- [Frequency gradient spectrum / 频率渐变示波器](https://ericcilcn.github.io/MatrixCodeRainWallpaper/?controls=1&debugstate&audio=true&audiodebug=1&audiocolormode=frequency_gradient)
-- [Peak caps only, reversed / 仅峰值帽反向示波器](https://ericcilcn.github.io/MatrixCodeRainWallpaper/?controls=1&debugstate&audio=true&audiodebug=1&audiocolormode=caps_only&audiospectrumreverse=1)
+- [Default Matrix rain / 默认代码雨](https://ericcilcn.github.io/MatrixCodeRainWallpaper/MatrixCodeRainWallpaper/index.html)
+- [Hidden controls / 隐藏控制台](https://ericcilcn.github.io/MatrixCodeRainWallpaper/MatrixCodeRainWallpaper/index.html?controls=1&debugstate)
+- [Clock enabled / 点阵时钟](https://ericcilcn.github.io/MatrixCodeRainWallpaper/MatrixCodeRainWallpaper/index.html?clock=true&audio=false)
+- [Audio spectrum debug / 音频频谱模拟](https://ericcilcn.github.io/MatrixCodeRainWallpaper/MatrixCodeRainWallpaper/index.html?controls=1&debugstate&audio=true&audiodebug=1)
+- [Frequency gradient spectrum / 频率渐变示波器](https://ericcilcn.github.io/MatrixCodeRainWallpaper/MatrixCodeRainWallpaper/index.html?controls=1&debugstate&audio=true&audiodebug=1&audiocolormode=frequency_gradient)
+- [Peak caps only, reversed / 仅峰值帽反向示波器](https://ericcilcn.github.io/MatrixCodeRainWallpaper/MatrixCodeRainWallpaper/index.html?controls=1&debugstate&audio=true&audiodebug=1&audiocolormode=caps_only&audiospectrumreverse=1)
 
 ## Support
 

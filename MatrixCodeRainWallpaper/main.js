@@ -4321,7 +4321,7 @@ function initializeColdStartClockDrops() {
   const blackHoldTicks = Math.round(tickRate() * cold.blackHoldMs / 1000);
   const firstDropTicks = Math.round(tickRate() * cold.firstDropMs / 1000);
   const firstSettleTick = introState.startTick + blackHoldTicks + firstDropTicks + Math.round(tickRate() * 1.55);
-  const latestSettleTick = introState.startTick + durationTicks - Math.round(tickRate() * 0.22);
+  const latestSettleTick = introState.startTick + durationTicks - Math.round(tickRate() * 1);
   const settleSpreadTicks = Math.max(1, latestSettleTick - firstSettleTick);
 
   introState.clockKey = nextKey;
@@ -4374,7 +4374,22 @@ function updateColdStartClockFormation() {
 
   for (const drop of introState.clockDrops) {
     const column = activeColumns[drop.columnIndex + 2];
-    if (!column || column.index !== drop.columnIndex || drop.settled || logicalTick < drop.startTick) {
+    if (!column || column.index !== drop.columnIndex || logicalTick < drop.startTick) {
+      continue;
+    }
+
+    if (drop.settled) {
+      const current = column.cells[drop.targetRow];
+      if (!current || current.negative || !current.clockCell) {
+        column.cells[drop.targetRow] = makeClockGridCell(column, drop.targetRow, drop.salt, { intro: true });
+      } else {
+        updateClockCell(column, drop.targetRow, current);
+        current.head = true;
+        current.glowHead = true;
+        current.baseAlpha = clockIntroBaseAlpha(column.index, drop.targetRow);
+        current.target = current.baseAlpha;
+        current.alpha = current.baseAlpha;
+      }
       continue;
     }
 

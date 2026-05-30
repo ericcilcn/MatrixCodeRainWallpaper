@@ -72,7 +72,7 @@
       "glyphscale": {
         "text": "ui_character_size",
         "type": "slider",
-        "value": 80,
+        "value": 100,
         "min": 75,
         "max": 130,
         "editable": true,
@@ -130,7 +130,7 @@
       "audioresponse": {
         "text": "ui_audio_response",
         "type": "slider",
-        "value": 100,
+        "value": 80,
         "min": 0,
         "max": 100,
         "editable": true,

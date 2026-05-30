@@ -37,6 +37,9 @@ const CLOCK_OVERRIDE = parseBooleanParam(URL_PARAMS.get("clock"));
 const AUDIO_COLOR_MODES = new Set(["level_layers", "frequency_gradient", "neon_blocks", "matrix_tint", "caps_only"]);
 const AUDIO_HUE_STEPS = 144;
 const AUDIO_SPECTRUM_BINS = 64;
+const AUDIO_LISTENER_RECOVERY_DELAYS_MS = [0, 250, 1250, 3500];
+const AUDIO_LISTENER_RECOVERY_COOLDOWN_MS = 3000;
+const AUDIO_LISTENER_STALE_CALLBACK_MS = 4500;
 const AUDIO_SPECTRUM_HUES = {
   level_layers: [286, 270, 254, 238, 222, 206, 190, 318, 334, 350, 6, 22, 38, 54],
   frequency_gradient: [222, 204, 188, 46, 28, 0, 316, 276],
@@ -792,9 +795,15 @@ let audioState = {
   colorBlend: 1,
   nextColorShuffleTick: 0,
   lastInputTime: 0,
+  lastAudioCallbackTime: 0,
+  audioCallbackCount: 0,
+  lastAudioListenerRegisterTime: 0,
+  audioListenerRegisterCount: 0,
+  audioListenerRegisterReason: "",
   spectrumLastUpdateTime: 0,
   debugPhase: 0
 };
+let audioListenerRecoveryTimers = [];
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
@@ -1684,10 +1693,21 @@ function updateAudioResponsiveState() {
     return;
   }
 
-  if (performance.now() - audioState.lastInputTime > DEFAULT_PRESET.audioResponsive.silenceAfterMs) {
+  const now = performance.now();
+  if (now - audioState.lastInputTime > DEFAULT_PRESET.audioResponsive.silenceAfterMs) {
     applyAudioLevels(0, 0, 0, false);
     applyAudioSpectrumBins(null);
     updateAudioSpectrumBars();
+  }
+
+  if (
+    settings.audioenabled
+    && WALLPAPER_AUDIO_API_AVAILABLE
+    && audioState.lastAudioCallbackTime > 0
+    && now - audioState.lastAudioCallbackTime > AUDIO_LISTENER_STALE_CALLBACK_MS
+    && now - audioState.lastAudioListenerRegisterTime > AUDIO_LISTENER_RECOVERY_COOLDOWN_MS
+  ) {
+    scheduleWallpaperAudioListenerRecovery("stale-callback");
   }
 }
 
@@ -4390,6 +4410,12 @@ function collectMatrixRainState() {
       lastInputAgeMs: audioState.lastInputTime > 0
         ? Math.max(0, Math.round(performance.now() - audioState.lastInputTime))
         : null,
+      callbackCount: audioState.audioCallbackCount,
+      lastCallbackAgeMs: audioState.lastAudioCallbackTime > 0
+        ? Math.max(0, Math.round(performance.now() - audioState.lastAudioCallbackTime))
+        : null,
+      listenerRegisterCount: audioState.audioListenerRegisterCount,
+      listenerRegisterReason: audioState.audioListenerRegisterReason,
       audioRainCells: audioState.spectrumCells,
       spectrumBars: spectrumGeometry.barCount,
       spectrumTopRow: spectrumGeometry.topRow,
@@ -4983,6 +5009,92 @@ window.addEventListener("resize", () => {
   }
 });
 
+function resetWallpaperAudioInput() {
+  audioState.inputPeak = 0;
+  audioState.inputAverage = 0;
+  audioState.inputGain = 1;
+  applyAudioLevels(0, 0, 0, false);
+  applyAudioSpectrumBins(null);
+  updateAudioSpectrumBars();
+}
+
+function registerWallpaperAudioListener(reason = "manual") {
+  if (typeof window.wallpaperRegisterAudioListener !== "function") {
+    return false;
+  }
+
+  const now = performance.now();
+  if (
+    reason !== "initial"
+    && now - audioState.lastAudioListenerRegisterTime < AUDIO_LISTENER_RECOVERY_COOLDOWN_MS
+  ) {
+    return false;
+  }
+
+  try {
+    window.wallpaperRegisterAudioListener(wallpaperAudioListener);
+    audioState.lastAudioListenerRegisterTime = now;
+    audioState.audioListenerRegisterCount += 1;
+    audioState.audioListenerRegisterReason = reason;
+    return true;
+  } catch (error) {
+    window.__matrixRuntimeErrors.push({
+      message: error && error.message ? error.message : String(error),
+      source: "wallpaperRegisterAudioListener"
+    });
+    return false;
+  }
+}
+
+function clearWallpaperAudioRecoveryTimers() {
+  for (const timerId of audioListenerRecoveryTimers) {
+    window.clearTimeout(timerId);
+  }
+  audioListenerRecoveryTimers = [];
+}
+
+function scheduleWallpaperAudioListenerRecovery(reason) {
+  if (!settings.audioenabled || audioDebugEnabled || typeof window.wallpaperRegisterAudioListener !== "function") {
+    return;
+  }
+
+  const callbackAgeMs = audioState.lastAudioCallbackTime > 0
+    ? performance.now() - audioState.lastAudioCallbackTime
+    : Infinity;
+  if ((reason === "focus" || reason === "pageshow") && audioState.lastAudioCallbackTime === 0) {
+    return;
+  }
+  if (reason !== "devicechange" && reason !== "stale-callback" && callbackAgeMs < 1000) {
+    return;
+  }
+
+  clearWallpaperAudioRecoveryTimers();
+  resetWallpaperAudioInput();
+  audioListenerRecoveryTimers = AUDIO_LISTENER_RECOVERY_DELAYS_MS.map((delayMs) => (
+    window.setTimeout(() => {
+      registerWallpaperAudioListener(reason);
+    }, delayMs)
+  ));
+}
+
+function installWallpaperAudioDeviceRecovery() {
+  const mediaDevices = navigator.mediaDevices;
+  if (!mediaDevices || typeof mediaDevices.addEventListener !== "function") {
+    return;
+  }
+
+  try {
+    mediaDevices.addEventListener("devicechange", () => {
+      scheduleWallpaperAudioListenerRecovery("devicechange");
+    });
+  } catch (error) {
+    window.__matrixRuntimeErrors.push({
+      message: error && error.message ? error.message : String(error),
+      source: "mediaDevices.devicechange"
+    });
+  }
+}
+
 document.addEventListener("visibilitychange", () => {
   running = !document.hidden;
 
@@ -4991,20 +5103,30 @@ document.addEventListener("visibilitychange", () => {
     fpsRemainder = 0;
     cancelAnimationFrame(animationFrame);
     animationFrame = requestAnimationFrame(frame);
+    scheduleWallpaperAudioListenerRecovery("visibilitychange");
   } else {
     cancelAnimationFrame(animationFrame);
   }
 });
 
+window.addEventListener("focus", () => {
+  scheduleWallpaperAudioListenerRecovery("focus");
+});
+
+window.addEventListener("pageshow", () => {
+  scheduleWallpaperAudioListenerRecovery("pageshow");
+});
+
 function wallpaperAudioListener(audioArray) {
+  audioState.lastAudioCallbackTime = performance.now();
+  audioState.audioCallbackCount += 1;
   updateAudioFromArray(audioArray);
 }
 
 window.__matrixWallpaperAudioListener = wallpaperAudioListener;
 
-if (typeof window.wallpaperRegisterAudioListener === "function") {
-  window.wallpaperRegisterAudioListener(wallpaperAudioListener);
-}
+registerWallpaperAudioListener("initial");
+installWallpaperAudioDeviceRecovery();
 
 setActiveFontStyle(settings.fontstyle);
 

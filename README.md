@@ -1,6 +1,8 @@
 # Matrix Code Rain Wallpaper
 
-A lightweight Wallpaper Engine web wallpaper that recreates a Matrix-style code rain scene with local HTML, CSS, JavaScript, and bundled fonts. It renders in real time on a fixed character grid instead of playing a video, so the project stays small and adjustable.
+A lightweight Wallpaper Engine web wallpaper that recreates a Matrix-style code rain scene with local HTML, CSS, JavaScript, and bundled fonts. It renders in real time on a fixed character grid instead of playing a video, so the project stays small, adjustable, and efficient.
+
+Matrix Code Rain Wallpaper 是一个轻量级的 Wallpaper Engine Web 动态壁纸，用本地 HTML、CSS、JavaScript 和字体实时渲染黑客帝国风格代码雨。它不依赖录屏视频或 `.scr` 屏保文件，体积更小，也更适合长期作为桌面壁纸运行。
 
 Live preview: [ericcilcn.github.io/MatrixCodeRainWallpaper](https://ericcilcn.github.io/MatrixCodeRainWallpaper/)
 
@@ -27,17 +29,26 @@ Creator-page and Workshop description drafts are in [docs/support-pages.md](docs
 
 ![Peak caps only](docs/screenshots/peak-caps-only.png)
 
-## Features
+## Features / 主要功能
 
 - Real-time Canvas renderer with Matrix-style fixed-grid rain.
+- 实时 Canvas 渲染，字符固定在网格内，模拟 Matrix 风格代码雨。
 - Local bundled fonts, including Matrix Code and a Resurrections-style option.
+- 内置本地字体，支持 Matrix Code 三部曲风格和 Resurrections 风格字体。
 - Wallpaper Engine user properties for font, clock, rain brightness, character size, spacing, glow, and color.
+- Wallpaper Engine 属性面板可调字体、时钟、雨亮度、字符大小、字符间距、发光和颜色。
 - Optional dot-matrix clock rendered from code-rain glyph cells.
+- 可选点阵时钟，使用代码雨字符格组成时间显示。
 - Optional audio spectrum layer using Wallpaper Engine audio data.
+- 可选音频频谱层，读取 Wallpaper Engine 的音频数据做动态响应。
 - Audio modes including frequency gradient, aurora gradient, neon blocks, cool tint, and peak caps only.
+- 音频颜色模式包括频率渐变、极光渐变、霓虹色块、冷色微光和仅峰值帽。
 - Optional reversed spectrum that grows from the bottom upward.
+- 可选反向示波器，让音频柱从屏幕底部向上顶出。
 - Hidden browser control panel for previewing settings with URL parameters.
+- 隐藏网页控制台，可通过 URL 参数在浏览器里调试预览。
 - No video playback, no `.scr`, no Windows binary dependency.
+- 无视频播放、无 `.scr`、无 Windows 二进制依赖。
 
 ## Wallpaper Engine Setup
 

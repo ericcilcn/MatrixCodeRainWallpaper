@@ -70,9 +70,9 @@ Creator-page and Workshop description drafts are in [docs/support-pages.md](docs
 3. In Wallpaper Engine, create or import a web wallpaper from `MatrixCodeRainWallpaper/index.html`.
 4. Use the Wallpaper Engine properties panel to adjust the wallpaper.
 
-The audio spectrum requires Wallpaper Engine's desktop audio processing. Normal browsers and GitHub Pages cannot access Wallpaper Engine audio; use the local debug parameters below for browser-only previews.
+The audio spectrum requires Wallpaper Engine's desktop audio processing. Normal browsers and GitHub Pages cannot access Wallpaper Engine audio; use the audio debug preview links above for browser-only previews.
 
-## Local Preview
+## Local Development
 
 From the repository root:
 
@@ -80,23 +80,7 @@ From the repository root:
 python3 -m http.server 8765 --directory MatrixCodeRainWallpaper
 ```
 
-Open:
-
-```text
-http://127.0.0.1:8765/index.html
-```
-
-Hidden controls and audio simulation:
-
-```text
-http://127.0.0.1:8765/index.html?controls=1&debugstate&audio=true&audiodebug=1
-```
-
-Example peak-caps-only reversed spectrum:
-
-```text
-http://127.0.0.1:8765/index.html?controls=1&debugstate&audio=true&audiodebug=1&audiocolormode=caps_only&audiospectrumreverse=1
-```
+This command serves the same files locally for development. Public preview links are listed in the Preview Links section above.
 
 ## Main Settings
 

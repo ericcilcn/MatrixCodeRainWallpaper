@@ -110,12 +110,6 @@ const CONTROL_TEXT = {
     audioMatrixTint: "Cool tint",
     audioCapsOnly: "Peak caps only",
     advanced: "Advanced",
-    audioDebug: "Audio debug",
-    layout: "Layout",
-    layoutAuto: "Auto",
-    layoutDesktop: "Desktop",
-    layoutTablet: "Tablet",
-    layoutPhone: "Phone",
     copyLink: "Copy link",
     resetPreview: "Reset preview",
     linkCopied: "Link copied",
@@ -158,12 +152,6 @@ const CONTROL_TEXT = {
     audioMatrixTint: "冷色微光",
     audioCapsOnly: "仅显示盖帽",
     advanced: "高级选项",
-    audioDebug: "音频调试",
-    layout: "布局",
-    layoutAuto: "自动",
-    layoutDesktop: "桌面",
-    layoutTablet: "平板",
-    layoutPhone: "手机",
     copyLink: "复制链接",
     resetPreview: "重置预览",
     linkCopied: "链接已复制",
@@ -206,12 +194,6 @@ const CONTROL_TEXT = {
     audioMatrixTint: "冷色微光",
     audioCapsOnly: "僅顯示蓋帽",
     advanced: "進階選項",
-    audioDebug: "音訊調試",
-    layout: "版面",
-    layoutAuto: "自動",
-    layoutDesktop: "桌面",
-    layoutTablet: "平板",
-    layoutPhone: "手機",
     copyLink: "複製連結",
     resetPreview: "重置預覽",
     linkCopied: "連結已複製",
@@ -4752,14 +4734,6 @@ function initializeControlsPanel() {
         }),
         createControlsColor(controlText("color"), settings.color, (value) => {
           applyPreviewProperties({ color: propertyValue(colorToWallpaperValue(value)) });
-        }),
-        createControlsSelect(controlText("layout"), layoutModeOverride || "auto", [
-          { label: controlText("layoutAuto"), value: "auto" },
-          { label: controlText("layoutDesktop"), value: "desktop" },
-          { label: controlText("layoutTablet"), value: "tablet" },
-          { label: controlText("layoutPhone"), value: "phone" }
-        ], (value) => {
-          setPreviewLayoutMode(value === "auto" ? null : value);
         })
       ])
     ]),
@@ -4785,14 +4759,6 @@ function initializeControlsPanel() {
         }
       }),
       createControlsDetails(controlText("advanced"), [
-        createControlsToggle(controlText("audioDebug"), audioDebugEnabled, (value) => {
-          audioDebugEnabled = value;
-          if (!value) {
-            applyAudioLevels(0, 0, 0, false);
-            clearAudioRain();
-          }
-          refreshAppearance();
-        }),
         createControlsRange(controlText("audioResponse"), settings.audioresponse, 0, 100, (value) => {
           applyPreviewProperties({ audioresponse: propertyValue(value) });
         }),

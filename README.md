@@ -14,6 +14,7 @@ These links open the same web wallpaper with different URL parameters. Browser p
 
 - [Default Matrix rain / 默认代码雨](https://ericcilcn.github.io/MatrixCodeRainWallpaper/MatrixCodeRainWallpaper/index.html)
 - [Hidden controls / 隐藏控制台](https://ericcilcn.github.io/MatrixCodeRainWallpaper/MatrixCodeRainWallpaper/index.html?controls=1&debugstate)
+- [Intro reveal / 黑屏开场渐显](https://ericcilcn.github.io/MatrixCodeRainWallpaper/MatrixCodeRainWallpaper/index.html?skipintro=false&clock=false&audio=false)
 - [Clock enabled / 点阵时钟](https://ericcilcn.github.io/MatrixCodeRainWallpaper/MatrixCodeRainWallpaper/index.html?clock=true&audio=false)
 - [Audio spectrum debug / 音频频谱模拟](https://ericcilcn.github.io/MatrixCodeRainWallpaper/MatrixCodeRainWallpaper/index.html?controls=1&debugstate&audio=true&audiodebug=1)
 - [Frequency gradient spectrum / 频率渐变示波器](https://ericcilcn.github.io/MatrixCodeRainWallpaper/MatrixCodeRainWallpaper/index.html?controls=1&debugstate&audio=true&audiodebug=1&audiocolormode=frequency_gradient)
@@ -58,6 +59,8 @@ Creator-page and Workshop description drafts are in [docs/support-pages.md](docs
 - 音频颜色模式包括频率渐变、极光渐变、霓虹色块、冷色微光和仅峰值帽。
 - Optional reversed spectrum that grows from the bottom upward.
 - 可选反向示波器，让音频柱从屏幕底部向上顶出。
+- Optional intro reveal from black into the prewarmed stable rain state.
+- 可选黑屏开场渐显，平滑过渡到预热后的稳定代码雨状态。
 - Hidden browser control panel for previewing settings with URL parameters.
 - 隐藏网页控制台，可通过 URL 参数在浏览器里调试预览。
 - No video playback, no `.scr`, no Windows binary dependency.
@@ -85,6 +88,7 @@ This command serves the same files locally for development. Public preview links
 ## Main Settings
 
 - `Rain font`: Matrix Code trilogy or Matrix Resurrections.
+- `Skip intro`: enabled by default; turn it off to start from black and reveal into the stable rain.
 - `Clock`: toggles the dot-matrix clock.
 - `Audio spectrum`: toggles the audio-responsive visualizer.
 - `Audio response`: default `80`, controls spectrum amplitude response.

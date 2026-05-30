@@ -34,6 +34,7 @@ const CONTROLS_ENABLED = parseBooleanParam(URL_PARAMS.get("controls")) ?? URL_PA
 const WALLPAPER_AUDIO_API_AVAILABLE = typeof window.wallpaperRegisterAudioListener === "function";
 const LAYOUT_OVERRIDE = normalizeLayoutMode(URL_PARAMS.get("layout"));
 const CLOCK_OVERRIDE = parseBooleanParam(URL_PARAMS.get("clock"));
+const SKIP_INTRO_OVERRIDE = parseBooleanParam(URL_PARAMS.get("skipintro"));
 const AUDIO_COLOR_MODES = new Set(["level_layers", "frequency_gradient", "neon_blocks", "matrix_tint", "caps_only"]);
 const AUDIO_HUE_STEPS = 144;
 const AUDIO_SPECTRUM_BINS = 64;
@@ -89,6 +90,7 @@ const CONTROL_TEXT = {
     rainFont: "Rain font",
     fontTrilogy: "Matrix Code trilogy",
     fontResurrections: "Matrix Resurrections",
+    skipIntro: "Skip intro",
     density: "Density",
     speed: "Speed",
     brightness: "Rain brightness",
@@ -131,6 +133,7 @@ const CONTROL_TEXT = {
     rainFont: "代码雨字体",
     fontTrilogy: "黑客帝国三部曲",
     fontResurrections: "黑客帝国复活",
+    skipIntro: "跳过开场",
     density: "密度",
     speed: "速度",
     brightness: "雨亮度",
@@ -173,6 +176,7 @@ const CONTROL_TEXT = {
     rainFont: "代碼雨字體",
     fontTrilogy: "駭客任務三部曲",
     fontResurrections: "駭客任務復活",
+    skipIntro: "跳過開場",
     density: "密度",
     speed: "速度",
     brightness: "雨亮度",
@@ -387,6 +391,21 @@ const DEFAULT_PRESET = {
     activeDelayMaxTicks: 680,
     quietDelayMinTicks: 160,
     quietDelayMaxTicks: 620
+  },
+  introReveal: {
+    // Matched to the 2026-05-31 startup recording: almost black for the first
+    // half second, fast fill through the middle, then a short settle into the
+    // already-prewarmed stable rain.
+    durationMs: 3325,
+    globalStart: 0.06,
+    globalEnd: 0.68,
+    rowDelayMax: 0.34,
+    rowFadeSpan: 0.26,
+    rowJitter: 0.035,
+    columnDelayMax: 0.16,
+    columnJitter: 0.035,
+    rowPower: 1.14,
+    minAlpha: 0.002
   },
   initialWarmupSeconds: 20,
   bottomFade: {
@@ -684,6 +703,7 @@ const DEFAULT_PRESET = {
     glyphscale: 100,
     characterspacing: 70,
     fontstyle: "trilogy",
+    skipintro: true,
     glow: true,
     clock: true,
     clockbrightness: 110,
@@ -709,6 +729,7 @@ const settings = {
   glyphscale: clamp(GLYPH_SCALE_OVERRIDE ?? DEFAULT_PRESET.wallpaperProperties.glyphscale, 75, 130),
   characterspacing: clamp(CHARACTER_SPACING_OVERRIDE ?? DEFAULT_PRESET.wallpaperProperties.characterspacing, 40, 240),
   fontstyle: FONT_STYLE_OVERRIDE ?? DEFAULT_PRESET.wallpaperProperties.fontstyle,
+  skipintro: SKIP_INTRO_OVERRIDE ?? DEFAULT_PRESET.wallpaperProperties.skipintro,
   glow: GLOW_OVERRIDE ?? DEFAULT_PRESET.wallpaperProperties.glow,
   clock: CLOCK_OVERRIDE ?? DEFAULT_PRESET.wallpaperProperties.clock,
   clockbrightness: clamp(CLOCK_BRIGHTNESS_OVERRIDE ?? DEFAULT_PRESET.wallpaperProperties.clockbrightness, 60, 160),
@@ -749,6 +770,11 @@ let releaseCounter = 0;
 let renderSeconds = 0;
 let running = true;
 let started = false;
+let introState = {
+  active: !settings.skipintro,
+  startedAt: 0,
+  progress: settings.skipintro ? 1 : 0
+};
 let debugStateElement = null;
 let clockMask = new Uint8Array(0);
 let clockEmphasisMask = new Uint8Array(0);
@@ -789,6 +815,14 @@ let audioListenerRecoveryTimers = [];
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
+}
+
+function smoothStep(edge0, edge1, value) {
+  if (edge0 === edge1) {
+    return value < edge0 ? 0 : 1;
+  }
+  const t = clamp((value - edge0) / (edge1 - edge0), 0, 1);
+  return t * t * (3 - 2 * t);
 }
 
 function parseBooleanParam(value) {
@@ -4040,6 +4074,83 @@ function drawAudioSpectrumOverlay() {
   }
 }
 
+function resetIntroReveal(now = performance.now()) {
+  if (settings.skipintro) {
+    introState.active = false;
+    introState.startedAt = 0;
+    introState.progress = 1;
+    return;
+  }
+
+  introState.active = true;
+  introState.startedAt = now;
+  introState.progress = 0;
+}
+
+function updateIntroRevealProgress(now) {
+  if (settings.skipintro || !introState.active) {
+    introState.active = false;
+    introState.progress = 1;
+    return 1;
+  }
+
+  const duration = Math.max(1, DEFAULT_PRESET.introReveal.durationMs);
+  const progress = clamp((now - introState.startedAt) / duration, 0, 1);
+  introState.progress = progress;
+
+  if (progress >= 1) {
+    introState.active = false;
+  }
+
+  return progress;
+}
+
+function drawIntroRevealOverlay(now) {
+  if (settings.skipintro || !introState.active) {
+    return;
+  }
+
+  const progress = updateIntroRevealProgress(now);
+  if (!introState.active && progress >= 1) {
+    return;
+  }
+
+  const intro = DEFAULT_PRESET.introReveal;
+  const globalAlpha = 1 - smoothStep(intro.globalStart, intro.globalEnd, progress);
+  ctx.save();
+  ctx.globalCompositeOperation = "source-over";
+  ctx.fillStyle = "#000";
+
+  for (const column of activeColumns) {
+    const columnDelay = hashUnit(column.seed ^ 0x3a5f9d23) * intro.columnDelayMax;
+    const x = Math.floor(column.index * cellWidth);
+    const nextX = Math.ceil((column.index + 1) * cellWidth);
+
+    for (let rowIndex = 0; rowIndex < rows; rowIndex += 1) {
+      const rowRatio = rows <= 1 ? 0 : rowIndex / (rows - 1);
+      const rowJitter = (hashUnit((rowIndex + 1) * 0x9e3779b1) - 0.5) * intro.rowJitter;
+      const columnJitter = (hashUnit(column.seed ^ (rowIndex * 0x45d9f3b)) - 0.5) * intro.columnJitter;
+      const rowDelay = Math.pow(rowRatio, intro.rowPower) * intro.rowDelayMax;
+      const revealStart = clamp(columnDelay + rowDelay + rowJitter + columnJitter, 0, 0.68);
+      const rowReveal = smoothStep(revealStart, revealStart + intro.rowFadeSpan, progress);
+      const alpha = Math.max(globalAlpha * 0.84, 1 - rowReveal);
+
+      if (alpha <= intro.minAlpha) {
+        continue;
+      }
+
+      ctx.globalAlpha = clamp(alpha, 0, 1);
+      const y = Math.floor(rowIndex * cellHeight);
+      const nextY = Math.ceil((rowIndex + 1) * cellHeight);
+      ctx.fillRect(x, y, Math.max(1, nextX - x), Math.max(1, nextY - y));
+    }
+  }
+
+  ctx.restore();
+  ctx.globalAlpha = 1;
+  ctx.globalCompositeOperation = "source-over";
+}
+
 function render(now = performance.now()) {
   renderSeconds = now / 1000;
   updateClockMask();
@@ -4060,6 +4171,7 @@ function render(now = performance.now()) {
   }
 
   drawAudioSpectrumOverlay();
+  drawIntroRevealOverlay(now);
 
   ctx.globalAlpha = 1;
   ctx.globalCompositeOperation = "source-over";
@@ -4238,6 +4350,7 @@ function resize() {
     logicStep();
   }
   stabilizeStartupActivity();
+  resetIntroReveal(performance.now());
   render(performance.now());
 }
 
@@ -4442,6 +4555,12 @@ function collectMatrixRainState() {
     characterSpacing: settings.characterspacing,
     rainColor: colorToHex(settings.color),
     startup: DEFAULT_PRESET.startup,
+    intro: {
+      skip: settings.skipintro,
+      active: introState.active,
+      progress: Number(introState.progress.toFixed(3)),
+      durationMs: DEFAULT_PRESET.introReveal.durationMs
+    },
     metrics,
     columns: activeColumns.map((column) => ({
       index: column.index,
@@ -4540,6 +4659,7 @@ function buildControlsUrl() {
   url.searchParams.set("brightness", controlsUrlValue(settings.brightness));
   url.searchParams.set("glyphscale", controlsUrlValue(settings.glyphscale));
   url.searchParams.set("characterspacing", controlsUrlValue(settings.characterspacing));
+  url.searchParams.set("skipintro", controlsUrlValue(settings.skipintro));
   url.searchParams.set("glow", controlsUrlValue(settings.glow));
   url.searchParams.set("color", colorToHex(settings.color));
   url.searchParams.set("audio", controlsUrlValue(settings.audioenabled));
@@ -4713,6 +4833,9 @@ function initializeControlsPanel() {
       ], (value) => {
         applyPreviewProperties({ fontstyle: propertyValue(value) });
       }),
+      createControlsToggle(controlText("skipIntro"), settings.skipintro, (value) => {
+        applyPreviewProperties({ skipintro: propertyValue(value) });
+      }),
       createControlsDetails(controlText("advanced"), [
         createControlsRange(controlText("density"), settings.density, 30, 95, (value) => {
           applyPreviewProperties({ density: propertyValue(value) });
@@ -4863,6 +4986,15 @@ window.wallpaperPropertyListener = {
         clearClockGridCells();
         needsRestart = true;
         needsFontLoad = true;
+      }
+    }
+
+    if (Object.prototype.hasOwnProperty.call(properties, "skipintro")) {
+      const nextSkipIntro = (CONTROLS_ENABLED ? null : SKIP_INTRO_OVERRIDE) ?? Boolean(properties.skipintro.value);
+      if (settings.skipintro !== nextSkipIntro) {
+        settings.skipintro = nextSkipIntro;
+        resetIntroReveal(performance.now());
+        needsAppearanceRefresh = true;
       }
     }
 

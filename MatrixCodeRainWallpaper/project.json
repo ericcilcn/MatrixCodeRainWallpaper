@@ -21,6 +21,12 @@
         ],
         "order": 10
       },
+      "skipintro": {
+        "text": "ui_skip_intro",
+        "type": "bool",
+        "value": true,
+        "order": 15
+      },
       "clock": {
         "text": "ui_clock",
         "type": "bool",
@@ -189,6 +195,7 @@
         "ui_rain_font": "Rain font",
         "ui_font_trilogy": "Matrix Code trilogy",
         "ui_font_resurrections": "Matrix Resurrections",
+        "ui_skip_intro": "Skip intro",
         "ui_clock": "Clock",
         "ui_audio_spectrum": "Audio spectrum",
         "ui_base_advanced": "Base advanced",
@@ -216,6 +223,7 @@
         "ui_rain_font": "代码雨字体",
         "ui_font_trilogy": "黑客帝国三部曲",
         "ui_font_resurrections": "黑客帝国复活",
+        "ui_skip_intro": "跳过开场",
         "ui_clock": "时钟",
         "ui_audio_spectrum": "音频示波器",
         "ui_base_advanced": "基础高级选项",
@@ -243,6 +251,7 @@
         "ui_rain_font": "代碼雨字體",
         "ui_font_trilogy": "駭客任務三部曲",
         "ui_font_resurrections": "駭客任務復活",
+        "ui_skip_intro": "跳過開場",
         "ui_clock": "時鐘",
         "ui_audio_spectrum": "音訊示波器",
         "ui_base_advanced": "基礎進階選項",

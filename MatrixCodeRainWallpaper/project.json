@@ -72,7 +72,7 @@
       "glyphscale": {
         "text": "ui_character_size",
         "type": "slider",
-        "value": 100,
+        "value": 80,
         "min": 75,
         "max": 130,
         "editable": true,
@@ -167,9 +167,20 @@
           {
             "label": "ui_audio_color_matrix_tint",
             "value": "matrix_tint"
+          },
+          {
+            "label": "ui_audio_color_caps_only",
+            "value": "caps_only"
           }
         ],
         "order": 240,
+        "condition": "audioenabled.value == true && audioadvanced.value == true"
+      },
+      "audiospectrumreverse": {
+        "text": "ui_audio_spectrum_reverse",
+        "type": "bool",
+        "value": false,
+        "order": 250,
         "condition": "audioenabled.value == true && audioadvanced.value == true"
       }
     },
@@ -197,7 +208,9 @@
         "ui_audio_color_level_layers": "Aurora gradient",
         "ui_audio_color_frequency_gradient": "Frequency gradient",
         "ui_audio_color_neon_blocks": "Neon blocks",
-        "ui_audio_color_matrix_tint": "Matrix tint"
+        "ui_audio_color_matrix_tint": "Cool tint",
+        "ui_audio_color_caps_only": "Peak caps only",
+        "ui_audio_spectrum_reverse": "Reverse spectrum"
       },
       "zh-chs": {
         "ui_rain_font": "代码雨字体",
@@ -222,7 +235,9 @@
         "ui_audio_color_level_layers": "极光渐变",
         "ui_audio_color_frequency_gradient": "频率渐变",
         "ui_audio_color_neon_blocks": "霓虹色块",
-        "ui_audio_color_matrix_tint": "矩阵绿色"
+        "ui_audio_color_matrix_tint": "冷色微光",
+        "ui_audio_color_caps_only": "仅显示盖帽",
+        "ui_audio_spectrum_reverse": "示波器反向"
       },
       "zh-cht": {
         "ui_rain_font": "代碼雨字體",
@@ -247,7 +262,9 @@
         "ui_audio_color_level_layers": "極光漸變",
         "ui_audio_color_frequency_gradient": "頻率漸變",
         "ui_audio_color_neon_blocks": "霓虹色塊",
-        "ui_audio_color_matrix_tint": "矩陣綠色"
+        "ui_audio_color_matrix_tint": "冷色微光",
+        "ui_audio_color_caps_only": "僅顯示蓋帽",
+        "ui_audio_spectrum_reverse": "示波器反向"
       }
     },
     "supportsaudioprocessing": true

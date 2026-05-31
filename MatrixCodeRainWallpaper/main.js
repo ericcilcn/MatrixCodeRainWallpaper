@@ -1288,7 +1288,6 @@ function buildPalettes() {
       body: rgb(body),
       bright: rgb(bright),
       head: rgb(head),
-      trail: rgba(mixColor(body, bright, variant.fixed ? 0.28 : 0.34), audioVariant ? 0.34 : 0.42),
       glow: rgba(glowBase, Math.max(variant.glow, 0.2) * glowIntensity * glowBrightness)
     };
   });
@@ -2544,6 +2543,9 @@ function updateAmbientCell(column, rowIndex, cell) {
   const ambient = DEFAULT_PRESET.ambientGrid;
   cell.age += 1;
   cell.justWritten = false;
+  if (cell.matrix3TailTicks > 0) {
+    cell.matrix3TailTicks -= 1;
+  }
 
   if (cell.age >= cell.life) {
     if (!cell.demotedBeforeClear && cell.glowHead) {
@@ -2648,6 +2650,7 @@ function createCell(column, stream, rowIndex, age = 0, forceVisible = false) {
     audioLevel: stream.audioLevel || 0,
     audioBand: stream.audioBand || null,
     audioWaveId: stream.audioWaveId || null,
+    matrix3TailTicks: 0,
     justWritten: age <= 1
   };
 }
@@ -2691,6 +2694,9 @@ function demoteStreamHead(column, stream) {
     cell.headStreamId = null;
     cell.glowHead = Boolean(cell.headPreviousGlowHead);
     cell.headPreviousGlowHead = false;
+    if (settings.rainstyle === "matrix3_trails" && !cell.audioCell && !cell.clockCell && !cell.clockIntroDrop && !cell.negative) {
+      cell.matrix3TailTicks = Math.max(cell.matrix3TailTicks || 0, 10);
+    }
   }
 
   stream.headCellRow = null;
@@ -3036,6 +3042,9 @@ function updateCell(column, rowIndex) {
 
   cell.age += 1;
   cell.justWritten = false;
+  if (cell.matrix3TailTicks > 0) {
+    cell.matrix3TailTicks -= 1;
+  }
 
   if (cell.age >= cell.life) {
     if (!cell.transient && !cell.demotedBeforeClear && (cell.head || cell.glowHead)) {
@@ -3949,9 +3958,9 @@ function drawClockFallbackGlyphs() {
   }
 }
 
-function shouldDrawMatrix3Trail(cell, clockMaskHit, clockHighlightHit) {
+function shouldBoostMatrix3Tail(cell, clockMaskHit, clockHighlightHit) {
   return settings.rainstyle === "matrix3_trails"
-    && cell.head
+    && cell.matrix3TailTicks > 0
     && !cell.audioCell
     && !cell.clockCell
     && !cell.clockIntroDrop
@@ -3985,50 +3994,6 @@ function drawHeadGlyphGlow(cell, palette, x, y, finalAlpha) {
   ctx.restore();
 }
 
-function drawMatrix3Trail(cell, sprite, styleName, palette, x, y, finalAlpha) {
-  if (finalAlpha <= 0.02 || !cell.head) {
-    return;
-  }
-
-  const trailStyle = styleName === "head" ? "bright" : "body";
-  const trailSprite = trailStyle === styleName ? sprite : createGlyph(cell.char, trailStyle, palette);
-  const offsets = [
-    { y: -1.34, alpha: 0.10 },
-    { y: -0.98, alpha: 0.18 },
-    { y: -0.64, alpha: 0.26 },
-    { y: -0.32, alpha: 0.22 },
-    { y: -0.12, alpha: 0.12 }
-  ];
-
-  ctx.save();
-  ctx.globalCompositeOperation = "lighter";
-  ctx.fillStyle = palette.trail || palette.body;
-  ctx.globalAlpha = clamp(finalAlpha * 0.12, 0, 0.22);
-  ctx.fillRect(
-    Math.round(x - cellWidth * 0.2),
-    Math.round(y - cellHeight * 1.42),
-    Math.max(1, Math.round(cellWidth * 0.4)),
-    Math.max(1, Math.round(cellHeight * 1.32))
-  );
-
-  for (const offset of offsets) {
-    ctx.globalAlpha = clamp(finalAlpha * offset.alpha, 0, 0.36);
-    ctx.drawImage(
-      trailSprite.canvas,
-      trailSprite.sx,
-      trailSprite.sy,
-      trailSprite.sw,
-      trailSprite.sh,
-      Math.round(x - trailSprite.cssWidth / 2),
-      Math.round(y + offset.y * cellHeight - trailSprite.cssHeight / 2),
-      trailSprite.cssWidth,
-      trailSprite.cssHeight
-    );
-  }
-
-  ctx.restore();
-}
-
 function drawGlyph(cell, column, rowIndex) {
   let styleName = "body";
   let alpha = cell.alpha;
@@ -4049,6 +4014,13 @@ function drawGlyph(cell, column, rowIndex) {
   } else if (cell.glowHead) {
     styleName = "body";
     alpha *= cell.rotator ? 1.02 : 1.0;
+  }
+
+  const matrix3TailHit = shouldBoostMatrix3Tail(cell, clockMaskHit, clockHighlightHit);
+  if (matrix3TailHit && styleName !== "head") {
+    const tailPhase = clamp(cell.matrix3TailTicks / 10, 0, 1);
+    styleName = tailPhase > 0.42 ? "bright" : "body";
+    alpha *= 1 + tailPhase * 0.48;
   }
 
   if (clockEmphasisHit) {
@@ -4090,9 +4062,6 @@ function drawGlyph(cell, column, rowIndex) {
   const finalAlpha = clamp(alpha * visibility * renderBrightness, 0, 1);
   if (styleName === "head") {
     drawHeadGlyphGlow(cell, palette, x, y, finalAlpha);
-  }
-  if (shouldDrawMatrix3Trail(cell, clockMaskHit, clockHighlightHit)) {
-    drawMatrix3Trail(cell, sprite, styleName, palette, x, y, finalAlpha);
   }
 
   ctx.globalAlpha = finalAlpha;

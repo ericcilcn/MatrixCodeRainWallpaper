@@ -35,6 +35,7 @@ const WALLPAPER_AUDIO_API_AVAILABLE = typeof window.wallpaperRegisterAudioListen
 const LAYOUT_OVERRIDE = normalizeLayoutMode(URL_PARAMS.get("layout"));
 const CLOCK_OVERRIDE = parseBooleanParam(URL_PARAMS.get("clock"));
 const SKIP_INTRO_OVERRIDE = parseBooleanParam(URL_PARAMS.get("skipintro"));
+const RAIN_STYLES = new Set(["clean", "matrix3_trails"]);
 const AUDIO_COLOR_MODES = new Set(["level_layers", "frequency_gradient", "neon_blocks", "matrix_tint", "caps_only"]);
 const AUDIO_HUE_STEPS = 144;
 const AUDIO_SPECTRUM_BINS = 64;
@@ -68,6 +69,7 @@ const AUDIO_DEBUG_OVERRIDE = URL_PARAMS.has("audiodebug")
   : null;
 const AUDIO_DEBUG_LEVEL_OVERRIDE = parseNumberParam(URL_PARAMS.get("audiodebuglevel"));
 const COLOR_OVERRIDE = parseQueryColor(URL_PARAMS.get("color"));
+const RAIN_STYLE_OVERRIDE = normalizeRainStyle(URL_PARAMS.get("rainstyle"));
 const LANGUAGE_OVERRIDE = normalizeUiLanguage(URL_PARAMS.get("lang"));
 const CONTROL_LANGUAGE = LANGUAGE_OVERRIDE || normalizeUiLanguage(navigator.language) || "en-us";
 const TRILOGY_CHAR_POOL = `"*+012345789:<>z|¦©╌▪アウエオカキケコサシスセソタツテナニヌネハヒホマミムメモヤヨラリワー꞊\uE937`;
@@ -91,6 +93,9 @@ const CONTROL_TEXT = {
     fontTrilogy: "Matrix Code trilogy",
     fontResurrections: "Matrix Resurrections",
     skipIntro: "Skip intro",
+    rainStyle: "Rain style",
+    rainStyleClean: "Clean glyphs",
+    rainStyleMatrix3: "Matrix 3 trails",
     density: "Density",
     speed: "Speed",
     brightness: "Rain brightness",
@@ -134,6 +139,9 @@ const CONTROL_TEXT = {
     fontTrilogy: "黑客帝国三部曲",
     fontResurrections: "黑客帝国复活",
     skipIntro: "跳过开场",
+    rainStyle: "代码雨风格",
+    rainStyleClean: "清晰字符",
+    rainStyleMatrix3: "矩阵3拖尾",
     density: "密度",
     speed: "速度",
     brightness: "雨亮度",
@@ -177,6 +185,9 @@ const CONTROL_TEXT = {
     fontTrilogy: "駭客任務三部曲",
     fontResurrections: "駭客任務復活",
     skipIntro: "跳過開場",
+    rainStyle: "代碼雨風格",
+    rainStyleClean: "清晰字元",
+    rainStyleMatrix3: "駭客任務3拖尾",
     density: "密度",
     speed: "速度",
     brightness: "雨亮度",
@@ -704,7 +715,8 @@ const DEFAULT_PRESET = {
     glyphscale: 100,
     characterspacing: 70,
     fontstyle: "trilogy",
-    skipintro: true,
+    rainstyle: "clean",
+    skipintro: false,
     glow: true,
     clock: true,
     clockbrightness: 110,
@@ -730,6 +742,7 @@ const settings = {
   glyphscale: clamp(GLYPH_SCALE_OVERRIDE ?? DEFAULT_PRESET.wallpaperProperties.glyphscale, 75, 130),
   characterspacing: clamp(CHARACTER_SPACING_OVERRIDE ?? DEFAULT_PRESET.wallpaperProperties.characterspacing, 40, 240),
   fontstyle: FONT_STYLE_OVERRIDE ?? DEFAULT_PRESET.wallpaperProperties.fontstyle,
+  rainstyle: RAIN_STYLE_OVERRIDE ?? DEFAULT_PRESET.wallpaperProperties.rainstyle,
   skipintro: SKIP_INTRO_OVERRIDE ?? DEFAULT_PRESET.wallpaperProperties.skipintro,
   glow: GLOW_OVERRIDE ?? DEFAULT_PRESET.wallpaperProperties.glow,
   clock: CLOCK_OVERRIDE ?? DEFAULT_PRESET.wallpaperProperties.clock,
@@ -890,6 +903,21 @@ function normalizeFontStyle(value) {
     return normalized;
   }
   return null;
+}
+
+function normalizeRainStyle(value) {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const normalized = value.trim().toLowerCase().replace(/[-\s]/g, "_");
+  if (["clean", "clear", "classic", "crisp", "default"].includes(normalized)) {
+    return "clean";
+  }
+  if (["matrix3", "matrix_3", "matrix3_trails", "matrix_3_trails", "revolutions", "revolution", "trails", "trail"].includes(normalized)) {
+    return "matrix3_trails";
+  }
+  return RAIN_STYLES.has(normalized) ? normalized : null;
 }
 
 function normalizeAudioColorMode(value) {
@@ -1260,6 +1288,7 @@ function buildPalettes() {
       body: rgb(body),
       bright: rgb(bright),
       head: rgb(head),
+      trail: rgba(mixColor(body, bright, variant.fixed ? 0.28 : 0.34), audioVariant ? 0.34 : 0.42),
       glow: rgba(glowBase, Math.max(variant.glow, 0.2) * glowIntensity * glowBrightness)
     };
   });
@@ -3920,6 +3949,70 @@ function drawClockFallbackGlyphs() {
   }
 }
 
+function shouldDrawMatrix3Trail(cell, clockMaskHit, clockHighlightHit) {
+  return settings.rainstyle === "matrix3_trails"
+    && !cell.audioCell
+    && !cell.clockCell
+    && !cell.clockIntroDrop
+    && !clockMaskHit
+    && !clockHighlightHit
+    && !cell.negative;
+}
+
+function drawMatrix3Trail(cell, sprite, styleName, palette, x, y, finalAlpha) {
+  if (finalAlpha <= 0.02) {
+    return;
+  }
+
+  const trailStyle = styleName === "head" ? "bright" : (styleName === "dim" ? "dim" : "body");
+  const trailSprite = trailStyle === styleName ? sprite : createGlyph(cell.char, trailStyle, palette);
+  const strength = cell.head
+    ? 1.15
+    : (cell.glowHead ? 0.92 : 0.62);
+  const offsets = cell.head
+    ? [
+      { y: -1.18, alpha: 0.16 },
+      { y: -0.78, alpha: 0.28 },
+      { y: -0.44, alpha: 0.34 },
+      { y: -0.18, alpha: 0.22 },
+      { y: 0.24, alpha: 0.12 }
+    ]
+    : [
+      { y: -0.72, alpha: 0.08 },
+      { y: -0.44, alpha: 0.14 },
+      { y: -0.22, alpha: 0.16 },
+      { y: 0.18, alpha: 0.07 }
+    ];
+
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  ctx.fillStyle = palette.trail || palette.body;
+  ctx.globalAlpha = clamp(finalAlpha * 0.11 * strength, 0, 0.22);
+  ctx.fillRect(
+    Math.round(x - cellWidth * 0.22),
+    Math.round(y - cellHeight * (cell.head ? 1.1 : 0.76)),
+    Math.max(1, Math.round(cellWidth * 0.44)),
+    Math.max(1, Math.round(cellHeight * (cell.head ? 1.9 : 1.28)))
+  );
+
+  for (const offset of offsets) {
+    ctx.globalAlpha = clamp(finalAlpha * offset.alpha * strength, 0, 0.48);
+    ctx.drawImage(
+      trailSprite.canvas,
+      trailSprite.sx,
+      trailSprite.sy,
+      trailSprite.sw,
+      trailSprite.sh,
+      Math.round(x - trailSprite.cssWidth / 2),
+      Math.round(y + offset.y * cellHeight - trailSprite.cssHeight / 2),
+      trailSprite.cssWidth,
+      trailSprite.cssHeight
+    );
+  }
+
+  ctx.restore();
+}
+
 function drawGlyph(cell, column, rowIndex) {
   let styleName = "body";
   let alpha = cell.alpha;
@@ -3978,7 +4071,12 @@ function drawGlyph(cell, column, rowIndex) {
   const renderBrightness = (clockMaskHit || clockHighlightHit)
     ? clamp(settings.clockbrightness / DEFAULT_PRESET.wallpaperProperties.clockbrightness, 0.55, 1.45)
     : clamp(settings.brightness / 72, 0.45, 1.32);
-  ctx.globalAlpha = clamp(alpha * visibility * renderBrightness, 0, 1);
+  const finalAlpha = clamp(alpha * visibility * renderBrightness, 0, 1);
+  if (shouldDrawMatrix3Trail(cell, clockMaskHit, clockHighlightHit)) {
+    drawMatrix3Trail(cell, sprite, styleName, palette, x, y, finalAlpha);
+  }
+
+  ctx.globalAlpha = finalAlpha;
   ctx.drawImage(
     sprite.canvas,
     sprite.sx,
@@ -4756,6 +4854,7 @@ function collectMatrixRainState() {
       family: activeFontFamily,
       glyphCount: CHAR_LIST.length
     },
+    rainStyle: settings.rainstyle,
     layoutProfile: activeLayoutProfile,
     layout: DEFAULT_PRESET.layout,
     clock: {
@@ -4953,6 +5052,7 @@ function buildControlsUrl() {
   url.searchParams.set("brightness", controlsUrlValue(settings.brightness));
   url.searchParams.set("glyphscale", controlsUrlValue(settings.glyphscale));
   url.searchParams.set("characterspacing", controlsUrlValue(settings.characterspacing));
+  url.searchParams.set("rainstyle", settings.rainstyle);
   url.searchParams.set("skipintro", controlsUrlValue(settings.skipintro));
   url.searchParams.set("glow", controlsUrlValue(settings.glow));
   url.searchParams.set("color", colorToHex(settings.color));
@@ -5146,6 +5246,12 @@ function initializeControlsPanel() {
         createControlsRange(controlText("characterSpacing"), settings.characterspacing, 40, 240, (value) => {
           applyPreviewProperties({ characterspacing: propertyValue(value) });
         }),
+        createControlsSelect(controlText("rainStyle"), settings.rainstyle, [
+          { label: controlText("rainStyleClean"), value: "clean" },
+          { label: controlText("rainStyleMatrix3"), value: "matrix3_trails" }
+        ], (value) => {
+          applyPreviewProperties({ rainstyle: propertyValue(value) });
+        }),
         createControlsToggle(controlText("glow"), settings.glow, (value) => {
           applyPreviewProperties({ glow: propertyValue(value) });
         }),
@@ -5282,6 +5388,11 @@ window.wallpaperPropertyListener = {
         needsRestart = true;
         needsFontLoad = true;
       }
+    }
+
+    if (Object.prototype.hasOwnProperty.call(properties, "rainstyle")) {
+      settings.rainstyle = normalizeRainStyle(String(properties.rainstyle.value))
+        ?? DEFAULT_PRESET.wallpaperProperties.rainstyle;
     }
 
     if (Object.prototype.hasOwnProperty.call(properties, "skipintro")) {

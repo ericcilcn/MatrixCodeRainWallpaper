@@ -24,7 +24,7 @@
       "skipintro": {
         "text": "ui_skip_intro",
         "type": "bool",
-        "value": true,
+        "value": false,
         "order": 15
       },
       "clock": {
@@ -53,6 +53,23 @@
         "max": 95,
         "editable": true,
         "order": 30,
+        "condition": "baseadvanced.value == true"
+      },
+      "rainstyle": {
+        "text": "ui_rain_style",
+        "type": "combo",
+        "value": "clean",
+        "options": [
+          {
+            "label": "ui_rain_style_clean",
+            "value": "clean"
+          },
+          {
+            "label": "ui_rain_style_matrix3",
+            "value": "matrix3_trails"
+          }
+        ],
+        "order": 35,
         "condition": "baseadvanced.value == true"
       },
       "speed": {
@@ -196,6 +213,9 @@
         "ui_font_trilogy": "Matrix Code trilogy",
         "ui_font_resurrections": "Matrix Resurrections",
         "ui_skip_intro": "Skip intro",
+        "ui_rain_style": "Rain style",
+        "ui_rain_style_clean": "Clean glyphs",
+        "ui_rain_style_matrix3": "Matrix 3 trails",
         "ui_clock": "Clock",
         "ui_audio_spectrum": "Audio spectrum",
         "ui_base_advanced": "Base advanced",
@@ -224,6 +244,9 @@
         "ui_font_trilogy": "黑客帝国三部曲",
         "ui_font_resurrections": "黑客帝国复活",
         "ui_skip_intro": "跳过开场",
+        "ui_rain_style": "代码雨风格",
+        "ui_rain_style_clean": "清晰字符",
+        "ui_rain_style_matrix3": "矩阵3拖尾",
         "ui_clock": "时钟",
         "ui_audio_spectrum": "音频示波器",
         "ui_base_advanced": "基础高级选项",
@@ -252,6 +275,9 @@
         "ui_font_trilogy": "駭客任務三部曲",
         "ui_font_resurrections": "駭客任務復活",
         "ui_skip_intro": "跳過開場",
+        "ui_rain_style": "代碼雨風格",
+        "ui_rain_style_clean": "清晰字元",
+        "ui_rain_style_matrix3": "駭客任務3拖尾",
         "ui_clock": "時鐘",
         "ui_audio_spectrum": "音訊示波器",
         "ui_base_advanced": "基礎進階選項",

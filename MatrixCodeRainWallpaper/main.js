@@ -86,16 +86,17 @@ const CONTROL_TEXT = {
     title: "Matrix controls",
     hide: "Hide",
     show: "Show",
+    launchGroup: "Startup",
     base: "Base",
     clockGroup: "Clock",
     audioGroup: "Audio",
-    rainFont: "Rain font",
+    rainFont: "Font",
     fontTrilogy: "Matrix Code trilogy",
     fontResurrections: "Matrix Resurrections",
     skipIntro: "Skip intro",
-    rainStyle: "Rain style",
-    rainStyleClean: "Clean glyphs",
-    rainStyleMatrix3: "Matrix 3 trails",
+    rainStyle: "Style",
+    rainStyleClean: "The Matrix",
+    rainStyleMatrix3: "The Matrix 3",
     density: "Density",
     speed: "Speed",
     brightness: "Rain brightness",
@@ -115,7 +116,7 @@ const CONTROL_TEXT = {
     audioFrequencyGradient: "Frequency gradient",
     audioNeonBlocks: "Neon blocks",
     audioMatrixTint: "Cool tint",
-    audioCapsOnly: "Peak caps only",
+    audioCapsOnly: "Transparent",
     advanced: "Advanced",
     copyLink: "Copy link",
     resetPreview: "Reset preview",
@@ -132,16 +133,17 @@ const CONTROL_TEXT = {
     title: "Matrix 控制台",
     hide: "隐藏",
     show: "显示",
+    launchGroup: "启动",
     base: "基础",
     clockGroup: "时钟",
     audioGroup: "音频",
-    rainFont: "代码雨字体",
+    rainFont: "字体",
     fontTrilogy: "黑客帝国三部曲",
     fontResurrections: "黑客帝国复活",
     skipIntro: "跳过开场",
-    rainStyle: "代码雨风格",
-    rainStyleClean: "清晰字符",
-    rainStyleMatrix3: "矩阵3拖尾",
+    rainStyle: "风格",
+    rainStyleClean: "黑客帝国一",
+    rainStyleMatrix3: "黑客帝国三",
     density: "密度",
     speed: "速度",
     brightness: "雨亮度",
@@ -161,7 +163,7 @@ const CONTROL_TEXT = {
     audioFrequencyGradient: "频率渐变",
     audioNeonBlocks: "霓虹色块",
     audioMatrixTint: "冷色微光",
-    audioCapsOnly: "仅显示盖帽",
+    audioCapsOnly: "透明",
     advanced: "高级选项",
     copyLink: "复制链接",
     resetPreview: "重置预览",
@@ -178,16 +180,17 @@ const CONTROL_TEXT = {
     title: "Matrix 控制台",
     hide: "隱藏",
     show: "顯示",
+    launchGroup: "啟動",
     base: "基礎",
     clockGroup: "時鐘",
     audioGroup: "音訊",
-    rainFont: "代碼雨字體",
+    rainFont: "字體",
     fontTrilogy: "駭客任務三部曲",
     fontResurrections: "駭客任務復活",
     skipIntro: "跳過開場",
-    rainStyle: "代碼雨風格",
-    rainStyleClean: "清晰字元",
-    rainStyleMatrix3: "駭客任務3拖尾",
+    rainStyle: "風格",
+    rainStyleClean: "駭客任務一",
+    rainStyleMatrix3: "駭客任務三",
     density: "密度",
     speed: "速度",
     brightness: "雨亮度",
@@ -207,7 +210,7 @@ const CONTROL_TEXT = {
     audioFrequencyGradient: "頻率漸變",
     audioNeonBlocks: "霓虹色塊",
     audioMatrixTint: "冷色微光",
-    audioCapsOnly: "僅顯示蓋帽",
+    audioCapsOnly: "透明",
     advanced: "進階選項",
     copyLink: "複製連結",
     resetPreview: "重置預覽",
@@ -407,16 +410,18 @@ const DEFAULT_PRESET = {
     // Based on the 2026-05-31 native Matrix clip: black first, then the actual
     // main rain streams are released from above the top edge and fall into the
     // normal renderer state. This is not a separate visual overlay.
-    durationMs: 5200,
-    blackHoldMs: 260,
-    firstDropMs: 420,
-    columnStartSpreadMs: 1850,
+    durationMs: 2800,
+    blackHoldMs: 170,
+    firstDropMs: 260,
+    columnStartSpreadMs: 900,
     startPower: 1.45,
-    speedRowsPerSecond: 34,
-    speedVarianceRowsPerSecond: 8,
+    speedRowsPerSecond: 52,
+    speedVarianceRowsPerSecond: 12,
     activeColumnRatio: 0.3,
-    allowAmbientAt: 0.92,
-    holdActiveExtraTicks: 150
+    allowAmbientAt: 0.9,
+    holdActiveExtraTicks: 90,
+    clockFormationEasePower: 2.45,
+    clockDropEaseOutPower: 2.65
   },
   initialWarmupSeconds: 20,
   bottomFade: {
@@ -920,6 +925,14 @@ function normalizeRainStyle(value) {
   return RAIN_STYLES.has(normalized) ? normalized : null;
 }
 
+function matrix3RainStyleActive() {
+  return settings.rainstyle === "matrix3_trails";
+}
+
+function rainStyleMultiplier(matrix3Value, cleanValue = 1) {
+  return matrix3RainStyleActive() ? matrix3Value : cleanValue;
+}
+
 function normalizeAudioColorMode(value) {
   if (typeof value !== "string") {
     return null;
@@ -1045,6 +1058,71 @@ function referenceBrightChance(rowIndex, baseChance) {
 
 function referenceGlyphDensity(rowIndex, density) {
   return clamp(density * referenceActiveFactor(rowIndex), 0.04, 1);
+}
+
+function streamGlyphDensity(stream, rowIndex) {
+  const density = referenceGlyphDensity(rowIndex, stream.density);
+  if (!matrix3RainStyleActive() || stream.negative || (stream.mode !== "normal" && stream.mode !== "deep")) {
+    return density;
+  }
+
+  const rowUnit = rowIndex / Math.max(1, rows - 1);
+  const continuityFloor = rowUnit > 0.76 ? 0.39 : rowUnit > 0.58 ? 0.52 : 0.64;
+  return Math.max(density, continuityFloor);
+}
+
+function matrix3FallingStream(stream) {
+  return matrix3RainStyleActive()
+    && stream
+    && !stream.negative
+    && !stream.audioRain
+    && (stream.mode === "normal" || stream.mode === "deep");
+}
+
+function matrix3StreamForCell(column, cell) {
+  if (
+    !matrix3RainStyleActive()
+    || !cell
+    || cell.audioCell
+    || cell.clockCell
+    || cell.clockIntroDrop
+    || cell.negative
+    || typeof cell.streamId !== "string"
+    || !/^\d+:/.test(cell.streamId)
+  ) {
+    return null;
+  }
+
+  return column.streams.find((stream) => stream.id === cell.streamId && matrix3FallingStream(stream)) || null;
+}
+
+function matrix3TailAlphaFactor(column, rowIndex, cell) {
+  const stream = matrix3StreamForCell(column, cell);
+  if (!stream) {
+    if (!matrix3RainStyleActive() || typeof cell.streamId !== "string" || !/^\d+:/.test(cell.streamId)) {
+      return 1;
+    }
+
+    const remaining = clamp(1 - cell.age / Math.max(1, cell.life), 0, 1);
+    const target = Math.pow(remaining, 1.45);
+    const current = Number.isFinite(cell.matrix3Brightness) ? cell.matrix3Brightness : target;
+    cell.matrix3Brightness = current + (target - current) * 0.18;
+    return clamp(cell.matrix3Brightness, 0, 1);
+  }
+
+  const distanceFromHead = stream.headRow + stream.progress - rowIndex;
+  const tailRows = clamp(stream.length * 0.72, 5.2, 16);
+  let target = 0;
+  if (distanceFromHead >= -0.35 && distanceFromHead <= tailRows) {
+    const tailPosition = clamp(distanceFromHead / tailRows, 0, 1);
+    const cursorBoost = distanceFromHead < 0.7 ? 1.12 : 1;
+    target = clamp((0.2 + Math.pow(1 - tailPosition, 1.22) * 0.88) * cursorBoost, 0, 1.16);
+  }
+
+  const current = Number.isFinite(cell.matrix3Brightness) ? cell.matrix3Brightness : target;
+  const blend = target > current ? 0.62 : 0.2;
+  cell.matrix3Brightness = current + (target - current) * blend;
+  return clamp(cell.matrix3Brightness, 0, 1.16);
 }
 
 function hashInt(value) {
@@ -1477,7 +1555,10 @@ function streamDensity(stream) {
   const target = (stream.negative ? DEFAULT_PRESET.negativeDensity : DEFAULT_PRESET.positiveDensity) / 100;
   const variance = (stream.negative ? DEFAULT_PRESET.negativeDensityVariance : DEFAULT_PRESET.positiveDensityVariance) / 100;
   const min = target - variance * 0.5;
-  return clamp((min + hashUnit(stream.seed ^ 0x68a31) * variance) * (settings.density / 62), 0.32, 1);
+  const styleBoost = matrix3RainStyleActive() && !stream.negative && stream.mode !== "audio"
+    ? 1.14
+    : 1;
+  return clamp((min + hashUnit(stream.seed ^ 0x68a31) * variance) * (settings.density / 62) * styleBoost, 0.32, 1);
 }
 
 function streamLength(stream, seed) {
@@ -1485,7 +1566,10 @@ function streamLength(stream, seed) {
   const length = stream.long
     ? seededRange(seed ^ 0x7f3ac21, rows * lengthPreset.longMinRows, rows * lengthPreset.longMaxRows)
     : seededRange(seed ^ 0x2b61fd9, rows * lengthPreset.shortMinRows, rows * lengthPreset.shortMaxRows);
-  return Math.max(7, Math.round(length));
+  const longFallStyle = matrix3RainStyleActive() && !stream.negative && (stream.mode === "normal" || stream.mode === "deep");
+  const styleBoost = longFallStyle ? 0.76 : 1;
+  const minRows = longFallStyle ? Math.max(8, Math.floor(rows * 0.16)) : 7;
+  return Math.max(minRows, Math.round(length * styleBoost));
 }
 
 function smoothAudioValue(current, target) {
@@ -2212,12 +2296,19 @@ function ambientCellChance(column, rowIndex) {
 }
 
 function ambientStartChance(column, rowIndex) {
-  return clamp(ambientCellChance(column, rowIndex) * DEFAULT_PRESET.ambientGrid.runStartFactor, 0.004, 0.28);
+  return clamp(
+    ambientCellChance(column, rowIndex) * DEFAULT_PRESET.ambientGrid.runStartFactor * rainStyleMultiplier(0.72),
+    0.004,
+    0.28
+  );
 }
 
 function ambientContinueChance(column, rowIndex) {
   const ambient = DEFAULT_PRESET.ambientGrid;
   const chance = ambient.runContinueMin + ambientCellChance(column, rowIndex) * ambient.runContinueByDensity;
+  if (matrix3RainStyleActive()) {
+    return clamp(chance + 0.1, Math.min(0.68, ambient.runContinueMin + 0.06), Math.min(0.86, ambient.runContinueMax + 0.12));
+  }
   return clamp(chance, ambient.runContinueMin, ambient.runContinueMax);
 }
 
@@ -2315,28 +2406,30 @@ function lowerSingletonNeighborRow(seed, rowIndex) {
 function singletonKeepChance(rowIndex) {
   const ambient = DEFAULT_PRESET.ambientGrid;
   if (!isLowerSingletonRow(rowIndex)) {
-    return ambient.singletonKeepChance;
+    return ambient.singletonKeepChance * rainStyleMultiplier(0.32);
   }
 
-  return lowerDepthValue(rowIndex, ambient.lowerSingletonKeepChance, ambient.deepLowerSingletonKeepChance);
+  return lowerDepthValue(rowIndex, ambient.lowerSingletonKeepChance, ambient.deepLowerSingletonKeepChance)
+    * rainStyleMultiplier(0.28);
 }
 
 function singletonColumnizeChance(rowIndex) {
   const ambient = DEFAULT_PRESET.ambientGrid;
   if (!isLowerSingletonRow(rowIndex)) {
-    return ambient.singletonColumnizeChance;
+    return ambient.singletonColumnizeChance * rainStyleMultiplier(0.18);
   }
 
-  return lowerDepthValue(rowIndex, ambient.lowerSingletonColumnizeChance, ambient.deepLowerSingletonColumnizeChance);
+  return lowerDepthValue(rowIndex, ambient.lowerSingletonColumnizeChance, ambient.deepLowerSingletonColumnizeChance)
+    * rainStyleMultiplier(0.18);
 }
 
 function bridgeGapChance(rowIndex) {
   const ambient = DEFAULT_PRESET.ambientGrid;
   if (!isLowerSingletonRow(rowIndex)) {
-    return ambient.bridgeSingleGapChance;
+    return ambient.bridgeSingleGapChance * rainStyleMultiplier(1.35);
   }
 
-  return lowerDepthValue(rowIndex, ambient.bridgeSingleGapChance, ambient.bridgeLowerGapChance);
+  return lowerDepthValue(rowIndex, ambient.bridgeSingleGapChance, ambient.bridgeLowerGapChance) * rainStyleMultiplier(1.15);
 }
 
 function maybeColumnizeSingleton(column, rowIndex, seed, options = {}) {
@@ -2426,17 +2519,29 @@ function bridgeSingleCellGaps(column) {
 
 function shapeColumnSingletons(column) {
   const ambient = DEFAULT_PRESET.ambientGrid;
+  const strictMatrix3 = matrix3RainStyleActive();
 
   for (let pass = 0; pass < 2; pass += 1) {
     for (let rowIndex = 0; rowIndex < rows; rowIndex += 1) {
       const cell = column.cells[rowIndex];
-      if (!cell || cell.negative || cell.transient || cell.head || !cellVisibleEnough(cell, rowIndex) || hasVisibleVerticalCell(column, rowIndex)) {
+      const visibleEnough = strictMatrix3
+        ? cell && cell.target > 0.045
+        : cellVisibleEnough(cell, rowIndex);
+      const hasVerticalNeighbor = strictMatrix3
+        ? hasVerticalCell(column, rowIndex)
+        : hasVisibleVerticalCell(column, rowIndex);
+      if (!cell || cell.negative || cell.transient || cell.head || !visibleEnough || hasVerticalNeighbor) {
         continue;
       }
 
       const seed = hashInt((cell.salt || column.seed) ^ Math.imul(rowIndex + 37 + pass * 113, 1597334677));
       const roll = hashUnit(seed ^ 0x51a3);
       if (roll < singletonKeepChance(rowIndex)) {
+        continue;
+      }
+
+      if (strictMatrix3) {
+        column.cells[rowIndex] = null;
         continue;
       }
 
@@ -2517,6 +2622,10 @@ function placeAmbientCell(column, rowIndex, seed, options = {}) {
 }
 
 function seedAmbientColumn(column) {
+  if (matrix3RainStyleActive()) {
+    return;
+  }
+
   let continuingRun = false;
 
   for (let rowIndex = 0; rowIndex < rows; rowIndex += 1) {
@@ -2543,10 +2652,6 @@ function updateAmbientCell(column, rowIndex, cell) {
   const ambient = DEFAULT_PRESET.ambientGrid;
   cell.age += 1;
   cell.justWritten = false;
-  if (cell.matrix3TailTicks > 0) {
-    cell.matrix3TailTicks -= 1;
-  }
-
   if (cell.age >= cell.life) {
     if (!cell.demotedBeforeClear && cell.glowHead) {
       const dimSeed = hashInt(cell.salt ^ Math.imul(logicalTick + rowIndex + 3, 1597334677));
@@ -2583,11 +2688,21 @@ function updateAmbientCell(column, rowIndex, cell) {
     cell.baseAlpha = ambientAlpha(tickSeed, column, rowIndex, cell.glowHead);
   }
 
-  cell.target = cell.baseAlpha;
-  cell.alpha = cell.baseAlpha;
+  const matrix3AlphaFactor = matrix3TailAlphaFactor(column, rowIndex, cell);
+  if (matrix3RainStyleActive() && matrix3AlphaFactor <= 0.025 && cell.age > 6 && !cell.head) {
+    column.cells[rowIndex] = null;
+    return;
+  }
+
+  cell.target = cell.baseAlpha * matrix3AlphaFactor;
+  cell.alpha = cell.target;
 }
 
 function maybeReplenishAmbientCell(column, rowIndex) {
+  if (matrix3RainStyleActive()) {
+    return;
+  }
+
   if (column.cells[rowIndex]) {
     return;
   }
@@ -2613,12 +2728,13 @@ function maybeReplenishAmbientCell(column, rowIndex) {
 }
 
 function createCell(column, stream, rowIndex, age = 0, forceVisible = false) {
-  const visible = forceVisible || hashUnit(stream.seed ^ Math.imul(rowIndex + 8191, 1103515245)) <= referenceGlyphDensity(rowIndex, stream.density);
+  const visible = forceVisible || hashUnit(stream.seed ^ Math.imul(rowIndex + 8191, 1103515245)) <= streamGlyphDensity(stream, rowIndex);
 
   if (!visible) {
     return null;
   }
 
+  const matrix3FallingCell = matrix3FallingStream(stream);
   const stableChar = chooseStableChar(column.seed, column.index, rowIndex, stream.patternSalt);
   const rotator = streamRotatorForCell(column, stream, rowIndex);
   const alphaUnit = hashUnit(stream.patternSalt ^ Math.imul(rowIndex + 37, 2246822519));
@@ -2633,7 +2749,10 @@ function createCell(column, stream, rowIndex, age = 0, forceVisible = false) {
     stableChar,
     salt: stream.patternSalt,
     age,
-    life: stream.cellLifeTicks || Math.max(stream.length + 1, Math.round(stream.length * DEFAULT_PRESET.cellLifetimeScale)),
+    life: stream.cellLifeTicks || Math.max(
+      stream.length + 1,
+      Math.round(stream.length * (matrix3FallingCell ? 1.16 : DEFAULT_PRESET.cellLifetimeScale))
+    ),
     alpha: 0,
     target: 0,
     baseAlpha: alphaBase * column.intensity * stream.toneMultiplier * referenceBrightnessFactor(rowIndex),
@@ -2650,7 +2769,7 @@ function createCell(column, stream, rowIndex, age = 0, forceVisible = false) {
     audioLevel: stream.audioLevel || 0,
     audioBand: stream.audioBand || null,
     audioWaveId: stream.audioWaveId || null,
-    matrix3TailTicks: 0,
+    matrix3Brightness: matrix3FallingCell ? 0 : 1,
     justWritten: age <= 1
   };
 }
@@ -2694,9 +2813,6 @@ function demoteStreamHead(column, stream) {
     cell.headStreamId = null;
     cell.glowHead = Boolean(cell.headPreviousGlowHead);
     cell.headPreviousGlowHead = false;
-    if (settings.rainstyle === "matrix3_trails" && !cell.audioCell && !cell.clockCell && !cell.clockIntroDrop && !cell.negative) {
-      cell.matrix3TailTicks = Math.max(cell.matrix3TailTicks || 0, 10);
-    }
   }
 
   stream.headCellRow = null;
@@ -2746,7 +2862,10 @@ function resetStream(stream, column, initial = false) {
   stream.toneMultiplier = 1;
   stream.length = streamLength(stream, cycleSeed);
   if (stream.mode === "fragment") {
-    stream.length = Math.max(6, Math.floor(stream.length * seededRange(cycleSeed ^ 0xb38d, 0.48, 0.78)));
+    const fragmentScaleMin = matrix3RainStyleActive() ? 0.78 : 0.48;
+    const fragmentScaleMax = matrix3RainStyleActive() ? 1.02 : 0.78;
+    const fragmentMinRows = matrix3RainStyleActive() ? Math.max(10, Math.floor(rows * 0.18)) : 6;
+    stream.length = Math.max(fragmentMinRows, Math.floor(stream.length * seededRange(cycleSeed ^ 0xb38d, fragmentScaleMin, fragmentScaleMax)));
   }
   stream.density = streamDensity(stream);
   const rotatorMean = (stream.negative ? DEFAULT_PRESET.negativeRotatorOccurrence : DEFAULT_PRESET.rotatorOccurrence) / 100;
@@ -2773,13 +2892,19 @@ function resetStream(stream, column, initial = false) {
   } else if (stream.mode === "eraser") {
     stream.endRow = Math.floor(seededRange(cycleSeed ^ 0x25ef, rows * modes.eraserEndMinRows, rows * modes.eraserEndMaxRows));
   } else {
-    const reachesBottom = stream.mode === "deep" || hashUnit(cycleSeed ^ 0x671a) < origin.reachesBottomChance;
+    const reachesBottomChance = matrix3RainStyleActive()
+      ? Math.min(0.38, origin.reachesBottomChance * 1.25)
+      : origin.reachesBottomChance;
+    const reachesBottom = stream.mode === "deep" || hashUnit(cycleSeed ^ 0x671a) < reachesBottomChance;
     stream.endRow = reachesBottom
       ? rows + stream.length + 2
       : Math.floor(seededRange(cycleSeed ^ 0x25ef, rows * origin.endMinRows, rows * origin.endMaxRows));
   }
 
-  if (initial) {
+  if (matrix3FallingStream(stream)) {
+    stream.headRow = Math.floor(seededRange(cycleSeed ^ 0x8cc5, -Math.max(4, stream.length * 0.72), -1));
+    stream.progress = hashUnit(cycleSeed ^ 0x423f) * 0.45;
+  } else if (initial) {
     const topBiased = hashUnit(cycleSeed ^ 0x49ac) < origin.initialTopChance;
     stream.headRow = topBiased
       ? Math.floor(seededRange(cycleSeed ^ 0x8cc5, -stream.length * 0.1, rows * origin.initialTopPortion))
@@ -2897,6 +3022,19 @@ function columnActivityDuration(seed, active) {
   return Math.floor(seededRange(seed ^ 0xa91f, min, max));
 }
 
+function startupActiveColumnRatio() {
+  if (!matrix3RainStyleActive()) {
+    return DEFAULT_PRESET.startup.maxActiveColumnRatio;
+  }
+
+  const cold = DEFAULT_PRESET.coldStartRain;
+  return Math.min(0.46, cold.activeColumnRatio * 1.25);
+}
+
+function visibleRainColumn(column) {
+  return column && column.index >= 0 && column.index < gridColumns;
+}
+
 function addColumnStream(column, initial, mode = "normal") {
   const stream = createStream(column, column.nextStreamOrdinal, initial, mode);
   column.nextStreamOrdinal += 1;
@@ -2908,7 +3046,7 @@ function ensureColumnStreams(column, initial = false) {
   const activity = DEFAULT_PRESET.columnActivity;
   const target = initial
     ? column.streamTarget
-    : Math.max(1, Math.round(column.streamTarget * activity.reawakenStreamRatio));
+    : Math.max(1, Math.round(column.streamTarget * activity.reawakenStreamRatio * rainStyleMultiplier(1.25)));
 
   while (column.streams.length < target && column.streams.length < DEFAULT_PRESET.maxConcurrentStreamsPerColumn) {
     addColumnStream(column, initial);
@@ -2946,6 +3084,108 @@ function setColumnActivity(column, active, seed, initial = false) {
   }
 }
 
+function streamVisibleInGrid(stream) {
+  if (!matrix3FallingStream(stream) || stream.finished || stream.cooldownTicks > 0) {
+    return false;
+  }
+
+  const head = stream.headRow + stream.progress;
+  const tail = head - stream.length;
+  return head >= -1 && tail <= rows + 1;
+}
+
+function matrix3StreamHead(stream) {
+  return stream.headRow + stream.progress;
+}
+
+function resetMatrix3StreamFromTop(stream, column, seed) {
+  if (!matrix3RainStyleActive() || !matrix3FallingStream(stream)) {
+    return;
+  }
+
+  demoteStreamHead(column, stream);
+  resetStream(stream, column);
+  stream.headRow = Math.floor(seededRange(seed ^ 0x7391, -Math.max(4, stream.length * 0.68), -1));
+  stream.progress = seededRange(seed ^ 0x58ad, 0, 0.45);
+  stream.cooldownTicks = 0;
+  stream.finished = false;
+  stream.endRow = rows + stream.length + 2;
+}
+
+function bridgeMatrix3StartupColumn(column, seed) {
+  if (!matrix3RainStyleActive() || !column.active || !visibleRainColumn(column)) {
+    return;
+  }
+
+  const fallingStreams = column.streams.filter((stream) => matrix3FallingStream(stream));
+  const visibleStreams = fallingStreams.filter((stream) => streamVisibleInGrid(stream));
+  const hasIncomingStream = fallingStreams.some((stream) => (
+    !stream.finished
+    && stream.cooldownTicks <= 0
+    && matrix3StreamHead(stream) < rows * 0.42
+  ));
+
+  if (visibleStreams.length > 0 && hasIncomingStream) {
+    return;
+  }
+
+  if (
+    visibleStreams.length > 0
+    && Math.min(...visibleStreams.map((stream) => matrix3StreamHead(stream))) < rows * 0.58
+  ) {
+    return;
+  }
+
+  let stream = fallingStreams.find((candidate) => candidate.finished || candidate.cooldownTicks > 0);
+  if (!stream && column.streams.length < DEFAULT_PRESET.maxConcurrentStreamsPerColumn) {
+    stream = addColumnStream(column, false, hashUnit(seed ^ 0x6d41) > 0.88 ? "deep" : "normal");
+  }
+  if (!stream) {
+    stream = fallingStreams.find((candidate) => !streamVisibleInGrid(candidate));
+  }
+  if (!stream) {
+    return;
+  }
+
+  resetMatrix3StreamFromTop(stream, column, seed);
+}
+
+function maintainMatrix3RainDensity() {
+  if (!matrix3RainStyleActive()) {
+    return;
+  }
+
+  const introRunning = coldStartActive();
+  if (introRunning && introState.progress < 0.68) {
+    return;
+  }
+
+  const targetActiveColumns = Math.max(1, Math.round(gridColumns * startupActiveColumnRatio()));
+  const activeVisibleColumns = activeColumns
+    .filter((column) => visibleRainColumn(column) && column.active);
+
+  if (!introRunning && activeVisibleColumns.length < targetActiveColumns) {
+    const inactiveColumns = activeColumns
+      .filter((column) => visibleRainColumn(column) && !column.active)
+      .sort((a, b) => hashUnit(a.seed ^ Math.imul(logicalTick + 31, 1103515245)) - hashUnit(b.seed ^ Math.imul(logicalTick + 31, 1103515245)));
+    const needed = Math.min(targetActiveColumns - activeVisibleColumns.length, inactiveColumns.length);
+    for (let index = 0; index < needed; index += 1) {
+      const column = inactiveColumns[index];
+      const seed = hashInt(column.activitySeed ^ column.seed ^ Math.imul(logicalTick + index + 1, 1597334677));
+      setColumnActivity(column, true, seed, true);
+      activeVisibleColumns.push(column);
+    }
+  }
+
+  for (const column of activeVisibleColumns) {
+    if (introRunning && !column.coldStartReleased) {
+      continue;
+    }
+    const seed = hashInt(column.activitySeed ^ column.seed ^ Math.imul(logicalTick + 17, 668265263));
+    bridgeMatrix3StartupColumn(column, seed);
+  }
+}
+
 function updateColumnActivity(column) {
   if (coldStartActive()) {
     return;
@@ -2961,22 +3201,28 @@ function updateColumnActivity(column) {
 
 function stabilizeStartupActivity() {
   const startup = DEFAULT_PRESET.startup;
-  const maxActiveColumns = Math.max(1, Math.round(gridColumns * startup.maxActiveColumnRatio));
+  const matrix3Style = matrix3RainStyleActive();
+  const maxActiveColumns = Math.max(1, Math.round(gridColumns * startupActiveColumnRatio()));
   const activeColumnsNow = activeColumns
-    .filter((column) => column.active)
+    .filter((column) => visibleRainColumn(column) && column.active)
     .sort((a, b) => hashUnit(a.seed ^ 0x48f31) - hashUnit(b.seed ^ 0x48f31));
 
-  for (let index = maxActiveColumns; index < activeColumnsNow.length; index += 1) {
-    const column = activeColumnsNow[index];
-    column.active = false;
-    retireColumn(column);
+  if (!matrix3Style) {
+    for (let index = maxActiveColumns; index < activeColumnsNow.length; index += 1) {
+      const column = activeColumnsNow[index];
+      column.active = false;
+      retireColumn(column);
+    }
   }
 
-  if (activeColumnsNow.length < maxActiveColumns) {
+  const activeCount = matrix3Style
+    ? activeColumns.filter((column) => visibleRainColumn(column) && column.active).length
+    : activeColumnsNow.length;
+  if (activeCount < maxActiveColumns) {
     const inactiveColumns = activeColumns
-      .filter((column) => !column.active)
+      .filter((column) => visibleRainColumn(column) && !column.active)
       .sort((a, b) => hashUnit(a.seed ^ 0x912ab) - hashUnit(b.seed ^ 0x912ab));
-    const needed = Math.min(maxActiveColumns - activeColumnsNow.length, inactiveColumns.length);
+    const needed = Math.min(maxActiveColumns - activeCount, inactiveColumns.length);
 
     for (let index = 0; index < needed; index += 1) {
       const column = inactiveColumns[index];
@@ -2993,8 +3239,12 @@ function stabilizeStartupActivity() {
       column.nextActivityTick = logicalTick + Math.floor(seededRange(seed, startup.quietDelayMinTicks, startup.quietDelayMaxTicks));
     }
 
-    for (const stream of column.streams) {
-      stream.progress = hashUnit(seed ^ stream.seed ^ 0x7a3d);
+    if (matrix3Style) {
+      bridgeMatrix3StartupColumn(column, seed);
+    } else {
+      for (const stream of column.streams) {
+        stream.progress = hashUnit(seed ^ stream.seed ^ 0x7a3d);
+      }
     }
   }
 }
@@ -3042,12 +3292,9 @@ function updateCell(column, rowIndex) {
 
   cell.age += 1;
   cell.justWritten = false;
-  if (cell.matrix3TailTicks > 0) {
-    cell.matrix3TailTicks -= 1;
-  }
-
+  const matrix3StreamCell = matrix3StreamForCell(column, cell);
   if (cell.age >= cell.life) {
-    if (!cell.transient && !cell.demotedBeforeClear && (cell.head || cell.glowHead)) {
+    if (!matrix3StreamCell && !cell.transient && !cell.demotedBeforeClear && (cell.head || cell.glowHead)) {
       const dimSeed = hashInt(cell.salt ^ Math.imul(logicalTick + rowIndex + 5, 668265263));
       cell.demotedBeforeClear = true;
       cell.head = false;
@@ -3065,7 +3312,7 @@ function updateCell(column, rowIndex) {
     return;
   }
 
-  if ((cell.head || cell.glowHead) && cell.age > 4) {
+  if (!matrix3StreamCell && (cell.head || cell.glowHead) && cell.age > 4) {
     const dimSeed = hashInt(cell.salt ^ Math.imul(logicalTick + rowIndex + 5, 668265263));
     if (demoteUnsupportedBrightCell(column, rowIndex, cell, dimSeed, 30)) {
       return;
@@ -3078,13 +3325,20 @@ function updateCell(column, rowIndex) {
     cell.nextRotateTick = logicalTick + rotateDelay(cell.salt, rowIndex);
   }
 
-  cell.target = cell.baseAlpha;
-  cell.alpha = cell.baseAlpha;
+  const matrix3AlphaFactor = matrix3TailAlphaFactor(column, rowIndex, cell);
+  if (matrix3RainStyleActive() && matrix3AlphaFactor <= 0.025 && cell.age > 6 && !cell.head) {
+    column.cells[rowIndex] = null;
+    return;
+  }
+
+  cell.target = cell.baseAlpha * matrix3AlphaFactor;
+  cell.alpha = cell.target;
 }
 
 function releaseAmbientSingles() {
   const ambient = DEFAULT_PRESET.ambientGrid;
-  if (hashUnit(Math.imul(logicalTick + 31, 2246822519)) > ambient.singleBirthChancePerTick) {
+  const chance = ambient.singleBirthChancePerTick * rainStyleMultiplier(0.12);
+  if (hashUnit(Math.imul(logicalTick + 31, 2246822519)) > chance) {
     return;
   }
 
@@ -3119,7 +3373,8 @@ function releaseAmbientSingles() {
 
 function releaseAmbientSmallColumns() {
   const ambient = DEFAULT_PRESET.ambientGrid;
-  if (hashUnit(Math.imul(logicalTick + 79, 1103515245)) > ambient.smallColumnChancePerTick) {
+  const chance = ambient.smallColumnChancePerTick * rainStyleMultiplier(0.12);
+  if (hashUnit(Math.imul(logicalTick + 79, 1103515245)) > chance) {
     return;
   }
 
@@ -3131,7 +3386,9 @@ function releaseAmbientSmallColumns() {
       continue;
     }
 
-    const length = Math.floor(seededRange(seed ^ 0xa73d, ambient.smallColumnMinRows, ambient.smallColumnMaxRows + 1));
+    const minRows = matrix3RainStyleActive() ? Math.max(4, ambient.smallColumnMinRows) : ambient.smallColumnMinRows;
+    const maxRows = matrix3RainStyleActive() ? Math.max(minRows, ambient.smallColumnMaxRows + 2) : ambient.smallColumnMaxRows;
+    const length = Math.floor(seededRange(seed ^ 0xa73d, minRows, maxRows + 1));
     const startRow = Math.min(rows - length, Math.floor(hashUnit(seed ^ 0x5bc7) * rows));
     if (isLowerSingletonRow(startRow) && hashUnit(seed ^ 0x7c91) > ambient.lowerSmallColumnKeepChance) {
       continue;
@@ -3190,7 +3447,10 @@ function stepStream(column, stream) {
 }
 
 function releaseSplash() {
-  const chance = (1 / DEFAULT_PRESET.releaseEveryTicks) * clamp(settings.density / 62, 0.5, 1.35);
+  const styleActive = matrix3RainStyleActive();
+  const chance = (1 / DEFAULT_PRESET.releaseEveryTicks)
+    * clamp(settings.density / 62, 0.5, 1.35)
+    * (styleActive ? 2.6 : 1);
   if (hashUnit(logicalTick * 2654435761) > chance) {
     return;
   }
@@ -3212,8 +3472,11 @@ function releaseSplash() {
     }
     const modeRoll = hashUnit(Math.imul(logicalTick + i + 101, 1597334677));
     const modes = DEFAULT_PRESET.releaseModes;
-    const mode =
-      modeRoll < modes.eraserChance
+    const mode = styleActive
+      ? modeRoll > 0.92
+        ? "deep"
+        : "normal"
+      : modeRoll < modes.eraserChance
         ? "eraser"
         : modeRoll < modes.eraserChance + modes.fragmentChance
           ? "fragment"
@@ -3221,14 +3484,17 @@ function releaseSplash() {
             ? "deep"
             : "normal";
     const stream = addColumnStream(column, false, mode);
-    stream.length = Math.max(10, Math.floor(stream.length * seededRange(stream.seed ^ 0x751e, 0.68, 1.25)));
-    stream.speed *= seededRange(stream.seed ^ 0x431c, 0.9, 1.42);
+    const minLength = styleActive ? Math.max(10, Math.floor(rows * 0.18)) : 10;
+    const minScale = styleActive ? 0.55 : 0.68;
+    const maxScale = styleActive ? 0.9 : 1.25;
+    stream.length = Math.max(minLength, Math.floor(stream.length * seededRange(stream.seed ^ 0x751e, minScale, maxScale)));
+    stream.speed *= seededRange(stream.seed ^ 0x431c, styleActive ? 0.96 : 0.9, styleActive ? 1.24 : 1.42);
   }
 }
 
 function releaseStandaloneRotators() {
   const rotators = DEFAULT_PRESET.standaloneRotators;
-  const chance = rotators.chancePerTick * clamp(settings.density / 62, 0.55, 1.35);
+  const chance = rotators.chancePerTick * clamp(settings.density / 62, 0.55, 1.35) * rainStyleMultiplier(0.08);
   if (hashUnit(Math.imul(logicalTick + 29, 1597334677)) > chance) {
     return;
   }
@@ -3319,7 +3585,7 @@ function hasWritableRows(column, startRow, length) {
 
 function releaseLowerFragments() {
   const fragments = DEFAULT_PRESET.lowerFragments;
-  const chance = fragments.chancePerTick * clamp(settings.density / 62, 0.55, 1.3);
+  const chance = fragments.chancePerTick * clamp(settings.density / 62, 0.55, 1.3) * rainStyleMultiplier(0.28);
   if (hashUnit(Math.imul(logicalTick + 47, 1103515245)) > chance) {
     return;
   }
@@ -3332,9 +3598,11 @@ function releaseLowerFragments() {
     const startMax = rows * fragments.startMaxRows;
     const randomStart = seededRange(seed ^ 0x2ac1, startMin, startMax);
     const startRow = Math.floor(randomStart * (1 - startUnit) + startMin * startUnit);
+    const minLengthRows = matrix3RainStyleActive() ? Math.max(4, fragments.minLengthRows) : fragments.minLengthRows;
+    const maxLengthRows = matrix3RainStyleActive() ? Math.max(minLengthRows + 1, fragments.maxLengthRows + 2) : fragments.maxLengthRows;
     const length = Math.min(
       rows - startRow,
-      Math.floor(seededRange(seed ^ 0x33d1, fragments.minLengthRows, fragments.maxLengthRows + 1))
+      Math.floor(seededRange(seed ^ 0x33d1, minLengthRows, maxLengthRows + 1))
     );
 
     if (length <= 0) {
@@ -3402,6 +3670,7 @@ function logicStep() {
     }
   }
 
+  maintainMatrix3RainDensity();
   updateColdStartClockFormation();
   updateIntroRevealProgress(performance.now());
 
@@ -3958,17 +4227,6 @@ function drawClockFallbackGlyphs() {
   }
 }
 
-function shouldBoostMatrix3Tail(cell, clockMaskHit, clockHighlightHit) {
-  return settings.rainstyle === "matrix3_trails"
-    && cell.matrix3TailTicks > 0
-    && !cell.audioCell
-    && !cell.clockCell
-    && !cell.clockIntroDrop
-    && !clockMaskHit
-    && !clockHighlightHit
-    && !cell.negative;
-}
-
 function drawHeadGlyphGlow(cell, palette, x, y, finalAlpha) {
   if (!settings.glow || !cell.head || finalAlpha <= 0.02) {
     return;
@@ -4016,13 +4274,6 @@ function drawGlyph(cell, column, rowIndex) {
     alpha *= cell.rotator ? 1.02 : 1.0;
   }
 
-  const matrix3TailHit = shouldBoostMatrix3Tail(cell, clockMaskHit, clockHighlightHit);
-  if (matrix3TailHit && styleName !== "head") {
-    const tailPhase = clamp(cell.matrix3TailTicks / 10, 0, 1);
-    styleName = tailPhase > 0.42 ? "bright" : "body";
-    alpha *= 1 + tailPhase * 0.48;
-  }
-
   if (clockEmphasisHit) {
     styleName = "head";
     alpha = Math.max(alpha * 1.34, DEFAULT_PRESET.clock.alphaFloor * (settings.clockbrightness / 100));
@@ -4060,7 +4311,14 @@ function drawGlyph(cell, column, rowIndex) {
     ? clamp(settings.clockbrightness / DEFAULT_PRESET.wallpaperProperties.clockbrightness, 0.55, 1.45)
     : clamp(settings.brightness / 72, 0.45, 1.32);
   const finalAlpha = clamp(alpha * visibility * renderBrightness, 0, 1);
-  if (styleName === "head") {
+  if (
+    styleName === "head"
+    && !cell.clockCell
+    && !cell.clockIntroDrop
+    && !clockMaskHit
+    && !clockEmphasisHit
+    && !clockHighlightHit
+  ) {
     drawHeadGlyphGlow(cell, palette, x, y, finalAlpha);
   }
 
@@ -4328,7 +4586,8 @@ function coldStartClockComplete() {
 
 function coldStartColumnStartTick(column) {
   const cold = DEFAULT_PRESET.coldStartRain;
-  if (hashUnit(column.seed ^ 0x3b7d131f) > cold.activeColumnRatio) {
+  const activeColumnRatio = Math.min(0.46, cold.activeColumnRatio * rainStyleMultiplier(1.25));
+  if (hashUnit(column.seed ^ 0x3b7d131f) > activeColumnRatio) {
     return Number.POSITIVE_INFINITY;
   }
 
@@ -4350,6 +4609,9 @@ function primeColdStartColumn(column) {
     + Math.floor(seededRange(seed ^ 0x5741, 0, cold.holdActiveExtraTicks));
 
   for (const stream of column.streams) {
+    if (matrix3RainStyleActive() && !stream.negative && (stream.mode === "normal" || stream.mode === "deep")) {
+      stream.length = Math.max(8, Math.floor(stream.length * seededRange(stream.seed ^ 0x91ac, 0.58, 0.82)));
+    }
     stream.headRow = Math.floor(seededRange(stream.seed ^ 0xa17f, -Math.max(3, stream.length * 0.65), 0));
     stream.progress = hashUnit(stream.seed ^ 0x11d3) * 0.35;
     stream.speed = cold.speedRowsPerSecond
@@ -4409,23 +4671,39 @@ function initializeColdStartClockDrops() {
   const durationTicks = Math.max(1, Math.round(tickRate() * cold.durationMs / 1000));
   const blackHoldTicks = Math.round(tickRate() * cold.blackHoldMs / 1000);
   const firstDropTicks = Math.round(tickRate() * cold.firstDropMs / 1000);
-  const firstSettleTick = introState.startTick + blackHoldTicks + firstDropTicks + Math.round(tickRate() * 1.55);
-  const latestSettleTick = introState.startTick + durationTicks - Math.round(tickRate() * 1);
+  const firstSettleTick = introState.startTick + blackHoldTicks + firstDropTicks + Math.round(tickRate() * 0.38);
+  const latestSettleTick = Math.max(
+    firstSettleTick + Math.round(tickRate() * 0.85),
+    introState.startTick + durationTicks - Math.round(tickRate() * 0.28)
+  );
   const settleSpreadTicks = Math.max(1, latestSettleTick - firstSettleTick);
   const targetRows = clockCells.map((clockCell) => clockCell.rowIndex);
   const firstTargetRow = Math.min(...targetRows);
   const lastTargetRow = Math.max(...targetRows);
   const targetRowSpan = Math.max(1, lastTargetRow - firstTargetRow);
+  const orderedDrops = clockCells
+    .map((clockCell, index) => {
+      const seed = hashInt(clockCell.salt ^ Math.imul(index + 1, 1597334677));
+      const rowBias = (clockCell.rowIndex - firstTargetRow) / targetRowSpan;
+      const orderBias = clamp(rowBias * 0.82 + hashUnit(seed ^ 0x91bd) * 0.18, 0, 1);
+      return { index, orderBias };
+    })
+    .sort((a, b) => a.orderBias - b.orderBias || a.index - b.index);
+  const orderRankByIndex = new Map();
+  const maxOrderIndex = Math.max(1, orderedDrops.length - 1);
+  for (let orderIndex = 0; orderIndex < orderedDrops.length; orderIndex += 1) {
+    orderRankByIndex.set(orderedDrops[orderIndex].index, orderIndex / maxOrderIndex);
+  }
 
   introState.clockKey = nextKey;
   introState.clockDrops = clockCells.map((clockCell, index) => {
     const seed = hashInt(clockCell.salt ^ Math.imul(index + 1, 1597334677));
     const targetRow = clockCell.rowIndex;
     const startRow = -2 - Math.floor(hashUnit(seed ^ 0x49af) * 5);
-    const rowBias = (targetRow - firstTargetRow) / targetRowSpan;
-    const settleBias = clamp(rowBias * 0.86 + hashUnit(seed ^ 0x91bd) * 0.14, 0, 1);
+    const orderRank = orderRankByIndex.get(index) || 0;
+    const settleBias = Math.pow(orderRank, cold.clockFormationEasePower);
     const settleTick = firstSettleTick + Math.floor(settleBias * settleSpreadTicks);
-    const speedRowsPerSecond = seededRange(seed ^ 0x2db1, 28, 42);
+    const speedRowsPerSecond = seededRange(seed ^ 0x2db1, 48, 68);
     const travelTicks = Math.max(6, Math.ceil(((targetRow - startRow) / speedRowsPerSecond) * tickRate()));
     const startTick = Math.max(introState.startTick + blackHoldTicks, settleTick - travelTicks);
 
@@ -4490,7 +4768,7 @@ function updateColdStartClockFormation() {
     const travelProgress = drop.settleTick <= drop.startTick
       ? 1
       : clamp((logicalTick - drop.startTick) / (drop.settleTick - drop.startTick), 0, 1);
-    const easedProgress = 1 - Math.pow(1 - travelProgress, 1.9);
+    const easedProgress = 1 - Math.pow(1 - travelProgress, DEFAULT_PRESET.coldStartRain.clockDropEaseOutPower);
     const row = clampInt(
       Math.round(drop.startRow + (drop.targetRow - drop.startRow) * easedProgress),
       0,
@@ -4627,8 +4905,11 @@ function resolveLayoutMetrics(viewWidth, viewHeight) {
   if (mode === "desktop") {
     const baseColumns = layout.visibleColumns || Math.round(layout.referenceWidth / layout.columnPitchPx);
     const baseRows = layout.visibleRows || Math.round(layout.referenceHeight / layout.rowPitchPx);
-    const columns = clampInt(baseColumns / characterSizeScale, 80, 220);
     const rowCount = clampInt(baseRows / characterSizeScale, 36, 104);
+    const oldCellHeight = viewHeight / rowCount;
+    const referenceCellAspect = (layout.referenceWidth / baseColumns) / (layout.referenceHeight / baseRows);
+    const targetColumnPitch = Math.max(1, oldCellHeight * referenceCellAspect);
+    const columns = clampInt(viewWidth / targetColumnPitch, 8, 240);
 
     return {
       mode,
@@ -5208,15 +5489,23 @@ function initializeControlsPanel() {
   body.className = "matrix-controls-body";
 
   body.append(
+    createControlsGroup(controlText("launchGroup"), [
+      createControlsToggle(controlText("skipIntro"), settings.skipintro, (value) => {
+        applyPreviewProperties({ skipintro: propertyValue(value) });
+      }),
+      createControlsSelect(controlText("rainStyle"), settings.rainstyle, [
+        { label: controlText("rainStyleClean"), value: "clean" },
+        { label: controlText("rainStyleMatrix3"), value: "matrix3_trails" }
+      ], (value) => {
+        applyPreviewProperties({ rainstyle: propertyValue(value) });
+      })
+    ]),
     createControlsGroup(controlText("base"), [
       createControlsSelect(controlText("rainFont"), settings.fontstyle, [
         { label: controlText("fontTrilogy"), value: "trilogy" },
         { label: controlText("fontResurrections"), value: "resurrections" }
       ], (value) => {
         applyPreviewProperties({ fontstyle: propertyValue(value) });
-      }),
-      createControlsToggle(controlText("skipIntro"), settings.skipintro, (value) => {
-        applyPreviewProperties({ skipintro: propertyValue(value) });
       }),
       createControlsDetails(controlText("advanced"), [
         createControlsRange(controlText("density"), settings.density, 30, 95, (value) => {
@@ -5233,12 +5522,6 @@ function initializeControlsPanel() {
         }),
         createControlsRange(controlText("characterSpacing"), settings.characterspacing, 40, 240, (value) => {
           applyPreviewProperties({ characterspacing: propertyValue(value) });
-        }),
-        createControlsSelect(controlText("rainStyle"), settings.rainstyle, [
-          { label: controlText("rainStyleClean"), value: "clean" },
-          { label: controlText("rainStyleMatrix3"), value: "matrix3_trails" }
-        ], (value) => {
-          applyPreviewProperties({ rainstyle: propertyValue(value) });
         }),
         createControlsToggle(controlText("glow"), settings.glow, (value) => {
           applyPreviewProperties({ glow: propertyValue(value) });

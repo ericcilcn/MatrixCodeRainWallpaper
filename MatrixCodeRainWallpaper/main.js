@@ -3951,6 +3951,7 @@ function drawClockFallbackGlyphs() {
 
 function shouldDrawMatrix3Trail(cell, clockMaskHit, clockHighlightHit) {
   return settings.rainstyle === "matrix3_trails"
+    && cell.head
     && !cell.audioCell
     && !cell.clockCell
     && !cell.clockIntroDrop
@@ -3959,44 +3960,59 @@ function shouldDrawMatrix3Trail(cell, clockMaskHit, clockHighlightHit) {
     && !cell.negative;
 }
 
-function drawMatrix3Trail(cell, sprite, styleName, palette, x, y, finalAlpha) {
-  if (finalAlpha <= 0.02) {
+function drawHeadGlyphGlow(cell, palette, x, y, finalAlpha) {
+  if (!settings.glow || !cell.head || finalAlpha <= 0.02) {
     return;
   }
 
-  const trailStyle = styleName === "head" ? "bright" : (styleName === "dim" ? "dim" : "body");
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  ctx.shadowColor = palette.glow;
+  ctx.shadowBlur = fontSize * 0.62;
+  ctx.fillStyle = palette.glow;
+  ctx.globalAlpha = clamp(finalAlpha * 0.28, 0, 0.38);
+  ctx.beginPath();
+  ctx.ellipse(
+    x,
+    y,
+    Math.max(2, cellWidth * 0.38),
+    Math.max(2, cellHeight * 0.48),
+    0,
+    0,
+    Math.PI * 2
+  );
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawMatrix3Trail(cell, sprite, styleName, palette, x, y, finalAlpha) {
+  if (finalAlpha <= 0.02 || !cell.head) {
+    return;
+  }
+
+  const trailStyle = styleName === "head" ? "bright" : "body";
   const trailSprite = trailStyle === styleName ? sprite : createGlyph(cell.char, trailStyle, palette);
-  const strength = cell.head
-    ? 1.15
-    : (cell.glowHead ? 0.92 : 0.62);
-  const offsets = cell.head
-    ? [
-      { y: -1.18, alpha: 0.16 },
-      { y: -0.78, alpha: 0.28 },
-      { y: -0.44, alpha: 0.34 },
-      { y: -0.18, alpha: 0.22 },
-      { y: 0.24, alpha: 0.12 }
-    ]
-    : [
-      { y: -0.72, alpha: 0.08 },
-      { y: -0.44, alpha: 0.14 },
-      { y: -0.22, alpha: 0.16 },
-      { y: 0.18, alpha: 0.07 }
-    ];
+  const offsets = [
+    { y: -1.34, alpha: 0.10 },
+    { y: -0.98, alpha: 0.18 },
+    { y: -0.64, alpha: 0.26 },
+    { y: -0.32, alpha: 0.22 },
+    { y: -0.12, alpha: 0.12 }
+  ];
 
   ctx.save();
   ctx.globalCompositeOperation = "lighter";
   ctx.fillStyle = palette.trail || palette.body;
-  ctx.globalAlpha = clamp(finalAlpha * 0.11 * strength, 0, 0.22);
+  ctx.globalAlpha = clamp(finalAlpha * 0.12, 0, 0.22);
   ctx.fillRect(
-    Math.round(x - cellWidth * 0.22),
-    Math.round(y - cellHeight * (cell.head ? 1.1 : 0.76)),
-    Math.max(1, Math.round(cellWidth * 0.44)),
-    Math.max(1, Math.round(cellHeight * (cell.head ? 1.9 : 1.28)))
+    Math.round(x - cellWidth * 0.2),
+    Math.round(y - cellHeight * 1.42),
+    Math.max(1, Math.round(cellWidth * 0.4)),
+    Math.max(1, Math.round(cellHeight * 1.32))
   );
 
   for (const offset of offsets) {
-    ctx.globalAlpha = clamp(finalAlpha * offset.alpha * strength, 0, 0.48);
+    ctx.globalAlpha = clamp(finalAlpha * offset.alpha, 0, 0.36);
     ctx.drawImage(
       trailSprite.canvas,
       trailSprite.sx,
@@ -4072,6 +4088,9 @@ function drawGlyph(cell, column, rowIndex) {
     ? clamp(settings.clockbrightness / DEFAULT_PRESET.wallpaperProperties.clockbrightness, 0.55, 1.45)
     : clamp(settings.brightness / 72, 0.45, 1.32);
   const finalAlpha = clamp(alpha * visibility * renderBrightness, 0, 1);
+  if (styleName === "head") {
+    drawHeadGlyphGlow(cell, palette, x, y, finalAlpha);
+  }
   if (shouldDrawMatrix3Trail(cell, clockMaskHit, clockHighlightHit)) {
     drawMatrix3Trail(cell, sprite, styleName, palette, x, y, finalAlpha);
   }

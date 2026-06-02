@@ -5,57 +5,18 @@
   "type": "web",
   "general": {
     "properties": {
-      "fontstyle": {
-        "text": "ui_rain_font",
-        "type": "combo",
-        "value": "trilogy",
-        "options": [
-          {
-            "label": "ui_font_trilogy",
-            "value": "trilogy"
-          },
-          {
-            "label": "ui_font_resurrections",
-            "value": "resurrections"
-          }
-        ],
+      "a_00_base_group": {
+        "text": "基础",
+        "type": "group",
+        "order": 1
+      },
+      "a_01_coldstart": {
+        "text": "ui_cold_start",
+        "type": "bool",
+        "value": true,
         "order": 10
       },
-      "skipintro": {
-        "text": "ui_skip_intro",
-        "type": "bool",
-        "value": false,
-        "order": 15
-      },
-      "clock": {
-        "text": "ui_clock",
-        "type": "bool",
-        "value": true,
-        "order": 100
-      },
-      "audioenabled": {
-        "text": "ui_audio_spectrum",
-        "type": "bool",
-        "value": true,
-        "order": 200
-      },
-      "baseadvanced": {
-        "text": "ui_base_advanced",
-        "type": "bool",
-        "value": false,
-        "order": 20
-      },
-      "density": {
-        "text": "ui_density",
-        "type": "slider",
-        "value": 62,
-        "min": 30,
-        "max": 95,
-        "editable": true,
-        "order": 30,
-        "condition": "baseadvanced.value == true"
-      },
-      "rainstyle": {
+      "a_02_rainstyle": {
         "text": "ui_rain_style",
         "type": "combo",
         "value": "clean",
@@ -69,108 +30,141 @@
             "value": "matrix3_trails"
           }
         ],
-        "order": 35,
-        "condition": "baseadvanced.value == true"
+        "order": 20
       },
-      "speed": {
+      "a_03_fontstyle": {
+        "text": "ui_rain_font",
+        "type": "combo",
+        "value": "trilogy",
+        "options": [
+          {
+            "label": "ui_font_trilogy",
+            "value": "trilogy"
+          },
+          {
+            "label": "ui_font_resurrections",
+            "value": "resurrections"
+          }
+        ],
+        "order": 30
+      },
+      "a_04_density": {
+        "text": "ui_density",
+        "type": "slider",
+        "value": 180,
+        "min": 10,
+        "max": 180,
+        "editable": true,
+        "order": 40
+      },
+      "a_05_speed": {
         "text": "ui_speed",
         "type": "slider",
         "value": 55,
         "min": 20,
         "max": 100,
         "editable": true,
-        "order": 40,
-        "condition": "baseadvanced.value == true"
+        "order": 50
       },
-      "brightness": {
+      "a_06_brightness": {
         "text": "ui_brightness",
         "type": "slider",
         "value": 70,
         "min": 35,
         "max": 100,
         "editable": true,
-        "order": 50,
-        "condition": "baseadvanced.value == true"
+        "order": 60
       },
-      "glyphscale": {
+      "a_07_glyphscale": {
         "text": "ui_character_size",
         "type": "slider",
         "value": 100,
         "min": 75,
         "max": 130,
         "editable": true,
-        "order": 60,
-        "condition": "baseadvanced.value == true"
+        "order": 70
       },
-      "characterspacing": {
+      "a_08_characterspacing": {
         "text": "ui_character_spacing",
         "type": "slider",
         "value": 70,
         "min": 40,
         "max": 240,
         "editable": true,
-        "order": 70,
-        "condition": "baseadvanced.value == true"
+        "order": 80
       },
-      "glow": {
+      "a_09_glow": {
         "text": "ui_glow",
         "type": "bool",
-        "value": true,
-        "order": 80,
-        "condition": "baseadvanced.value == true"
+        "value": false,
+        "order": 90
       },
-      "color": {
+      "a_10_color": {
         "text": "ui_custom_color",
         "type": "color",
         "value": "0.21 0.85 0.41",
-        "order": 90,
-        "condition": "baseadvanced.value == true"
+        "order": 100
       },
-      "clockbrightness": {
+      "b_00_clock_group": {
+        "text": "时钟",
+        "type": "group",
+        "order": 200
+      },
+      "b_01_clock": {
+        "text": "ui_clock",
+        "type": "bool",
+        "value": true,
+        "order": 210
+      },
+      "b_02_clockbrightness": {
         "text": "ui_clock_brightness",
         "type": "slider",
         "value": 110,
         "min": 60,
         "max": 160,
         "editable": true,
-        "order": 110,
-        "condition": "clock.value == true"
+        "order": 220,
+        "condition": "b_01_clock.value == true"
       },
-      "clockcolor": {
+      "b_03_clockcolor": {
         "text": "ui_clock_color",
         "type": "color",
         "value": "0.70 1.00 0.78",
-        "order": 120,
-        "condition": "clock.value == true"
+        "order": 230,
+        "condition": "b_01_clock.value == true"
       },
-      "audioadvanced": {
-        "text": "ui_audio_advanced",
+      "c_00_audio_group": {
+        "text": "音频",
+        "type": "group",
+        "order": 300
+      },
+      "c_01_audioenabled": {
+        "text": "ui_audio_spectrum",
         "type": "bool",
-        "value": false,
-        "order": 210,
-        "condition": "audioenabled.value == true"
+        "value": true,
+        "order": 310
       },
-      "audioresponse": {
+      "c_02_audioresponse": {
         "text": "ui_audio_response",
         "type": "slider",
         "value": 80,
         "min": 0,
         "max": 100,
         "editable": true,
-        "order": 220,
-        "condition": "audioenabled.value == true && audioadvanced.value == true"
+        "order": 320,
+        "condition": "c_01_audioenabled.value == true"
       },
-      "audiobrightness": {
+      "c_03_audiobrightness": {
         "text": "ui_audio_brightness",
         "type": "slider",
         "value": 100,
         "min": 30,
         "max": 160,
         "editable": true,
-        "order": 230,
-        "condition": "audioenabled.value == true && audioadvanced.value == true"
+        "order": 330,
+        "condition": "c_01_audioenabled.value == true"
       },
-      "audiocolormode": {
+      "c_04_audiocolormode": {
         "text": "ui_audio_color",
         "type": "combo",
         "value": "frequency_gradient",
@@ -196,22 +190,36 @@
             "value": "caps_only"
           }
         ],
-        "order": 240,
-        "condition": "audioenabled.value == true && audioadvanced.value == true"
+        "order": 340,
+        "condition": "c_01_audioenabled.value == true"
       },
-      "audiospectrumreverse": {
+      "c_05_audiospectrumreverse": {
         "text": "ui_audio_spectrum_reverse",
         "type": "bool",
         "value": false,
-        "order": 250,
-        "condition": "audioenabled.value == true && audioadvanced.value == true"
+        "order": 350,
+        "condition": "c_01_audioenabled.value == true"
+      },
+      "z_00_support_group": {
+        "text": "支持作者",
+        "type": "group",
+        "order": 900
+      },
+      "z_01_supportauthor": {
+        "text": "<center><a href='https://ko-fi.com/ericcil'>Ko-fi</a> · <a href='https://ifdian.net/a/Ericcil'>爱发电 / Afdian</a></center>",
+        "type": "text",
+        "order": 910
       }
     },
     "localization": {
       "en-us": {
+        "ui_group_base": "Base",
+        "ui_group_clock": "Clock",
+        "ui_group_audio": "Audio",
         "ui_rain_font": "Font",
         "ui_font_trilogy": "Matrix Code trilogy",
         "ui_font_resurrections": "Matrix Resurrections",
+        "ui_cold_start": "Cold start",
         "ui_skip_intro": "Skip intro",
         "ui_rain_style": "Style",
         "ui_rain_style_clean": "The Matrix",
@@ -240,9 +248,13 @@
         "ui_audio_spectrum_reverse": "Reverse spectrum"
       },
       "zh-chs": {
+        "ui_group_base": "基础",
+        "ui_group_clock": "时钟",
+        "ui_group_audio": "音频",
         "ui_rain_font": "字体",
         "ui_font_trilogy": "黑客帝国三部曲",
         "ui_font_resurrections": "黑客帝国复活",
+        "ui_cold_start": "冷启动",
         "ui_skip_intro": "跳过开场",
         "ui_rain_style": "风格",
         "ui_rain_style_clean": "黑客帝国一",
@@ -271,9 +283,13 @@
         "ui_audio_spectrum_reverse": "示波器反向"
       },
       "zh-cht": {
+        "ui_group_base": "基礎",
+        "ui_group_clock": "時鐘",
+        "ui_group_audio": "音訊",
         "ui_rain_font": "字體",
         "ui_font_trilogy": "駭客任務三部曲",
         "ui_font_resurrections": "駭客任務復活",
+        "ui_cold_start": "冷啟動",
         "ui_skip_intro": "跳過開場",
         "ui_rain_style": "風格",
         "ui_rain_style_clean": "駭客任務一",

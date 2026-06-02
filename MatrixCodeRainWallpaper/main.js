@@ -42,6 +42,8 @@ const AUDIO_SPECTRUM_BINS = 64;
 const AUDIO_LISTENER_RECOVERY_DELAYS_MS = [0, 250, 1250, 3500];
 const AUDIO_LISTENER_RECOVERY_COOLDOWN_MS = 3000;
 const AUDIO_LISTENER_STALE_CALLBACK_MS = 4500;
+const AUDIO_LISTENER_NO_CALLBACK_MS = 2200;
+const AUDIO_LISTENER_WATCHDOG_MS = 1800;
 const AUDIO_SPECTRUM_HUES = {
   level_layers: [286, 270, 254, 238, 222, 206, 190, 318, 334, 350, 6, 22, 38, 54],
   frequency_gradient: [222, 204, 188, 46, 28, 0, 316, 276],
@@ -93,6 +95,7 @@ const CONTROL_TEXT = {
     rainFont: "Font",
     fontTrilogy: "Matrix Code trilogy",
     fontResurrections: "Matrix Resurrections",
+    coldStart: "Cold start",
     skipIntro: "Skip intro",
     rainStyle: "Style",
     rainStyleClean: "The Matrix",
@@ -140,6 +143,7 @@ const CONTROL_TEXT = {
     rainFont: "字体",
     fontTrilogy: "黑客帝国三部曲",
     fontResurrections: "黑客帝国复活",
+    coldStart: "冷启动",
     skipIntro: "跳过开场",
     rainStyle: "风格",
     rainStyleClean: "黑客帝国一",
@@ -187,6 +191,7 @@ const CONTROL_TEXT = {
     rainFont: "字體",
     fontTrilogy: "駭客任務三部曲",
     fontResurrections: "駭客任務復活",
+    coldStart: "冷啟動",
     skipIntro: "跳過開場",
     rainStyle: "風格",
     rainStyleClean: "駭客任務一",
@@ -417,11 +422,11 @@ const DEFAULT_PRESET = {
     startPower: 1.45,
     speedRowsPerSecond: 52,
     speedVarianceRowsPerSecond: 12,
-    activeColumnRatio: 0.3,
+    activeColumnRatio: 0.34,
     allowAmbientAt: 0.9,
     holdActiveExtraTicks: 90,
-    clockFormationEasePower: 2.45,
-    clockDropEaseOutPower: 2.65
+    clockFormationEasePower: 1.72,
+    clockDropEaseOutPower: 3.35
   },
   initialWarmupSeconds: 20,
   bottomFade: {
@@ -714,7 +719,7 @@ const DEFAULT_PRESET = {
     debugLevel: 0.34
   },
   wallpaperProperties: {
-    density: 62,
+    density: 180,
     speed: 55,
     brightness: 100,
     glyphscale: 100,
@@ -722,7 +727,7 @@ const DEFAULT_PRESET = {
     fontstyle: "trilogy",
     rainstyle: "clean",
     skipintro: false,
-    glow: true,
+    glow: false,
     clock: true,
     clockbrightness: 110,
     clockcolor: "0.70 1.00 0.78",
@@ -741,7 +746,7 @@ const DEFAULT_PRESET = {
 const INITIAL_AUDIO_RESPONSE = initialAudioResponse();
 
 const settings = {
-  density: clamp(DENSITY_OVERRIDE ?? DEFAULT_PRESET.wallpaperProperties.density, 30, 95),
+  density: clamp(DENSITY_OVERRIDE ?? DEFAULT_PRESET.wallpaperProperties.density, 10, 180),
   speed: clamp(SPEED_OVERRIDE ?? DEFAULT_PRESET.wallpaperProperties.speed, 20, 100),
   brightness: clamp(BRIGHTNESS_OVERRIDE ?? DEFAULT_PRESET.wallpaperProperties.brightness, 35, 100),
   glyphscale: clamp(GLYPH_SCALE_OVERRIDE ?? DEFAULT_PRESET.wallpaperProperties.glyphscale, 75, 130),
@@ -786,6 +791,7 @@ let fpsRemainder = 0;
 let tickAccumulator = 0;
 let logicalTick = 0;
 let releaseCounter = 0;
+let rainPatternEpoch = 0;
 let renderSeconds = 0;
 let running = true;
 let started = false;
@@ -1067,8 +1073,10 @@ function streamGlyphDensity(stream, rowIndex) {
   }
 
   const rowUnit = rowIndex / Math.max(1, rows - 1);
-  const continuityFloor = rowUnit > 0.76 ? 0.39 : rowUnit > 0.58 ? 0.52 : 0.64;
-  return Math.max(density, continuityFloor);
+  const continuityFloor = rowUnit > 0.76 ? 0.46 : rowUnit > 0.58 ? 0.6 : 0.7;
+  const densityScale = clamp(settings.density / 100, 0.26, 2.2);
+  const scaledFloor = clamp(continuityFloor * densityScale, 0.1, 0.98);
+  return Math.max(density, scaledFloor);
 }
 
 function matrix3FallingStream(stream) {
@@ -1098,31 +1106,18 @@ function matrix3StreamForCell(column, cell) {
 
 function matrix3TailAlphaFactor(column, rowIndex, cell) {
   const stream = matrix3StreamForCell(column, cell);
-  if (!stream) {
-    if (!matrix3RainStyleActive() || typeof cell.streamId !== "string" || !/^\d+:/.test(cell.streamId)) {
-      return 1;
-    }
-
-    const remaining = clamp(1 - cell.age / Math.max(1, cell.life), 0, 1);
-    const target = Math.pow(remaining, 1.45);
-    const current = Number.isFinite(cell.matrix3Brightness) ? cell.matrix3Brightness : target;
-    cell.matrix3Brightness = current + (target - current) * 0.18;
-    return clamp(cell.matrix3Brightness, 0, 1);
+  const matrix3Cell = matrix3RainStyleActive()
+    && typeof cell.streamId === "string"
+    && /^\d+:/.test(cell.streamId);
+  if (!stream && !matrix3Cell) {
+    return 1;
   }
 
-  const distanceFromHead = stream.headRow + stream.progress - rowIndex;
-  const tailRows = clamp(stream.length * 0.72, 5.2, 16);
-  let target = 0;
-  if (distanceFromHead >= -0.35 && distanceFromHead <= tailRows) {
-    const tailPosition = clamp(distanceFromHead / tailRows, 0, 1);
-    const cursorBoost = distanceFromHead < 0.7 ? 1.12 : 1;
-    target = clamp((0.2 + Math.pow(1 - tailPosition, 1.22) * 0.88) * cursorBoost, 0, 1.16);
-  }
-
-  const current = Number.isFinite(cell.matrix3Brightness) ? cell.matrix3Brightness : target;
-  const blend = target > current ? 0.62 : 0.2;
-  cell.matrix3Brightness = current + (target - current) * blend;
-  return clamp(cell.matrix3Brightness, 0, 1.16);
+  const life = Math.max(1, cell.life);
+  const ageRatio = clamp(cell.age / life, 0, 1);
+  const fade = Math.pow(1 - ageRatio, stream ? 1.08 : 1.38);
+  const tailFloor = stream ? 0.045 : 0;
+  return clamp(tailFloor + fade * (1 - tailFloor), 0, 1.06);
 }
 
 function hashInt(value) {
@@ -1134,6 +1129,37 @@ function hashInt(value) {
 
 function hashUnit(value) {
   return hashInt(value) / 4294967295;
+}
+
+function resetRainPatternEpoch() {
+  rainPatternEpoch = hashInt(
+    PATTERN_SEED
+    ^ Math.floor(performance.now() * 1000)
+    ^ Math.floor(Math.random() * 0x7fffffff)
+    ^ Math.imul(logicalTick + 1, 1597334677)
+  );
+}
+
+function columnNoiseValue(column, salt) {
+  return hashUnit(hashInt(
+    column.seed
+    ^ rainPatternEpoch
+    ^ salt
+    ^ Math.imul(column.index + 4099, 374761393)
+  ));
+}
+
+function columnClusterValue(column, salt) {
+  const clusterWidth = 4;
+  const block = Math.floor(column.index / clusterWidth);
+  const local = (column.index - block * clusterWidth) / clusterWidth;
+  const left = hashUnit(hashInt(rainPatternEpoch ^ salt ^ Math.imul(block + 4099, 1103515245)));
+  const right = hashUnit(hashInt(rainPatternEpoch ^ salt ^ Math.imul(block + 4100, 1103515245)));
+  return left + (right - left) * local;
+}
+
+function columnSelectionScore(column, salt) {
+  return clamp(columnNoiseValue(column, salt) * 0.72 + columnClusterValue(column, salt) * 0.28, 0, 1);
 }
 
 function scaleColor(color, multiplier) {
@@ -1558,7 +1584,8 @@ function streamDensity(stream) {
   const styleBoost = matrix3RainStyleActive() && !stream.negative && stream.mode !== "audio"
     ? 1.14
     : 1;
-  return clamp((min + hashUnit(stream.seed ^ 0x68a31) * variance) * (settings.density / 62) * styleBoost, 0.32, 1);
+  const minClamp = matrix3RainStyleActive() && !stream.negative && stream.mode !== "audio" ? 0.08 : 0.32;
+  return clamp((min + hashUnit(stream.seed ^ 0x68a31) * variance) * Math.pow(settings.density / 100, 1.12) * styleBoost, minClamp, 1);
 }
 
 function streamLength(stream, seed) {
@@ -1826,15 +1853,18 @@ function updateAudioResponsiveState() {
     updateAudioSpectrumBars();
   }
 
-  if (
-    settings.audioenabled
-    && WALLPAPER_AUDIO_API_AVAILABLE
-    && audioState.lastAudioCallbackTime > 0
-    && now - audioState.lastAudioCallbackTime > AUDIO_LISTENER_STALE_CALLBACK_MS
-    && now - audioState.lastAudioListenerRegisterTime > AUDIO_LISTENER_RECOVERY_COOLDOWN_MS
-  ) {
-    scheduleWallpaperAudioListenerRecovery("stale-callback");
-  }
+	  if (
+	    settings.audioenabled
+	    && WALLPAPER_AUDIO_API_AVAILABLE
+	    && (
+	      audioState.lastAudioCallbackTime > 0
+	        ? now - audioState.lastAudioCallbackTime > AUDIO_LISTENER_STALE_CALLBACK_MS
+	        : now - audioState.lastAudioListenerRegisterTime > AUDIO_LISTENER_NO_CALLBACK_MS
+	    )
+	    && now - audioState.lastAudioListenerRegisterTime > AUDIO_LISTENER_RECOVERY_COOLDOWN_MS
+	  ) {
+	    scheduleWallpaperAudioListenerRecovery(audioState.lastAudioCallbackTime > 0 ? "stale-callback" : "missing-callback");
+	  }
 }
 
 function activeAudioLevel() {
@@ -1932,7 +1962,10 @@ function ensureAudioSpectrumBars(barCount) {
       colorHoldTicks: 0,
       paletteName: "audioHue0",
       paletteMode: "",
-      paletteHoldTicks: 0
+      paletteHoldTicks: 0,
+      rainCooldownTicks: 0,
+      rainGate: false,
+      rainLastLevel: 0
     });
   }
   if (audioState.spectrumBars.length > barCount) {
@@ -2292,7 +2325,7 @@ function ambientColumnMultiplier(column) {
 }
 
 function ambientCellChance(column, rowIndex) {
-  return clamp(ambientRegionChance(rowIndex) * ambientColumnMultiplier(column) * clamp(settings.density / 62, 0.58, 1.28), 0.02, 0.72);
+  return clamp(ambientRegionChance(rowIndex) * ambientColumnMultiplier(column) * clamp(Math.pow(settings.density / 100, 1.1), 0.35, 1.85), 0.006, 0.86);
 }
 
 function ambientStartChance(column, rowIndex) {
@@ -2962,7 +2995,7 @@ function createStream(column, ordinal, initial, mode = "normal") {
 function makeColumn(index, seed, options = {}) {
   const streamCount = desiredStreamCount(seed);
   const coldStart = Boolean(options.coldStart);
-  const active = !coldStart && hashUnit(seed ^ 0x4d23a) < DEFAULT_PRESET.columnActivity.initialActiveChance;
+  const active = !coldStart && hashUnit(hashInt(seed ^ rainPatternEpoch ^ 0x4d23a)) < DEFAULT_PRESET.columnActivity.initialActiveChance;
   const activitySeed = hashInt(seed ^ 0x359ac);
   const column = {
     index,
@@ -2993,11 +3026,11 @@ function makeColumn(index, seed, options = {}) {
 }
 
 function desiredStreamCount(seed) {
-  const densityBias = clamp((settings.density - 30) / 65, 0, 1);
+  const densityBias = clamp((settings.density - 20) / 160, 0, 1);
   const streamRoll = hashUnit(seed ^ 0x55ca12);
-  return streamRoll < 0.1 + densityBias * 0.04
+  return streamRoll < 0.06 + densityBias * 0.32
     ? 3
-    : streamRoll < 0.44 + densityBias * 0.08
+    : streamRoll < 0.24 + densityBias * 0.5
       ? 2
       : 1;
 }
@@ -3023,12 +3056,17 @@ function columnActivityDuration(seed, active) {
 }
 
 function startupActiveColumnRatio() {
+  const densityScale = clamp(Math.pow(settings.density / 100, 1.18), 0.26, 2.15);
   if (!matrix3RainStyleActive()) {
-    return DEFAULT_PRESET.startup.maxActiveColumnRatio;
+    return clamp(DEFAULT_PRESET.startup.maxActiveColumnRatio * densityScale, 0.035, 0.7);
   }
 
   const cold = DEFAULT_PRESET.coldStartRain;
-  return Math.min(0.46, cold.activeColumnRatio * 1.25);
+  return Math.min(0.78, cold.activeColumnRatio * 1.45 * densityScale);
+}
+
+function targetActiveColumnCount() {
+  return Math.max(1, Math.round(gridColumns * startupActiveColumnRatio()));
 }
 
 function visibleRainColumn(column) {
@@ -3150,28 +3188,43 @@ function bridgeMatrix3StartupColumn(column, seed) {
   resetMatrix3StreamFromTop(stream, column, seed);
 }
 
-function maintainMatrix3RainDensity() {
-  if (!matrix3RainStyleActive()) {
-    return;
-  }
-
+function maintainRainDensity() {
+  const matrix3Style = matrix3RainStyleActive();
   const introRunning = coldStartActive();
   if (introRunning && introState.progress < 0.68) {
     return;
   }
 
-  const targetActiveColumns = Math.max(1, Math.round(gridColumns * startupActiveColumnRatio()));
+  const targetActiveColumns = targetActiveColumnCount();
   const activeVisibleColumns = activeColumns
     .filter((column) => visibleRainColumn(column) && column.active);
 
+  if (!introRunning && activeVisibleColumns.length > targetActiveColumns) {
+    const extra = activeVisibleColumns.length - targetActiveColumns;
+    const retireCount = Math.min(extra, Math.max(1, Math.ceil(gridColumns * 0.012)));
+    const retireSalt = hashInt(rainPatternEpoch ^ Math.imul(logicalTick + 71, 1103515245));
+    const retiringColumns = activeVisibleColumns
+      .sort((a, b) => columnSelectionScore(b, retireSalt) - columnSelectionScore(a, retireSalt))
+      .slice(0, retireCount);
+    for (const column of retiringColumns) {
+      const seed = hashInt(column.activitySeed ^ column.seed ^ rainPatternEpoch ^ Math.imul(logicalTick + 23, 1597334677));
+      setColumnActivity(column, false, seed);
+      const index = activeVisibleColumns.indexOf(column);
+      if (index >= 0) {
+        activeVisibleColumns.splice(index, 1);
+      }
+    }
+  }
+
   if (!introRunning && activeVisibleColumns.length < targetActiveColumns) {
+    const releaseSalt = hashInt(rainPatternEpoch ^ Math.imul(logicalTick + 31, 1103515245));
     const inactiveColumns = activeColumns
       .filter((column) => visibleRainColumn(column) && !column.active)
-      .sort((a, b) => hashUnit(a.seed ^ Math.imul(logicalTick + 31, 1103515245)) - hashUnit(b.seed ^ Math.imul(logicalTick + 31, 1103515245)));
+      .sort((a, b) => columnSelectionScore(a, releaseSalt) - columnSelectionScore(b, releaseSalt));
     const needed = Math.min(targetActiveColumns - activeVisibleColumns.length, inactiveColumns.length);
     for (let index = 0; index < needed; index += 1) {
       const column = inactiveColumns[index];
-      const seed = hashInt(column.activitySeed ^ column.seed ^ Math.imul(logicalTick + index + 1, 1597334677));
+      const seed = hashInt(column.activitySeed ^ column.seed ^ rainPatternEpoch ^ Math.imul(logicalTick + index + 1, 1597334677));
       setColumnActivity(column, true, seed, true);
       activeVisibleColumns.push(column);
     }
@@ -3181,8 +3234,10 @@ function maintainMatrix3RainDensity() {
     if (introRunning && !column.coldStartReleased) {
       continue;
     }
-    const seed = hashInt(column.activitySeed ^ column.seed ^ Math.imul(logicalTick + 17, 668265263));
-    bridgeMatrix3StartupColumn(column, seed);
+    const seed = hashInt(column.activitySeed ^ column.seed ^ rainPatternEpoch ^ Math.imul(logicalTick + 17, 668265263));
+    if (matrix3Style) {
+      bridgeMatrix3StartupColumn(column, seed);
+    }
   }
 }
 
@@ -3195,17 +3250,28 @@ function updateColumnActivity(column) {
     return;
   }
 
-  const seed = hashInt(column.activitySeed ^ Math.imul(logicalTick + column.index + 4099, 1597334677));
-  setColumnActivity(column, !column.active, seed);
+  const seed = hashInt(column.activitySeed ^ rainPatternEpoch ^ Math.imul(logicalTick + column.index + 4099, 1597334677));
+  const targetRatio = targetActiveColumnCount() / Math.max(1, gridColumns);
+  const activeRatio = activeColumns.filter((candidate) => visibleRainColumn(candidate) && candidate.active).length
+    / Math.max(1, gridColumns);
+  const margin = 0.018;
+  let nextActive = !column.active;
+  if (activeRatio > targetRatio + margin) {
+    nextActive = false;
+  } else if (activeRatio < targetRatio - margin) {
+    nextActive = true;
+  }
+  setColumnActivity(column, nextActive, seed);
 }
 
 function stabilizeStartupActivity() {
   const startup = DEFAULT_PRESET.startup;
   const matrix3Style = matrix3RainStyleActive();
-  const maxActiveColumns = Math.max(1, Math.round(gridColumns * startupActiveColumnRatio()));
+  const coldReleasedColumns = activeColumns.filter((column) => visibleRainColumn(column) && column.coldStartReleased).length;
+  const maxActiveColumns = Math.max(targetActiveColumnCount(), coldReleasedColumns);
   const activeColumnsNow = activeColumns
     .filter((column) => visibleRainColumn(column) && column.active)
-    .sort((a, b) => hashUnit(a.seed ^ 0x48f31) - hashUnit(b.seed ^ 0x48f31));
+    .sort((a, b) => columnSelectionScore(a, 0x48f31) - columnSelectionScore(b, 0x48f31));
 
   if (!matrix3Style) {
     for (let index = maxActiveColumns; index < activeColumnsNow.length; index += 1) {
@@ -3221,20 +3287,21 @@ function stabilizeStartupActivity() {
   if (activeCount < maxActiveColumns) {
     const inactiveColumns = activeColumns
       .filter((column) => visibleRainColumn(column) && !column.active)
-      .sort((a, b) => hashUnit(a.seed ^ 0x912ab) - hashUnit(b.seed ^ 0x912ab));
+      .sort((a, b) => columnSelectionScore(a, 0x912ab) - columnSelectionScore(b, 0x912ab));
     const needed = Math.min(maxActiveColumns - activeCount, inactiveColumns.length);
 
     for (let index = 0; index < needed; index += 1) {
       const column = inactiveColumns[index];
-      const seed = hashInt(column.activitySeed ^ column.seed ^ 0x2fc19);
+      const seed = hashInt(column.activitySeed ^ column.seed ^ rainPatternEpoch ^ 0x2fc19);
       setColumnActivity(column, true, seed, true);
     }
   }
 
   for (const column of activeColumns) {
-    const seed = hashInt(column.activitySeed ^ column.seed ^ 0x5d71e9);
+    const seed = hashInt(column.activitySeed ^ column.seed ^ rainPatternEpoch ^ 0x5d71e9);
     if (column.active) {
-      column.nextActivityTick = logicalTick + Math.floor(seededRange(seed, startup.activeDelayMinTicks, startup.activeDelayMaxTicks));
+      const highDensityHold = settings.density > 100 ? Math.round(tickRate() * seededRange(seed ^ 0x8ad1, 4.5, 11)) : 0;
+      column.nextActivityTick = logicalTick + highDensityHold + Math.floor(seededRange(seed, startup.activeDelayMinTicks, startup.activeDelayMaxTicks));
     } else {
       column.nextActivityTick = logicalTick + Math.floor(seededRange(seed, startup.quietDelayMinTicks, startup.quietDelayMaxTicks));
     }
@@ -3255,7 +3322,7 @@ function rainColumns() {
 
 function buildColumns(coldStart = false) {
   const nextColumns = [];
-  const seedBase = hashInt(PATTERN_SEED ^ Math.imul(rows, 131) ^ Math.imul(gridColumns, 521));
+  const seedBase = hashInt(PATTERN_SEED ^ rainPatternEpoch ^ Math.imul(rows, 131) ^ Math.imul(gridColumns, 521));
 
   for (let index = -2; index < gridColumns + 2; index += 1) {
     const seed = hashInt(seedBase ^ Math.imul(index + 4096, 2654435761));
@@ -3449,8 +3516,8 @@ function stepStream(column, stream) {
 function releaseSplash() {
   const styleActive = matrix3RainStyleActive();
   const chance = (1 / DEFAULT_PRESET.releaseEveryTicks)
-    * clamp(settings.density / 62, 0.5, 1.35)
-    * (styleActive ? 2.6 : 1);
+    * clamp(Math.pow(settings.density / 100, 1.25), 0.28, 2.3)
+    * (styleActive ? 3.15 : 1);
   if (hashUnit(logicalTick * 2654435761) > chance) {
     return;
   }
@@ -3494,7 +3561,7 @@ function releaseSplash() {
 
 function releaseStandaloneRotators() {
   const rotators = DEFAULT_PRESET.standaloneRotators;
-  const chance = rotators.chancePerTick * clamp(settings.density / 62, 0.55, 1.35) * rainStyleMultiplier(0.08);
+  const chance = rotators.chancePerTick * clamp(Math.pow(settings.density / 100, 1.18), 0.32, 2) * rainStyleMultiplier(0.08);
   if (hashUnit(Math.imul(logicalTick + 29, 1597334677)) > chance) {
     return;
   }
@@ -3585,7 +3652,7 @@ function hasWritableRows(column, startRow, length) {
 
 function releaseLowerFragments() {
   const fragments = DEFAULT_PRESET.lowerFragments;
-  const chance = fragments.chancePerTick * clamp(settings.density / 62, 0.55, 1.3) * rainStyleMultiplier(0.28);
+  const chance = fragments.chancePerTick * clamp(Math.pow(settings.density / 100, 1.18), 0.32, 1.9) * rainStyleMultiplier(0.28);
   if (hashUnit(Math.imul(logicalTick + 47, 1103515245)) > chance) {
     return;
   }
@@ -3670,7 +3737,7 @@ function logicStep() {
     }
   }
 
-  maintainMatrix3RainDensity();
+  maintainRainDensity();
   updateColdStartClockFormation();
   updateIntroRevealProgress(performance.now());
 
@@ -4307,9 +4374,12 @@ function drawGlyph(cell, column, rowIndex) {
     visibility = Math.max(visibility, lowerFloor * (1 - floorMix) + upperFloor * floorMix);
   }
 
-  const renderBrightness = (clockMaskHit || clockHighlightHit)
-    ? clamp(settings.clockbrightness / DEFAULT_PRESET.wallpaperProperties.clockbrightness, 0.55, 1.45)
-    : clamp(settings.brightness / 72, 0.45, 1.32);
+  let renderBrightness = clamp(settings.brightness / 72, 0.45, 1.32);
+  if (clockMaskHit || clockHighlightHit) {
+    renderBrightness = clamp(settings.clockbrightness / DEFAULT_PRESET.wallpaperProperties.clockbrightness, 0.55, 1.45);
+  } else if (cell.audioCell) {
+    renderBrightness = 1;
+  }
   const finalAlpha = clamp(alpha * visibility * renderBrightness, 0, 1);
   if (
     styleName === "head"
@@ -4409,7 +4479,12 @@ function drawAudioSpectrumGlyph(columnIndex, rowIndex, barIndex, styleName, alph
 }
 
 function drawAudioSpectrumOverlay() {
-  if (!settings.audioenabled || audioState.spectrumBars.length === 0 || gridColumns <= 0 || rows <= 0) {
+  if (
+    !settings.audioenabled
+    || audioState.spectrumBars.length === 0
+    || gridColumns <= 0
+    || rows <= 0
+  ) {
     return;
   }
 
@@ -4586,27 +4661,28 @@ function coldStartClockComplete() {
 
 function coldStartColumnStartTick(column) {
   const cold = DEFAULT_PRESET.coldStartRain;
-  const activeColumnRatio = Math.min(0.46, cold.activeColumnRatio * rainStyleMultiplier(1.25));
-  if (hashUnit(column.seed ^ 0x3b7d131f) > activeColumnRatio) {
+  const activeColumnRatio = startupActiveColumnRatio();
+  if (columnSelectionScore(column, 0x3b7d131f) > activeColumnRatio) {
     return Number.POSITIVE_INFINITY;
   }
 
   const blackHoldTicks = Math.round(tickRate() * cold.blackHoldMs / 1000);
   const firstDropTicks = Math.round(tickRate() * cold.firstDropMs / 1000);
   const spreadTicks = Math.round(tickRate() * cold.columnStartSpreadMs / 1000);
-  const startRoll = Math.pow(hashUnit(column.seed ^ 0x8f3c5a91), cold.startPower);
+  const startRoll = Math.pow(columnNoiseValue(column, 0x8f3c5a91), cold.startPower);
   return introState.startTick + blackHoldTicks + firstDropTicks + Math.floor(startRoll * spreadTicks);
 }
 
 function primeColdStartColumn(column) {
   const cold = DEFAULT_PRESET.coldStartRain;
-  const seed = hashInt(column.seed ^ 0xc01d57a7);
+  const seed = hashInt(column.seed ^ rainPatternEpoch ^ 0xc01d57a7);
   column.coldStartReleased = true;
   setColumnActivity(column, true, seed, true);
   column.nextActivityTick = introState.startTick
     + Math.round(tickRate() * cold.durationMs / 1000)
     + cold.holdActiveExtraTicks
-    + Math.floor(seededRange(seed ^ 0x5741, 0, cold.holdActiveExtraTicks));
+    + Math.floor(seededRange(seed ^ 0x5741, 0, cold.holdActiveExtraTicks))
+    + Math.round(tickRate() * (settings.density > 100 ? seededRange(seed ^ 0x6cb1, 4, 9) : 0));
 
   for (const stream of column.streams) {
     if (matrix3RainStyleActive() && !stream.negative && (stream.mode === "normal" || stream.mode === "deep")) {
@@ -4671,10 +4747,10 @@ function initializeColdStartClockDrops() {
   const durationTicks = Math.max(1, Math.round(tickRate() * cold.durationMs / 1000));
   const blackHoldTicks = Math.round(tickRate() * cold.blackHoldMs / 1000);
   const firstDropTicks = Math.round(tickRate() * cold.firstDropMs / 1000);
-  const firstSettleTick = introState.startTick + blackHoldTicks + firstDropTicks + Math.round(tickRate() * 0.38);
+  const firstSettleTick = introState.startTick + blackHoldTicks + firstDropTicks + Math.round(tickRate() * 0.26);
   const latestSettleTick = Math.max(
-    firstSettleTick + Math.round(tickRate() * 0.85),
-    introState.startTick + durationTicks - Math.round(tickRate() * 0.28)
+    firstSettleTick + Math.round(tickRate() * 0.55),
+    introState.startTick + Math.round(durationTicks * 0.74)
   );
   const settleSpreadTicks = Math.max(1, latestSettleTick - firstSettleTick);
   const targetRows = clockCells.map((clockCell) => clockCell.rowIndex);
@@ -4685,7 +4761,8 @@ function initializeColdStartClockDrops() {
     .map((clockCell, index) => {
       const seed = hashInt(clockCell.salt ^ Math.imul(index + 1, 1597334677));
       const rowBias = (clockCell.rowIndex - firstTargetRow) / targetRowSpan;
-      const orderBias = clamp(rowBias * 0.82 + hashUnit(seed ^ 0x91bd) * 0.18, 0, 1);
+      const randomBias = hashUnit(seed ^ 0x91bd);
+      const orderBias = clamp(randomBias * 0.84 + rowBias * 0.16, 0, 1);
       return { index, orderBias };
     })
     .sort((a, b) => a.orderBias - b.orderBias || a.index - b.index);
@@ -4699,13 +4776,17 @@ function initializeColdStartClockDrops() {
   introState.clockDrops = clockCells.map((clockCell, index) => {
     const seed = hashInt(clockCell.salt ^ Math.imul(index + 1, 1597334677));
     const targetRow = clockCell.rowIndex;
-    const startRow = -2 - Math.floor(hashUnit(seed ^ 0x49af) * 5);
+    const startRow = -8 - Math.floor(hashUnit(seed ^ 0x49af) * 8);
     const orderRank = orderRankByIndex.get(index) || 0;
-    const settleBias = Math.pow(orderRank, cold.clockFormationEasePower);
+    const compressedRank = orderRank * 0.82;
+    const settleBias = Math.pow(compressedRank, cold.clockFormationEasePower);
     const settleTick = firstSettleTick + Math.floor(settleBias * settleSpreadTicks);
-    const speedRowsPerSecond = seededRange(seed ^ 0x2db1, 48, 68);
+    const speedRowsPerSecond = seededRange(seed ^ 0x2db1, 30, 44);
     const travelTicks = Math.max(6, Math.ceil(((targetRow - startRow) / speedRowsPerSecond) * tickRate()));
-    const startTick = Math.max(introState.startTick + blackHoldTicks, settleTick - travelTicks);
+    const startTick = Math.max(
+      introState.startTick + blackHoldTicks + Math.floor(hashUnit(seed ^ 0x72df) * firstDropTicks),
+      settleTick - travelTicks
+    );
 
     return {
       id: index,
@@ -4994,6 +5075,7 @@ function resize() {
   logicalTick = 0;
   releaseCounter = 0;
   tickAccumulator = 0;
+  resetRainPatternEpoch();
   const coldStart = !settings.skipintro;
   buildColumns(coldStart);
   resetIntroReveal(performance.now());
@@ -5199,7 +5281,9 @@ function collectMatrixRainState() {
         paletteName: bar.paletteName || "",
         paletteHoldTicks: Number.isFinite(bar.paletteHoldTicks) ? bar.paletteHoldTicks : 0,
         colorHoldTicks: Number.isFinite(bar.colorHoldTicks) ? bar.colorHoldTicks : 0,
-        visibleHoldTicks: Number.isFinite(bar.visibleHoldTicks) ? bar.visibleHoldTicks : 0
+        visibleHoldTicks: Number.isFinite(bar.visibleHoldTicks) ? bar.visibleHoldTicks : 0,
+        rainCooldownTicks: Number.isFinite(bar.rainCooldownTicks) ? bar.rainCooldownTicks : 0,
+        rainGate: Boolean(bar.rainGate)
       })),
       spectrumColumns: {
         start: spectrumGeometry.startColumn,
@@ -5207,7 +5291,9 @@ function collectMatrixRainState() {
       }
     },
     speedRowsPerSecond: DEFAULT_PRESET.speedRowsPerSecond,
+    settingsDensity: settings.density,
     settingsSpeed: settings.speed,
+    rainPatternEpoch,
     characterSize: settings.glyphscale,
     characterSpacing: settings.characterspacing,
     rainColor: colorToHex(settings.color),
@@ -5296,6 +5382,15 @@ function propertyValue(value) {
 
 function applyPreviewProperties(properties) {
   window.wallpaperPropertyListener.applyUserProperties(properties);
+}
+
+function userProperty(properties, ...keys) {
+  for (const key of keys) {
+    if (Object.prototype.hasOwnProperty.call(properties, key)) {
+      return properties[key];
+    }
+  }
+  return null;
 }
 
 function setPreviewLayoutMode(value) {
@@ -5489,47 +5584,43 @@ function initializeControlsPanel() {
   body.className = "matrix-controls-body";
 
   body.append(
-    createControlsGroup(controlText("launchGroup"), [
-      createControlsToggle(controlText("skipIntro"), settings.skipintro, (value) => {
-        applyPreviewProperties({ skipintro: propertyValue(value) });
+    createControlsGroup(controlText("base"), [
+      createControlsToggle(controlText("coldStart"), !settings.skipintro, (value) => {
+        applyPreviewProperties({ coldstart: propertyValue(value) });
       }),
       createControlsSelect(controlText("rainStyle"), settings.rainstyle, [
         { label: controlText("rainStyleClean"), value: "clean" },
         { label: controlText("rainStyleMatrix3"), value: "matrix3_trails" }
       ], (value) => {
         applyPreviewProperties({ rainstyle: propertyValue(value) });
-      })
-    ]),
-    createControlsGroup(controlText("base"), [
+      }),
       createControlsSelect(controlText("rainFont"), settings.fontstyle, [
         { label: controlText("fontTrilogy"), value: "trilogy" },
         { label: controlText("fontResurrections"), value: "resurrections" }
       ], (value) => {
         applyPreviewProperties({ fontstyle: propertyValue(value) });
       }),
-      createControlsDetails(controlText("advanced"), [
-        createControlsRange(controlText("density"), settings.density, 30, 95, (value) => {
-          applyPreviewProperties({ density: propertyValue(value) });
-        }),
-        createControlsRange(controlText("speed"), settings.speed, 20, 100, (value) => {
-          applyPreviewProperties({ speed: propertyValue(value) });
-        }),
-        createControlsRange(controlText("brightness"), settings.brightness, 35, 100, (value) => {
-          applyPreviewProperties({ brightness: propertyValue(value) });
-        }),
-        createControlsRange(controlText("characterSize"), settings.glyphscale, 75, 130, (value) => {
-          applyPreviewProperties({ glyphscale: propertyValue(value) });
-        }),
-        createControlsRange(controlText("characterSpacing"), settings.characterspacing, 40, 240, (value) => {
-          applyPreviewProperties({ characterspacing: propertyValue(value) });
-        }),
-        createControlsToggle(controlText("glow"), settings.glow, (value) => {
-          applyPreviewProperties({ glow: propertyValue(value) });
-        }),
-        createControlsColor(controlText("color"), settings.color, (value) => {
-          applyPreviewProperties({ color: propertyValue(colorToWallpaperValue(value)) });
-        })
-      ])
+      createControlsRange(controlText("density"), settings.density, 10, 180, (value) => {
+        applyPreviewProperties({ density: propertyValue(value) });
+      }),
+      createControlsRange(controlText("speed"), settings.speed, 20, 100, (value) => {
+        applyPreviewProperties({ speed: propertyValue(value) });
+      }),
+      createControlsRange(controlText("brightness"), settings.brightness, 35, 100, (value) => {
+        applyPreviewProperties({ brightness: propertyValue(value) });
+      }),
+      createControlsRange(controlText("characterSize"), settings.glyphscale, 75, 130, (value) => {
+        applyPreviewProperties({ glyphscale: propertyValue(value) });
+      }),
+      createControlsRange(controlText("characterSpacing"), settings.characterspacing, 40, 240, (value) => {
+        applyPreviewProperties({ characterspacing: propertyValue(value) });
+      }),
+      createControlsToggle(controlText("glow"), settings.glow, (value) => {
+        applyPreviewProperties({ glow: propertyValue(value) });
+      }),
+      createControlsColor(controlText("color"), settings.color, (value) => {
+        applyPreviewProperties({ color: propertyValue(colorToWallpaperValue(value)) });
+      })
     ]),
     createControlsGroup(controlText("clockGroup"), [
       createControlsToggle(controlText("clock"), settings.clock, (value) => {
@@ -5552,26 +5643,24 @@ function initializeControlsPanel() {
           refreshAppearance();
         }
       }),
-      createControlsDetails(controlText("advanced"), [
-        createControlsRange(controlText("audioResponse"), settings.audioresponse, 0, 100, (value) => {
-          applyPreviewProperties({ audioresponse: propertyValue(value) });
-        }),
-        createControlsRange(controlText("audioBrightness"), settings.audiobrightness, 30, 160, (value) => {
-          applyPreviewProperties({ audiobrightness: propertyValue(value) });
-        }),
-        createControlsSelect(controlText("audioColor"), settings.audiocolormode, [
-          { label: controlText("audioLevelLayers"), value: "level_layers" },
-          { label: controlText("audioFrequencyGradient"), value: "frequency_gradient" },
-          { label: controlText("audioNeonBlocks"), value: "neon_blocks" },
-          { label: controlText("audioMatrixTint"), value: "matrix_tint" },
-          { label: controlText("audioCapsOnly"), value: "caps_only" }
-        ], (value) => {
-          applyPreviewProperties({ audiocolormode: propertyValue(value) });
-        }),
-        createControlsToggle(controlText("audioSpectrumReverse"), settings.audiospectrumreverse, (value) => {
-          applyPreviewProperties({ audiospectrumreverse: propertyValue(value) });
-        })
-      ])
+      createControlsRange(controlText("audioResponse"), settings.audioresponse, 0, 100, (value) => {
+        applyPreviewProperties({ audioresponse: propertyValue(value) });
+      }),
+      createControlsRange(controlText("audioBrightness"), settings.audiobrightness, 30, 160, (value) => {
+        applyPreviewProperties({ audiobrightness: propertyValue(value) });
+      }),
+      createControlsSelect(controlText("audioColor"), settings.audiocolormode, [
+        { label: controlText("audioLevelLayers"), value: "level_layers" },
+        { label: controlText("audioFrequencyGradient"), value: "frequency_gradient" },
+        { label: controlText("audioNeonBlocks"), value: "neon_blocks" },
+        { label: controlText("audioMatrixTint"), value: "matrix_tint" },
+        { label: controlText("audioCapsOnly"), value: "caps_only" }
+      ], (value) => {
+        applyPreviewProperties({ audiocolormode: propertyValue(value) });
+      }),
+      createControlsToggle(controlText("audioSpectrumReverse"), settings.audiospectrumreverse, (value) => {
+        applyPreviewProperties({ audiospectrumreverse: propertyValue(value) });
+      })
     ])
   );
 
@@ -5624,33 +5713,39 @@ window.wallpaperPropertyListener = {
     let needsAppearanceRefresh = false;
     let needsFontLoad = false;
 
-    if (Object.prototype.hasOwnProperty.call(properties, "density")) {
-      settings.density = clamp(Number(properties.density.value) || DEFAULT_PRESET.wallpaperProperties.density, 30, 95);
+    const densityProperty = userProperty(properties, "a_04_density", "a_density", "density");
+    if (densityProperty) {
+      settings.density = clamp(Number(densityProperty.value) || DEFAULT_PRESET.wallpaperProperties.density, 10, 180);
       needsRestart = true;
     }
 
-    if (Object.prototype.hasOwnProperty.call(properties, "speed")) {
-      settings.speed = clamp(Number(properties.speed.value) || DEFAULT_PRESET.wallpaperProperties.speed, 20, 100);
+    const speedProperty = userProperty(properties, "a_05_speed", "a_speed", "speed");
+    if (speedProperty) {
+      settings.speed = clamp(Number(speedProperty.value) || DEFAULT_PRESET.wallpaperProperties.speed, 20, 100);
     }
 
-    if (Object.prototype.hasOwnProperty.call(properties, "brightness")) {
-      settings.brightness = clamp(Number(properties.brightness.value) || DEFAULT_PRESET.wallpaperProperties.brightness, 35, 100);
+    const brightnessProperty = userProperty(properties, "a_06_brightness", "a_brightness", "brightness");
+    if (brightnessProperty) {
+      settings.brightness = clamp(Number(brightnessProperty.value) || DEFAULT_PRESET.wallpaperProperties.brightness, 35, 100);
       needsAppearanceRefresh = true;
     }
 
-    if (Object.prototype.hasOwnProperty.call(properties, "glyphscale")) {
-      settings.glyphscale = clamp(Number(properties.glyphscale.value) || DEFAULT_PRESET.wallpaperProperties.glyphscale, 75, 130);
+    const glyphScaleProperty = userProperty(properties, "a_07_glyphscale", "a_glyphscale", "glyphscale");
+    if (glyphScaleProperty) {
+      settings.glyphscale = clamp(Number(glyphScaleProperty.value) || DEFAULT_PRESET.wallpaperProperties.glyphscale, 75, 130);
       needsRestart = true;
     }
 
-    if (Object.prototype.hasOwnProperty.call(properties, "characterspacing")) {
-      settings.characterspacing = clamp(Number(properties.characterspacing.value) || DEFAULT_PRESET.wallpaperProperties.characterspacing, 40, 240);
+    const characterSpacingProperty = userProperty(properties, "a_08_characterspacing", "a_characterspacing", "characterspacing");
+    if (characterSpacingProperty) {
+      settings.characterspacing = clamp(Number(characterSpacingProperty.value) || DEFAULT_PRESET.wallpaperProperties.characterspacing, 40, 240);
       needsRestart = true;
     }
 
-    if (Object.prototype.hasOwnProperty.call(properties, "fontstyle")) {
+    const fontStyleProperty = userProperty(properties, "a_03_fontstyle", "a_fontstyle", "fontstyle");
+    if (fontStyleProperty) {
       const nextFontStyle = (CONTROLS_ENABLED ? null : FONT_STYLE_OVERRIDE)
-        ?? normalizeFontStyle(String(properties.fontstyle.value))
+        ?? normalizeFontStyle(String(fontStyleProperty.value))
         ?? DEFAULT_PRESET.wallpaperProperties.fontstyle;
       if (nextFontStyle !== activeFontStyle) {
         setActiveFontStyle(nextFontStyle);
@@ -5661,13 +5756,17 @@ window.wallpaperPropertyListener = {
       }
     }
 
-    if (Object.prototype.hasOwnProperty.call(properties, "rainstyle")) {
-      settings.rainstyle = normalizeRainStyle(String(properties.rainstyle.value))
+    const rainStyleProperty = userProperty(properties, "a_02_rainstyle", "a_rainstyle", "rainstyle");
+    if (rainStyleProperty) {
+      settings.rainstyle = normalizeRainStyle(String(rainStyleProperty.value))
         ?? DEFAULT_PRESET.wallpaperProperties.rainstyle;
     }
 
-    if (Object.prototype.hasOwnProperty.call(properties, "skipintro")) {
-      const nextSkipIntro = (CONTROLS_ENABLED ? null : SKIP_INTRO_OVERRIDE) ?? Boolean(properties.skipintro.value);
+    const coldStartProperty = userProperty(properties, "a_01_coldstart", "a_coldstart", "coldstart");
+    const skipIntroProperty = userProperty(properties, "skipintro");
+    if (coldStartProperty || skipIntroProperty) {
+      const propertySkipIntro = coldStartProperty ? !Boolean(coldStartProperty.value) : Boolean(skipIntroProperty.value);
+      const nextSkipIntro = (CONTROLS_ENABLED ? null : SKIP_INTRO_OVERRIDE) ?? propertySkipIntro;
       if (settings.skipintro !== nextSkipIntro) {
         settings.skipintro = nextSkipIntro;
         clearClockGridCells();
@@ -5675,29 +5774,34 @@ window.wallpaperPropertyListener = {
       }
     }
 
-    if (Object.prototype.hasOwnProperty.call(properties, "glow")) {
-      settings.glow = Boolean(properties.glow.value);
+    const glowProperty = userProperty(properties, "a_09_glow", "a_glow", "glow");
+    if (glowProperty) {
+      settings.glow = Boolean(glowProperty.value);
       needsAppearanceRefresh = true;
     }
 
-    if (Object.prototype.hasOwnProperty.call(properties, "clock")) {
-      settings.clock = (CONTROLS_ENABLED ? null : CLOCK_OVERRIDE) ?? Boolean(properties.clock.value);
+    const clockProperty = userProperty(properties, "b_01_clock", "b_clock", "clock");
+    if (clockProperty) {
+      settings.clock = (CONTROLS_ENABLED ? null : CLOCK_OVERRIDE) ?? Boolean(clockProperty.value);
       clockMaskKey = "";
       needsAppearanceRefresh = true;
     }
 
-    if (Object.prototype.hasOwnProperty.call(properties, "clockbrightness")) {
-      settings.clockbrightness = clamp(Number(properties.clockbrightness.value) || DEFAULT_PRESET.wallpaperProperties.clockbrightness, 60, 160);
+    const clockBrightnessProperty = userProperty(properties, "b_02_clockbrightness", "b_clockbrightness", "clockbrightness");
+    if (clockBrightnessProperty) {
+      settings.clockbrightness = clamp(Number(clockBrightnessProperty.value) || DEFAULT_PRESET.wallpaperProperties.clockbrightness, 60, 160);
       needsAppearanceRefresh = true;
     }
 
-    if (Object.prototype.hasOwnProperty.call(properties, "clockcolor")) {
-      settings.clockcolor = parseWallpaperColor(properties.clockcolor.value, DEFAULT_PRESET.clockColor);
+    const clockColorProperty = userProperty(properties, "b_03_clockcolor", "b_clockcolor", "clockcolor");
+    if (clockColorProperty) {
+      settings.clockcolor = parseWallpaperColor(clockColorProperty.value, DEFAULT_PRESET.clockColor);
       needsAppearanceRefresh = true;
     }
 
-    if (Object.prototype.hasOwnProperty.call(properties, "audioenabled")) {
-      const nextAudioEnabled = (CONTROLS_ENABLED ? null : AUDIO_OVERRIDE) ?? Boolean(properties.audioenabled.value);
+    const audioEnabledProperty = userProperty(properties, "c_01_audioenabled", "c_audioenabled", "audioenabled");
+    if (audioEnabledProperty) {
+      const nextAudioEnabled = (CONTROLS_ENABLED ? null : AUDIO_OVERRIDE) ?? Boolean(audioEnabledProperty.value);
       if (settings.audioenabled && !nextAudioEnabled) {
         clearAudioRain();
         needsAppearanceRefresh = true;
@@ -5705,13 +5809,15 @@ window.wallpaperPropertyListener = {
       if (!settings.audioenabled && nextAudioEnabled) {
         clearAudioRain();
         needsAppearanceRefresh = true;
+        scheduleWallpaperAudioListenerRecovery("audio-enabled", { force: true });
       }
       settings.audioenabled = nextAudioEnabled;
       needsAppearanceRefresh = true;
     }
 
-    if (Object.prototype.hasOwnProperty.call(properties, "audioresponse")) {
-      setAudioResponse(properties.audioresponse.value);
+    const audioResponseProperty = userProperty(properties, "c_02_audioresponse", "c_audioresponse", "audioresponse");
+    if (audioResponseProperty) {
+      setAudioResponse(audioResponseProperty.value);
     } else if (
       Object.prototype.hasOwnProperty.call(properties, "audiointensity")
       || Object.prototype.hasOwnProperty.call(properties, "audiosensitivity")
@@ -5728,8 +5834,9 @@ window.wallpaperPropertyListener = {
       );
     }
 
-    if (Object.prototype.hasOwnProperty.call(properties, "audiobrightness")) {
-      const nextAudioBrightness = Number(properties.audiobrightness.value);
+    const audioBrightnessProperty = userProperty(properties, "c_03_audiobrightness", "c_audiobrightness", "audiobrightness");
+    if (audioBrightnessProperty) {
+      const nextAudioBrightness = Number(audioBrightnessProperty.value);
       settings.audiobrightness = clamp(
         Number.isFinite(nextAudioBrightness) ? nextAudioBrightness : DEFAULT_PRESET.wallpaperProperties.audiobrightness,
         30,
@@ -5738,22 +5845,25 @@ window.wallpaperPropertyListener = {
       needsAppearanceRefresh = true;
     }
 
-    if (Object.prototype.hasOwnProperty.call(properties, "audiocolormode")) {
+    const audioColorModeProperty = userProperty(properties, "c_04_audiocolormode", "c_audiocolormode", "audiocolormode");
+    if (audioColorModeProperty) {
       settings.audiocolormode = (CONTROLS_ENABLED ? null : AUDIO_COLOR_MODE_OVERRIDE)
-        ?? normalizeAudioColorMode(String(properties.audiocolormode.value))
+        ?? normalizeAudioColorMode(String(audioColorModeProperty.value))
         ?? DEFAULT_PRESET.wallpaperProperties.audiocolormode;
       clearAudioRain();
     }
 
-    if (Object.prototype.hasOwnProperty.call(properties, "audiospectrumreverse")) {
+    const audioSpectrumReverseProperty = userProperty(properties, "c_05_audiospectrumreverse", "c_audiospectrumreverse", "audiospectrumreverse");
+    if (audioSpectrumReverseProperty) {
       settings.audiospectrumreverse = (CONTROLS_ENABLED ? null : AUDIO_SPECTRUM_REVERSE_OVERRIDE)
-        ?? Boolean(properties.audiospectrumreverse.value);
+        ?? Boolean(audioSpectrumReverseProperty.value);
       clearAudioRain();
       needsAppearanceRefresh = true;
     }
 
-    if (Object.prototype.hasOwnProperty.call(properties, "color")) {
-      settings.color = parseWallpaperColor(properties.color.value);
+    const colorProperty = userProperty(properties, "a_10_color", "a_color", "color");
+    if (colorProperty) {
+      settings.color = parseWallpaperColor(colorProperty.value);
       needsAppearanceRefresh = true;
     }
 
@@ -5798,13 +5908,15 @@ function resetWallpaperAudioInput() {
   updateAudioSpectrumBars();
 }
 
-function registerWallpaperAudioListener(reason = "manual") {
+function registerWallpaperAudioListener(reason = "manual", options = {}) {
   if (typeof window.wallpaperRegisterAudioListener !== "function") {
     return false;
   }
 
   const now = performance.now();
   if (
+    !options.force
+    &&
     reason !== "initial"
     && now - audioState.lastAudioListenerRegisterTime < AUDIO_LISTENER_RECOVERY_COOLDOWN_MS
   ) {
@@ -5833,7 +5945,7 @@ function clearWallpaperAudioRecoveryTimers() {
   audioListenerRecoveryTimers = [];
 }
 
-function scheduleWallpaperAudioListenerRecovery(reason) {
+function scheduleWallpaperAudioListenerRecovery(reason, options = {}) {
   if (!settings.audioenabled || audioDebugEnabled || typeof window.wallpaperRegisterAudioListener !== "function") {
     return;
   }
@@ -5841,10 +5953,7 @@ function scheduleWallpaperAudioListenerRecovery(reason) {
   const callbackAgeMs = audioState.lastAudioCallbackTime > 0
     ? performance.now() - audioState.lastAudioCallbackTime
     : Infinity;
-  if ((reason === "focus" || reason === "pageshow") && audioState.lastAudioCallbackTime === 0) {
-    return;
-  }
-  if (reason !== "devicechange" && reason !== "stale-callback" && callbackAgeMs < 1000) {
+  if (!options.force && reason !== "devicechange" && reason !== "stale-callback" && reason !== "missing-callback" && callbackAgeMs < 1000) {
     return;
   }
 
@@ -5852,7 +5961,7 @@ function scheduleWallpaperAudioListenerRecovery(reason) {
   resetWallpaperAudioInput();
   audioListenerRecoveryTimers = AUDIO_LISTENER_RECOVERY_DELAYS_MS.map((delayMs) => (
     window.setTimeout(() => {
-      registerWallpaperAudioListener(reason);
+      registerWallpaperAudioListener(reason, { force: options.force || delayMs === 0 });
     }, delayMs)
   ));
 }
@@ -5864,9 +5973,9 @@ function installWallpaperAudioDeviceRecovery() {
   }
 
   try {
-    mediaDevices.addEventListener("devicechange", () => {
-      scheduleWallpaperAudioListenerRecovery("devicechange");
-    });
+	    mediaDevices.addEventListener("devicechange", () => {
+	      scheduleWallpaperAudioListenerRecovery("devicechange", { force: true });
+	    });
   } catch (error) {
     window.__matrixRuntimeErrors.push({
       message: error && error.message ? error.message : String(error),
@@ -5883,19 +5992,38 @@ document.addEventListener("visibilitychange", () => {
     fpsRemainder = 0;
     cancelAnimationFrame(animationFrame);
     animationFrame = requestAnimationFrame(frame);
-    scheduleWallpaperAudioListenerRecovery("visibilitychange");
+	    scheduleWallpaperAudioListenerRecovery("visibilitychange", { force: true });
   } else {
     cancelAnimationFrame(animationFrame);
   }
 });
 
 window.addEventListener("focus", () => {
-  scheduleWallpaperAudioListenerRecovery("focus");
+  scheduleWallpaperAudioListenerRecovery("focus", { force: true });
 });
 
 window.addEventListener("pageshow", () => {
-  scheduleWallpaperAudioListenerRecovery("pageshow");
+  scheduleWallpaperAudioListenerRecovery("pageshow", { force: true });
 });
+
+window.setInterval(() => {
+  if (!settings.audioenabled || audioDebugEnabled || typeof window.wallpaperRegisterAudioListener !== "function") {
+    return;
+  }
+
+  const now = performance.now();
+  const callbackAgeMs = audioState.lastAudioCallbackTime > 0
+    ? now - audioState.lastAudioCallbackTime
+    : Infinity;
+  const registerAgeMs = now - audioState.lastAudioListenerRegisterTime;
+  if (
+    audioState.lastAudioCallbackTime === 0
+      ? registerAgeMs > AUDIO_LISTENER_NO_CALLBACK_MS
+      : callbackAgeMs > AUDIO_LISTENER_STALE_CALLBACK_MS
+  ) {
+    scheduleWallpaperAudioListenerRecovery("watchdog", { force: true });
+  }
+}, AUDIO_LISTENER_WATCHDOG_MS);
 
 function wallpaperAudioListener(audioArray) {
   audioState.lastAudioCallbackTime = performance.now();

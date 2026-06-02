@@ -13,7 +13,7 @@ These links open the same web wallpaper with different URL parameters. Browser p
 下面这些链接会用不同 URL 参数打开同一个 Web 壁纸。普通浏览器无法读取 Wallpaper Engine 的真实音频数据，所以音频示例使用内置调试信号模拟。
 
 - [Default Matrix rain / 默认代码雨](https://ericcilcn.github.io/MatrixCodeRainWallpaper/MatrixCodeRainWallpaper/index.html)
-- [Hidden controls / 隐藏控制台](https://ericcilcn.github.io/MatrixCodeRainWallpaper/MatrixCodeRainWallpaper/index.html?controls=1&debugstate)
+- [Controls / 控制台](https://ericcilcn.github.io/MatrixCodeRainWallpaper/MatrixCodeRainWallpaper/index.html?controls=1&debugstate)
 - [Main rain cold start / 主雨冷启动](https://ericcilcn.github.io/MatrixCodeRainWallpaper/MatrixCodeRainWallpaper/index.html?skipintro=false&clock=false&audio=false)
 - [Clock enabled / 点阵时钟](https://ericcilcn.github.io/MatrixCodeRainWallpaper/MatrixCodeRainWallpaper/index.html?clock=true&audio=false)
 - [Audio spectrum debug / 音频频谱模拟](https://ericcilcn.github.io/MatrixCodeRainWallpaper/MatrixCodeRainWallpaper/index.html?controls=1&debugstate&audio=true&audiodebug=1)
@@ -61,8 +61,8 @@ Creator-page and Workshop description drafts are in [docs/support-pages.md](docs
 - 可选反向示波器，让音频柱从屏幕底部向上顶出。
 - Optional cold start where the main rain itself begins from black and falls in from the top.
 - 可选主雨冷启动：真实代码雨从黑屏开始，由顶部落下进入正常随机状态。
-- Hidden browser control panel for previewing settings with URL parameters.
-- 隐藏网页控制台，可通过 URL 参数在浏览器里调试预览。
+- Browser control panel for previewing settings with URL parameters.
+- 网页控制台，可通过 URL 参数在浏览器里调试预览。
 - No video playback, no `.scr`, no Windows binary dependency.
 - 无视频播放、无 `.scr`、无 Windows 二进制依赖。
 

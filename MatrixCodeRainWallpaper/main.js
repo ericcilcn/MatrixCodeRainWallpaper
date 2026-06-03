@@ -36,6 +36,7 @@ const LAYOUT_OVERRIDE = normalizeLayoutMode(URL_PARAMS.get("layout"));
 const CLOCK_OVERRIDE = parseBooleanParam(URL_PARAMS.get("clock"));
 const SKIP_INTRO_OVERRIDE = parseBooleanParam(URL_PARAMS.get("skipintro"));
 const RAIN_STYLES = new Set(["clean", "matrix3_trails"]);
+const HEAD_STYLES = new Set(["matrix1", "matrix23"]);
 const AUDIO_COLOR_MODES = new Set(["level_layers", "frequency_gradient", "neon_blocks", "matrix_tint", "caps_only"]);
 const AUDIO_HUE_STEPS = 144;
 const AUDIO_SPECTRUM_BINS = 64;
@@ -56,7 +57,8 @@ const SPEED_OVERRIDE = parseNumberParam(URL_PARAMS.get("speed"));
 const BRIGHTNESS_OVERRIDE = parseNumberParam(URL_PARAMS.get("brightness"));
 const GLYPH_SCALE_OVERRIDE = parseNumberParam(URL_PARAMS.get("glyphscale"));
 const CHARACTER_SPACING_OVERRIDE = parseNumberParam(URL_PARAMS.get("characterspacing"));
-const GLOW_OVERRIDE = parseBooleanParam(URL_PARAMS.get("glow"));
+const HEAD_STYLE_OVERRIDE = normalizeHeadStyle(URL_PARAMS.get("headstyle"));
+const CODE_TRAILS_OVERRIDE = parseBooleanParam(URL_PARAMS.get("codetrails"));
 const AUDIO_OVERRIDE = parseBooleanParam(URL_PARAMS.get("audio"));
 const AUDIO_COLOR_MODE_OVERRIDE = normalizeAudioColorMode(URL_PARAMS.get("audiocolormode"));
 const CLOCK_BRIGHTNESS_OVERRIDE = parseNumberParam(URL_PARAMS.get("clockbrightness"));
@@ -97,7 +99,7 @@ const CONTROL_TEXT = {
     fontResurrections: "Matrix Resurrections",
     coldStart: "Cold start",
     skipIntro: "Skip intro",
-    rainStyle: "Style",
+    rainStyle: "Generation style",
     rainStyleClean: "The Matrix",
     rainStyleMatrix3: "The Matrix 3",
     density: "Density",
@@ -105,7 +107,10 @@ const CONTROL_TEXT = {
     brightness: "Rain brightness",
     characterSize: "Character size",
     characterSpacing: "Character spacing",
-    glow: "Head glyph glow",
+    headStyle: "Head style",
+    headStyleMatrix1: "Matrix 1",
+    headStyleMatrix23: "Matrix 2&3",
+    codeTrails: "Code trails",
     color: "Custom color",
     clock: "Clock",
     clockBrightness: "Clock brightness",
@@ -125,6 +130,9 @@ const CONTROL_TEXT = {
     resetPreview: "Reset preview",
     linkCopied: "Link copied",
     hiddenStatus: "Hidden unless controls=1",
+    pauseHint: "Space: pause/resume",
+    pausedStatus: "Paused",
+    runningStatus: "Running",
     audioState: "audio",
     on: "on",
     off: "off",
@@ -145,7 +153,7 @@ const CONTROL_TEXT = {
     fontResurrections: "黑客帝国复活",
     coldStart: "冷启动",
     skipIntro: "跳过开场",
-    rainStyle: "风格",
+    rainStyle: "生成风格",
     rainStyleClean: "黑客帝国一",
     rainStyleMatrix3: "黑客帝国三",
     density: "密度",
@@ -153,7 +161,10 @@ const CONTROL_TEXT = {
     brightness: "雨亮度",
     characterSize: "字符大小",
     characterSpacing: "字符间距",
-    glow: "首字符发光",
+    headStyle: "首字母风格",
+    headStyleMatrix1: "Matrix 1",
+    headStyleMatrix23: "Matrix 2&3",
+    codeTrails: "代码残影",
     color: "自定义颜色",
     clock: "时钟",
     clockBrightness: "时钟亮度",
@@ -173,6 +184,9 @@ const CONTROL_TEXT = {
     resetPreview: "重置预览",
     linkCopied: "链接已复制",
     hiddenStatus: "仅在 controls=1 时显示",
+    pauseHint: "空格：暂停/恢复",
+    pausedStatus: "已暂停",
+    runningStatus: "运行中",
     audioState: "音频",
     on: "开",
     off: "关",
@@ -193,7 +207,7 @@ const CONTROL_TEXT = {
     fontResurrections: "駭客任務復活",
     coldStart: "冷啟動",
     skipIntro: "跳過開場",
-    rainStyle: "風格",
+    rainStyle: "生成風格",
     rainStyleClean: "駭客任務一",
     rainStyleMatrix3: "駭客任務三",
     density: "密度",
@@ -201,7 +215,10 @@ const CONTROL_TEXT = {
     brightness: "雨亮度",
     characterSize: "字元大小",
     characterSpacing: "字元間距",
-    glow: "首字元發光",
+    headStyle: "首字母風格",
+    headStyleMatrix1: "Matrix 1",
+    headStyleMatrix23: "Matrix 2&3",
+    codeTrails: "程式碼殘影",
     color: "自訂顏色",
     clock: "時鐘",
     clockBrightness: "時鐘亮度",
@@ -221,6 +238,9 @@ const CONTROL_TEXT = {
     resetPreview: "重置預覽",
     linkCopied: "連結已複製",
     hiddenStatus: "僅在 controls=1 時顯示",
+    pauseHint: "空格：暫停/恢復",
+    pausedStatus: "已暫停",
+    runningStatus: "執行中",
     audioState: "音訊",
     on: "開",
     off: "關",
@@ -726,8 +746,10 @@ const DEFAULT_PRESET = {
     characterspacing: 70,
     fontstyle: "trilogy",
     rainstyle: "clean",
+    headstyle: "matrix1",
+    codetrails: false,
     skipintro: false,
-    glow: false,
+    glow: true,
     clock: true,
     clockbrightness: 110,
     clockcolor: "0.70 1.00 0.78",
@@ -753,8 +775,10 @@ const settings = {
   characterspacing: clamp(CHARACTER_SPACING_OVERRIDE ?? DEFAULT_PRESET.wallpaperProperties.characterspacing, 40, 240),
   fontstyle: FONT_STYLE_OVERRIDE ?? DEFAULT_PRESET.wallpaperProperties.fontstyle,
   rainstyle: RAIN_STYLE_OVERRIDE ?? DEFAULT_PRESET.wallpaperProperties.rainstyle,
+  headstyle: HEAD_STYLE_OVERRIDE ?? DEFAULT_PRESET.wallpaperProperties.headstyle,
+  codetrails: CODE_TRAILS_OVERRIDE ?? DEFAULT_PRESET.wallpaperProperties.codetrails,
   skipintro: SKIP_INTRO_OVERRIDE ?? DEFAULT_PRESET.wallpaperProperties.skipintro,
-  glow: GLOW_OVERRIDE ?? DEFAULT_PRESET.wallpaperProperties.glow,
+  glow: true,
   clock: CLOCK_OVERRIDE ?? DEFAULT_PRESET.wallpaperProperties.clock,
   clockbrightness: clamp(CLOCK_BRIGHTNESS_OVERRIDE ?? DEFAULT_PRESET.wallpaperProperties.clockbrightness, 60, 160),
   clockcolor: CLOCK_COLOR_OVERRIDE ?? DEFAULT_PRESET.clockColor,
@@ -793,7 +817,8 @@ let logicalTick = 0;
 let releaseCounter = 0;
 let rainPatternEpoch = 0;
 let renderSeconds = 0;
-let running = true;
+let visibleRunning = true;
+let manualPaused = false;
 let started = false;
 let introState = {
   active: !settings.skipintro,
@@ -931,12 +956,38 @@ function normalizeRainStyle(value) {
   return RAIN_STYLES.has(normalized) ? normalized : null;
 }
 
+function normalizeHeadStyle(value) {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const normalized = value.trim().toLowerCase().replace(/[-_\s]/g, "");
+  if (["matrix1", "matrixone", "classic", "white", "whitegreen"].includes(normalized)) {
+    return "matrix1";
+  }
+  if (["matrix23", "matrix2", "matrix3", "matrix2and3", "matrix2&3", "reloaded", "revolutions", "greenhead"].includes(normalized)) {
+    return "matrix23";
+  }
+  return HEAD_STYLES.has(normalized) ? normalized : null;
+}
+
 function matrix3RainStyleActive() {
   return settings.rainstyle === "matrix3_trails";
 }
 
+function codeTrailsActive() {
+  return Boolean(settings.codetrails);
+}
+
 function rainStyleMultiplier(matrix3Value, cleanValue = 1) {
   return matrix3RainStyleActive() ? matrix3Value : cleanValue;
+}
+
+function tailEligibleStream(stream) {
+  return stream
+    && !stream.negative
+    && !stream.audioRain
+    && (stream.mode === "normal" || stream.mode === "deep");
 }
 
 function normalizeAudioColorMode(value) {
@@ -1081,15 +1132,12 @@ function streamGlyphDensity(stream, rowIndex) {
 
 function matrix3FallingStream(stream) {
   return matrix3RainStyleActive()
-    && stream
-    && !stream.negative
-    && !stream.audioRain
-    && (stream.mode === "normal" || stream.mode === "deep");
+    && tailEligibleStream(stream);
 }
 
 function matrix3StreamForCell(column, cell) {
   if (
-    !matrix3RainStyleActive()
+    (!matrix3RainStyleActive() && !codeTrailsActive())
     || !cell
     || cell.audioCell
     || cell.clockCell
@@ -1101,23 +1149,63 @@ function matrix3StreamForCell(column, cell) {
     return null;
   }
 
-  return column.streams.find((stream) => stream.id === cell.streamId && matrix3FallingStream(stream)) || null;
+  return column.streams.find((stream) => stream.id === cell.streamId && tailEligibleStream(stream)) || null;
+}
+
+function streamTrailRows(stream) {
+  if (!stream) {
+    return 0;
+  }
+  if (Number.isFinite(stream.trailRows)) {
+    return stream.trailRows;
+  }
+
+  const roll = hashUnit(stream.seed ^ 0x4a6d);
+  const lengthCap = Math.max(2, Math.floor(stream.length * 0.46));
+  if (roll < 0.16) return 0;
+  if (roll < 0.58) return Math.min(lengthCap, 3 + Math.floor(hashUnit(stream.seed ^ 0x12c7) * 4));
+  if (roll < 0.9) return Math.min(lengthCap, 7 + Math.floor(hashUnit(stream.seed ^ 0x21af) * 5));
+  return Math.min(lengthCap, 12 + Math.floor(hashUnit(stream.seed ^ 0x32e9) * 6));
 }
 
 function matrix3TailAlphaFactor(column, rowIndex, cell) {
+  if (!codeTrailsActive()) {
+    return 1;
+  }
+
   const stream = matrix3StreamForCell(column, cell);
-  const matrix3Cell = matrix3RainStyleActive()
+  const matrix3Cell = codeTrailsActive()
     && typeof cell.streamId === "string"
     && /^\d+:/.test(cell.streamId);
   if (!stream && !matrix3Cell) {
     return 1;
   }
 
+  if (stream) {
+    const tailRows = streamTrailRows(stream);
+    const headRow = matrix3StreamHead(stream);
+    const distanceBehindHead = headRow - rowIndex;
+    if (distanceBehindHead < 0) {
+      return 1;
+    }
+
+    if (tailRows <= 0) {
+      return distanceBehindHead <= stream.length ? 1 : 0;
+    }
+
+    const bodyRows = Math.max(1, stream.length - tailRows);
+    if (distanceBehindHead <= bodyRows) {
+      return 1;
+    }
+
+    const tailPosition = distanceBehindHead - bodyRows;
+    const fade = 1 - tailPosition / (tailRows + 1);
+    return clamp(Math.pow(fade, 1.16), 0, 1);
+  }
+
   const life = Math.max(1, cell.life);
   const ageRatio = clamp(cell.age / life, 0, 1);
-  const fade = Math.pow(1 - ageRatio, stream ? 1.08 : 1.38);
-  const tailFloor = stream ? 0.045 : 0;
-  return clamp(tailFloor + fade * (1 - tailFloor), 0, 1.06);
+  return clamp(Math.pow(1 - ageRatio, 1.8), 0, 1);
 }
 
 function hashInt(value) {
@@ -1316,7 +1404,9 @@ function buildPalettes() {
   const audioBrightness = clamp(settings.audiobrightness / 100, 0.3, 1.6);
   const clockBrightness = clamp(settings.clockbrightness / DEFAULT_PRESET.wallpaperProperties.clockbrightness, 0.55, 1.45);
   const glowIntensity = DEFAULT_PRESET.glowingTracers.intensity / 100;
-  const whiteGreenHead = { r: 226, g: 255, b: 220 };
+  const whiteGreenHead = settings.headstyle === "matrix23"
+    ? { r: 198, g: 255, b: 118 }
+    : { r: 226, g: 255, b: 220 };
   const audioHeadWhite = { r: 255, g: 252, b: 232 };
   const clockBaseColor = settings.clockcolor || DEFAULT_PRESET.clockColor;
   const clockColorDelta = Math.abs(clockBaseColor.r - DEFAULT_PRESET.clockColor.r)
@@ -1379,6 +1469,10 @@ function buildPalettes() {
         ? mixColor(audioHeadWhite, variant.brightColor, 0.44)
         : mixColor(whiteGreenHead, settings.color, 0.008));
     const head = scaleColor(headBase, paletteBrightness);
+    const headCoreBase = settings.headstyle === "matrix23" && !variant.fixed && !clockVariant
+      ? mixColor({ r: 242, g: 255, b: 156 }, settings.color, 0.035)
+      : mixColor(headBase, { r: 255, g: 255, b: 242 }, 0.18);
+    const headCore = scaleColor(headCoreBase, paletteBrightness);
     const glowBase = variant.fixed
       ? mixColor(variant.brightColor, audioHeadWhite, 0.2)
       : mixColor(head, settings.color, 0.24);
@@ -1392,6 +1486,7 @@ function buildPalettes() {
       body: rgb(body),
       bright: rgb(bright),
       head: rgb(head),
+      headCore: rgb(headCore),
       glow: rgba(glowBase, Math.max(variant.glow, 0.2) * glowIntensity * glowBrightness)
     };
   });
@@ -1581,11 +1676,13 @@ function streamDensity(stream) {
   const target = (stream.negative ? DEFAULT_PRESET.negativeDensity : DEFAULT_PRESET.positiveDensity) / 100;
   const variance = (stream.negative ? DEFAULT_PRESET.negativeDensityVariance : DEFAULT_PRESET.positiveDensityVariance) / 100;
   const min = target - variance * 0.5;
-  const styleBoost = matrix3RainStyleActive() && !stream.negative && stream.mode !== "audio"
-    ? 1.14
-    : 1;
-  const minClamp = matrix3RainStyleActive() && !stream.negative && stream.mode !== "audio" ? 0.08 : 0.32;
-  return clamp((min + hashUnit(stream.seed ^ 0x68a31) * variance) * Math.pow(settings.density / 100, 1.12) * styleBoost, minClamp, 1);
+  const matrix3Stream = matrix3RainStyleActive() && !stream.negative && stream.mode !== "audio";
+  const densityScale = matrix3Stream
+    ? clamp(Math.pow(settings.density / 100, 0.44), 0.28, 1.28)
+    : Math.pow(settings.density / 100, 1.12);
+  const styleBoost = matrix3Stream ? 0.92 : 1;
+  const minClamp = matrix3Stream ? 0.06 : 0.32;
+  return clamp((min + hashUnit(stream.seed ^ 0x68a31) * variance) * densityScale * styleBoost, minClamp, 1);
 }
 
 function streamLength(stream, seed) {
@@ -2722,7 +2819,7 @@ function updateAmbientCell(column, rowIndex, cell) {
   }
 
   const matrix3AlphaFactor = matrix3TailAlphaFactor(column, rowIndex, cell);
-  if (matrix3RainStyleActive() && matrix3AlphaFactor <= 0.025 && cell.age > 6 && !cell.head) {
+  if (codeTrailsActive() && matrix3AlphaFactor <= 0.025 && cell.age > 6 && !cell.head) {
     column.cells[rowIndex] = null;
     return;
   }
@@ -2825,6 +2922,10 @@ function writeCell(column, stream, rowIndex, age = 0, options = {}) {
     return null;
   }
 
+  if (options.head) {
+    demoteColumnHeads(column);
+  }
+
   next.target = next.baseAlpha;
   next.alpha = next.target;
   next.head = Boolean(options.head);
@@ -2835,6 +2936,40 @@ function writeCell(column, stream, rowIndex, age = 0, options = {}) {
   return next;
 }
 
+function demoteCellHead(cell) {
+  if (!cell || !cell.head) {
+    return;
+  }
+
+  cell.head = false;
+  cell.headStreamId = null;
+  cell.glowHead = Boolean(cell.headPreviousGlowHead);
+  cell.headPreviousGlowHead = false;
+}
+
+function syncColumnHeadRows(column) {
+  for (const stream of column.streams) {
+    if (!Number.isInteger(stream.headCellRow)) {
+      continue;
+    }
+
+    const cell = column.cells[stream.headCellRow];
+    if (!cell || !cell.head || cell.headStreamId !== stream.id) {
+      stream.headCellRow = null;
+    }
+  }
+}
+
+function demoteColumnHeads(column) {
+  for (const cell of column.cells) {
+    if (cell && cell.head) {
+      demoteCellHead(cell);
+    }
+  }
+
+  syncColumnHeadRows(column);
+}
+
 function demoteStreamHead(column, stream) {
   if (!Number.isInteger(stream.headCellRow)) {
     return;
@@ -2842,10 +2977,7 @@ function demoteStreamHead(column, stream) {
 
   const cell = column.cells[stream.headCellRow];
   if (cell && cell.head && cell.headStreamId === stream.id) {
-    cell.head = false;
-    cell.headStreamId = null;
-    cell.glowHead = Boolean(cell.headPreviousGlowHead);
-    cell.headPreviousGlowHead = false;
+    demoteCellHead(cell);
   }
 
   stream.headCellRow = null;
@@ -2894,6 +3026,7 @@ function resetStream(stream, column, initial = false) {
   stream.paletteName = column.paletteName;
   stream.toneMultiplier = 1;
   stream.length = streamLength(stream, cycleSeed);
+  stream.trailRows = streamTrailRows({ seed: cycleSeed, length: stream.length });
   if (stream.mode === "fragment") {
     const fragmentScaleMin = matrix3RainStyleActive() ? 0.78 : 0.48;
     const fragmentScaleMax = matrix3RainStyleActive() ? 1.02 : 0.78;
@@ -3062,7 +3195,7 @@ function startupActiveColumnRatio() {
   }
 
   const cold = DEFAULT_PRESET.coldStartRain;
-  return Math.min(0.78, cold.activeColumnRatio * 1.45 * densityScale);
+  return Math.min(0.62, cold.activeColumnRatio * 1.18 * densityScale);
 }
 
 function targetActiveColumnCount() {
@@ -3393,7 +3526,7 @@ function updateCell(column, rowIndex) {
   }
 
   const matrix3AlphaFactor = matrix3TailAlphaFactor(column, rowIndex, cell);
-  if (matrix3RainStyleActive() && matrix3AlphaFactor <= 0.025 && cell.age > 6 && !cell.head) {
+  if (codeTrailsActive() && matrix3AlphaFactor <= 0.025 && cell.age > 6 && !cell.head) {
     column.cells[rowIndex] = null;
     return;
   }
@@ -3517,7 +3650,7 @@ function releaseSplash() {
   const styleActive = matrix3RainStyleActive();
   const chance = (1 / DEFAULT_PRESET.releaseEveryTicks)
     * clamp(Math.pow(settings.density / 100, 1.25), 0.28, 2.3)
-    * (styleActive ? 3.15 : 1);
+    * (styleActive ? 2.42 : 1);
   if (hashUnit(logicalTick * 2654435761) > chance) {
     return;
   }
@@ -3758,13 +3891,14 @@ function logicStep() {
 
 function paintGlyph(context, char, styleName, palette, x, y) {
   const color = palette[styleName] || palette.body;
+  const matrix23Head = styleName === "head" && settings.headstyle === "matrix23";
 
   context.shadowBlur = 0;
   context.shadowColor = "transparent";
   context.globalAlpha = 1;
 
   if (settings.glow) {
-    if (styleName === "head") {
+    if (styleName === "head" && !matrix23Head) {
       context.shadowColor = palette.glow;
       context.shadowBlur = fontSize * 0.34;
     }
@@ -3772,12 +3906,31 @@ function paintGlyph(context, char, styleName, palette, x, y) {
 
   context.fillStyle = color;
   fillFittedText(context, char, x, y);
+  if (matrix23Head) {
+    context.save();
+    context.globalCompositeOperation = "source-atop";
+    context.globalAlpha = 0.78;
+    context.shadowColor = palette.headCore || palette.head;
+    context.shadowBlur = fontSize * 0.34;
+    context.fillStyle = palette.headCore || palette.head;
+    fillFittedText(context, char, x, y);
+    context.restore();
+    context.save();
+    context.globalCompositeOperation = "source-atop";
+    context.globalAlpha = 0.26;
+    context.shadowBlur = 0;
+    context.shadowColor = "transparent";
+    context.fillStyle = palette.headCore || palette.head;
+    fillFittedText(context, char, x, y);
+    context.restore();
+  }
   context.shadowBlur = 0;
   context.shadowColor = "transparent";
+  context.globalAlpha = 1;
 }
 
 function glyphAtlasKey(styleName, palette) {
-  return `${cellWidth}:${cellHeight}:${fontSize}:${glyphScaleX}:${glyphScaleY}:${dpr}:${activeFontStyle}:${activeFontFamily}:${styleName}:headglow:${settings.glow}:${GLYPH_EDGE_ALPHA}:${palette.name}:${palette.dim}:${palette.body}:${palette.bright}:${palette.head}:${palette.glow}`;
+  return `${cellWidth}:${cellHeight}:${fontSize}:${glyphScaleX}:${glyphScaleY}:${dpr}:${activeFontStyle}:${activeFontFamily}:${styleName}:headglow:${settings.glow}:headstyle:${settings.headstyle}:${GLYPH_EDGE_ALPHA}:${palette.name}:${palette.dim}:${palette.body}:${palette.bright}:${palette.head}:${palette.headCore}:${palette.glow}`;
 }
 
 function createGlyphAtlas(styleName, palette) {
@@ -4137,7 +4290,7 @@ function makeClockGridCell(column, rowIndex, salt, options = {}) {
     nextRotateTick: intro ? Number.POSITIVE_INFINITY : logicalTick + clockRotateDelay(salt, rowIndex),
     streamId: intro ? `clockintro:settle:${column.index}:${rowIndex}` : `clock:${column.index}:${rowIndex}`,
     negative: false,
-    head: intro,
+    head: false,
     headPreviousGlowHead: false,
     headStreamId: null,
     transient: false,
@@ -4295,7 +4448,7 @@ function drawClockFallbackGlyphs() {
 }
 
 function drawHeadGlyphGlow(cell, palette, x, y, finalAlpha) {
-  if (!settings.glow || !cell.head || finalAlpha <= 0.02) {
+  if (!settings.glow || settings.headstyle === "matrix23" || !cell.head || finalAlpha <= 0.02) {
     return;
   }
 
@@ -4837,7 +4990,7 @@ function updateColdStartClockFormation() {
         column.cells[drop.targetRow] = makeClockGridCell(column, drop.targetRow, drop.salt, { intro: true });
       } else {
         updateClockCell(column, drop.targetRow, current);
-        current.head = true;
+        current.head = false;
         current.glowHead = true;
         current.baseAlpha = clockIntroBaseAlpha(column.index, drop.targetRow);
         current.target = current.baseAlpha;
@@ -4868,6 +5021,7 @@ function updateColdStartClockFormation() {
       }
     }
 
+    demoteColumnHeads(column);
     column.cells[row] = makeClockIntroDropCell(column, row, drop);
     drop.previousRow = row;
   }
@@ -4918,8 +5072,21 @@ function simulationStep(deltaSeconds) {
   }
 }
 
+function animationRunning() {
+  return visibleRunning && !manualPaused;
+}
+
+function restartAnimationFrame() {
+  lastFrameTime = performance.now();
+  fpsRemainder = 0;
+  cancelAnimationFrame(animationFrame);
+  if (animationRunning()) {
+    animationFrame = requestAnimationFrame(frame);
+  }
+}
+
 function frame(now) {
-  if (!running) {
+  if (!animationRunning()) {
     return;
   }
 
@@ -5140,6 +5307,9 @@ function collectMatrixRainState() {
     if (columnHeads > 0) {
       summary.columnsWithHeads += 1;
     }
+    if (columnHeads > 1) {
+      summary.columnsWithMultipleHeads += 1;
+    }
     if (columnBright > 0) {
       summary.columnsWithBright += 1;
     }
@@ -5161,6 +5331,7 @@ function collectMatrixRainState() {
     rotatingCells: 0,
     visibleColumns: 0,
     columnsWithHeads: 0,
+    columnsWithMultipleHeads: 0,
     columnsWithBright: 0,
     columnsWithRotators: 0,
     clockGridCells: 0,
@@ -5199,6 +5370,12 @@ function collectMatrixRainState() {
     glyphScaleX,
     glyphScaleY,
     dpr,
+    playback: {
+      running: animationRunning(),
+      visible: visibleRunning,
+      manualPaused,
+      shortcut: "Space"
+    },
     font: {
       style: settings.fontstyle,
       styleOverride: FONT_STYLE_OVERRIDE,
@@ -5206,6 +5383,8 @@ function collectMatrixRainState() {
       glyphCount: CHAR_LIST.length
     },
     rainStyle: settings.rainstyle,
+    headStyle: settings.headstyle,
+    codeTrails: settings.codetrails,
     layoutProfile: activeLayoutProfile,
     layout: DEFAULT_PRESET.layout,
     clock: {
@@ -5417,8 +5596,9 @@ function buildControlsUrl() {
   url.searchParams.set("glyphscale", controlsUrlValue(settings.glyphscale));
   url.searchParams.set("characterspacing", controlsUrlValue(settings.characterspacing));
   url.searchParams.set("rainstyle", settings.rainstyle);
+  url.searchParams.set("headstyle", settings.headstyle);
+  url.searchParams.set("codetrails", controlsUrlValue(settings.codetrails));
   url.searchParams.set("skipintro", controlsUrlValue(settings.skipintro));
-  url.searchParams.set("glow", controlsUrlValue(settings.glow));
   url.searchParams.set("color", colorToHex(settings.color));
   url.searchParams.set("audio", controlsUrlValue(settings.audioenabled));
   url.searchParams.set("audioresponse", controlsUrlValue(settings.audioresponse));
@@ -5535,6 +5715,11 @@ function setControlsStatus(panel, message) {
   }
 }
 
+function controlsRuntimeStatusText() {
+  const state = manualPaused ? controlText("pausedStatus") : controlText("runningStatus");
+  return `${controlText("pauseHint")} / ${state}`;
+}
+
 function updateControlsStats(panel) {
   const stats = panel.querySelector(".matrix-controls-stats");
   if (!stats) {
@@ -5547,7 +5732,8 @@ function updateControlsStats(panel) {
     `${state.audio.spectrumMotion} ${state.audio.spectrumLayout} cells ${state.audio.audioRainCells}`,
     `${controlText("maxRows")} ${state.audio.spectrumMaxRows}`,
     `${state.gridColumns} x ${state.rows}`,
-    state.layoutProfile ? state.layoutProfile.mode : controlText("layoutLabel")
+    state.layoutProfile ? state.layoutProfile.mode : controlText("layoutLabel"),
+    manualPaused ? controlText("pausedStatus") : controlText("runningStatus")
   ].join(" / ");
 }
 
@@ -5615,8 +5801,14 @@ function initializeControlsPanel() {
       createControlsRange(controlText("characterSpacing"), settings.characterspacing, 40, 240, (value) => {
         applyPreviewProperties({ characterspacing: propertyValue(value) });
       }),
-      createControlsToggle(controlText("glow"), settings.glow, (value) => {
-        applyPreviewProperties({ glow: propertyValue(value) });
+      createControlsSelect(controlText("headStyle"), settings.headstyle, [
+        { label: controlText("headStyleMatrix1"), value: "matrix1" },
+        { label: controlText("headStyleMatrix23"), value: "matrix23" }
+      ], (value) => {
+        applyPreviewProperties({ headstyle: propertyValue(value) });
+      }),
+      createControlsToggle(controlText("codeTrails"), settings.codetrails, (value) => {
+        applyPreviewProperties({ codetrails: propertyValue(value) });
       }),
       createControlsColor(controlText("color"), settings.color, (value) => {
         applyPreviewProperties({ color: propertyValue(colorToWallpaperValue(value)) });
@@ -5686,7 +5878,7 @@ function initializeControlsPanel() {
   stats.className = "matrix-controls-stats";
   const status = document.createElement("div");
   status.className = "matrix-controls-status";
-  status.textContent = controlText("hiddenStatus");
+  status.textContent = controlsRuntimeStatusText();
 
   body.append(actions, stats, status);
   panel.append(header, body);
@@ -5704,7 +5896,7 @@ function start() {
   fpsRemainder = 0;
   cancelAnimationFrame(animationFrame);
   initializeControlsPanel();
-  animationFrame = requestAnimationFrame(frame);
+  restartAnimationFrame();
 }
 
 window.wallpaperPropertyListener = {
@@ -5762,6 +5954,19 @@ window.wallpaperPropertyListener = {
         ?? DEFAULT_PRESET.wallpaperProperties.rainstyle;
     }
 
+    const headStyleProperty = userProperty(properties, "a_09_headstyle", "a_headstyle", "headstyle");
+    if (headStyleProperty) {
+      settings.headstyle = normalizeHeadStyle(String(headStyleProperty.value))
+        ?? DEFAULT_PRESET.wallpaperProperties.headstyle;
+      needsAppearanceRefresh = true;
+    }
+
+    const codeTrailsProperty = userProperty(properties, "a_10_codetrails", "a_codetrails", "codetrails");
+    if (codeTrailsProperty) {
+      settings.codetrails = Boolean(codeTrailsProperty.value);
+      needsAppearanceRefresh = true;
+    }
+
     const coldStartProperty = userProperty(properties, "a_01_coldstart", "a_coldstart", "coldstart");
     const skipIntroProperty = userProperty(properties, "skipintro");
     if (coldStartProperty || skipIntroProperty) {
@@ -5772,12 +5977,6 @@ window.wallpaperPropertyListener = {
         clearClockGridCells();
         needsRestart = true;
       }
-    }
-
-    const glowProperty = userProperty(properties, "a_09_glow", "a_glow", "glow");
-    if (glowProperty) {
-      settings.glow = Boolean(glowProperty.value);
-      needsAppearanceRefresh = true;
     }
 
     const clockProperty = userProperty(properties, "b_01_clock", "b_clock", "clock");
@@ -5861,7 +6060,7 @@ window.wallpaperPropertyListener = {
       needsAppearanceRefresh = true;
     }
 
-    const colorProperty = userProperty(properties, "a_10_color", "a_color", "color");
+    const colorProperty = userProperty(properties, "a_11_color", "a_10_color", "a_color", "color");
     if (colorProperty) {
       settings.color = parseWallpaperColor(colorProperty.value);
       needsAppearanceRefresh = true;
@@ -5984,18 +6183,58 @@ function installWallpaperAudioDeviceRecovery() {
   }
 }
 
-document.addEventListener("visibilitychange", () => {
-  running = !document.hidden;
+function keyboardEventFromEditableTarget(event) {
+  const target = event.target;
+  if (!target || typeof target.closest !== "function") {
+    return false;
+  }
 
-  if (running) {
-    lastFrameTime = performance.now();
-    fpsRemainder = 0;
+  return Boolean(target.closest("input, textarea, select, button, [contenteditable='true']"));
+}
+
+function updateControlsStatusText() {
+  const panel = document.getElementById("matrix-controls");
+  if (panel) {
+    setControlsStatus(panel, controlsRuntimeStatusText());
+    updateControlsStats(panel);
+  }
+}
+
+function setManualPaused(paused) {
+  const nextPaused = Boolean(paused);
+  if (manualPaused === nextPaused) {
+    return;
+  }
+
+  manualPaused = nextPaused;
+  if (manualPaused) {
     cancelAnimationFrame(animationFrame);
-    animationFrame = requestAnimationFrame(frame);
-	    scheduleWallpaperAudioListenerRecovery("visibilitychange", { force: true });
+  } else {
+    restartAnimationFrame();
+  }
+  publishDebugState();
+  updateControlsStatusText();
+}
+
+document.addEventListener("keydown", (event) => {
+  if (event.code !== "Space" || event.repeat || keyboardEventFromEditableTarget(event)) {
+    return;
+  }
+
+  event.preventDefault();
+  setManualPaused(!manualPaused);
+});
+
+document.addEventListener("visibilitychange", () => {
+  visibleRunning = !document.hidden;
+
+  if (visibleRunning) {
+    restartAnimationFrame();
+	  scheduleWallpaperAudioListenerRecovery("visibilitychange", { force: true });
   } else {
     cancelAnimationFrame(animationFrame);
   }
+  updateControlsStatusText();
 });
 
 window.addEventListener("focus", () => {

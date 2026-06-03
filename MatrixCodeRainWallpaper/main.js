@@ -2,6 +2,8 @@
 
 const canvas = document.getElementById("matrix-rain");
 const ctx = canvas.getContext("2d", { alpha: false });
+const bloomCanvas = document.createElement("canvas");
+const bloomCtx = bloomCanvas.getContext("2d", { alpha: true });
 
 window.__matrixRuntimeErrors = [];
 window.addEventListener("error", (event) => {
@@ -25,6 +27,14 @@ const FONT_FAMILIES = {
   resurrections: "\"Matrix Resurrected\", \"Matrix Code\", monospace"
 };
 const DPR_LIMIT = 2;
+const MATRIX_BLOOM_LAYER_SCALE = 0.42;
+const MATRIX23_BLOOM = {
+  headAlpha: 0.98,
+  brightAlpha: 0.24,
+  tailAlpha: 0.48,
+  wideBlurScale: 0.34,
+  tightBlurScale: 0.14
+};
 const BASE_COLOR = { r: 54, g: 217, b: 105 };
 const GLYPH_EDGE_ALPHA = 0.72;
 const PATTERN_SEED = 0x4d415452;
@@ -803,6 +813,7 @@ let cellHeight = 36;
 let fontSize = 27;
 let glyphScaleX = 1;
 let glyphScaleY = 1;
+let bloomLayerScale = MATRIX_BLOOM_LAYER_SCALE;
 let activeFontStyle = settings.fontstyle;
 let activeFontFamily = FONT_FAMILIES[activeFontStyle] || FONT_FAMILIES.trilogy;
 let activeLayoutProfile = null;
@@ -4472,6 +4483,111 @@ function drawHeadGlyphGlow(cell, palette, x, y, finalAlpha) {
   ctx.restore();
 }
 
+function matrixBloomActive() {
+  return settings.headstyle === "matrix23" && bloomCtx && bloomCanvas.width > 0 && bloomCanvas.height > 0;
+}
+
+function resizeBloomLayer() {
+  bloomLayerScale = MATRIX_BLOOM_LAYER_SCALE;
+  bloomCanvas.width = Math.max(1, Math.ceil(width * bloomLayerScale));
+  bloomCanvas.height = Math.max(1, Math.ceil(height * bloomLayerScale));
+  bloomCtx.setTransform(bloomLayerScale, 0, 0, bloomLayerScale, 0, 0);
+  bloomCtx.imageSmoothingEnabled = true;
+}
+
+function beginBloomFrame() {
+  if (!matrixBloomActive()) {
+    return;
+  }
+
+  bloomCtx.setTransform(1, 0, 0, 1, 0, 0);
+  bloomCtx.clearRect(0, 0, bloomCanvas.width, bloomCanvas.height);
+  bloomCtx.setTransform(bloomLayerScale, 0, 0, bloomLayerScale, 0, 0);
+  bloomCtx.globalAlpha = 1;
+  bloomCtx.globalCompositeOperation = "source-over";
+  bloomCtx.filter = "none";
+}
+
+function drawMatrixBloomGlyph(sprite, x, y, finalAlpha, intensity) {
+  if (!matrixBloomActive() || finalAlpha <= 0.025 || intensity <= 0) {
+    return;
+  }
+
+  bloomCtx.globalCompositeOperation = "lighter";
+  bloomCtx.globalAlpha = clamp(finalAlpha * intensity, 0, 0.92);
+  bloomCtx.drawImage(
+    sprite.canvas,
+    sprite.sx,
+    sprite.sy,
+    sprite.sw,
+    sprite.sh,
+    Math.round(x - sprite.cssWidth / 2),
+    Math.round(y - sprite.cssHeight / 2),
+    sprite.cssWidth,
+    sprite.cssHeight
+  );
+  bloomCtx.globalAlpha = 1;
+}
+
+function drawMatrixBloomForCell(cell, column, rowIndex, sprite, styleName, finalAlpha, clockProtected) {
+  if (!matrixBloomActive() || clockProtected || cell.audioCell || cell.negative) {
+    return;
+  }
+
+  const x = column.x;
+  const y = (rowIndex + 0.5) * cellHeight;
+  if (styleName === "head" && cell.head) {
+    drawMatrixBloomGlyph(sprite, x, y, finalAlpha, MATRIX23_BLOOM.headAlpha);
+    return;
+  }
+
+  if (cell.glowHead) {
+    drawMatrixBloomGlyph(sprite, x, y, finalAlpha, MATRIX23_BLOOM.brightAlpha);
+  }
+
+  if (!codeTrailsActive() || cell.head) {
+    return;
+  }
+
+  const stream = matrix3StreamForCell(column, cell);
+  if (!stream) {
+    return;
+  }
+
+  const tailFactor = matrix3TailAlphaFactor(column, rowIndex, cell);
+  if (tailFactor >= 0.97 || tailFactor <= 0.025) {
+    return;
+  }
+
+  const tailWeight = Math.pow(1 - tailFactor, 0.75);
+  drawMatrixBloomGlyph(sprite, x, y, finalAlpha, MATRIX23_BLOOM.tailAlpha * tailWeight);
+}
+
+function compositeBloomLayer() {
+  if (!matrixBloomActive()) {
+    return;
+  }
+
+  const wideBlur = clamp(fontSize * MATRIX23_BLOOM.wideBlurScale, 2.5, 11);
+  const tightBlur = clamp(fontSize * MATRIX23_BLOOM.tightBlurScale, 1.2, 5);
+  const brightness = clamp(settings.brightness / 88, 0.58, 1.26);
+
+  ctx.save();
+  ctx.imageSmoothingEnabled = true;
+  ctx.globalCompositeOperation = "lighter";
+  ctx.filter = `blur(${wideBlur}px)`;
+  ctx.globalAlpha = 0.84 * brightness;
+  ctx.drawImage(bloomCanvas, 0, 0, width, height);
+  ctx.filter = `blur(${tightBlur}px)`;
+  ctx.globalAlpha = 0.52 * brightness;
+  ctx.drawImage(bloomCanvas, 0, 0, width, height);
+  ctx.filter = "none";
+  ctx.globalAlpha = 0.1 * brightness;
+  ctx.drawImage(bloomCanvas, 0, 0, width, height);
+  ctx.restore();
+  ctx.imageSmoothingEnabled = false;
+}
+
 function drawGlyph(cell, column, rowIndex) {
   let styleName = "body";
   let alpha = cell.alpha;
@@ -4556,6 +4672,15 @@ function drawGlyph(cell, column, rowIndex) {
     Math.round(y - sprite.cssHeight / 2),
     sprite.cssWidth,
     sprite.cssHeight
+  );
+  drawMatrixBloomForCell(
+    cell,
+    column,
+    rowIndex,
+    sprite,
+    styleName,
+    finalAlpha,
+    clockMaskHit || clockEmphasisHit || clockHighlightHit || cell.clockCell || cell.clockIntroDrop
   );
 }
 
@@ -5041,6 +5166,7 @@ function render(now = performance.now()) {
   ctx.fillStyle = "#000";
   ctx.fillRect(0, 0, width, height);
   ctx.globalCompositeOperation = "source-over";
+  beginBloomFrame();
 
   for (const column of activeColumns) {
     for (let rowIndex = 0; rowIndex < rows; rowIndex += 1) {
@@ -5050,6 +5176,7 @@ function render(now = performance.now()) {
       }
     }
   }
+  compositeBloomLayer();
 
   if (!coldStartActive()) {
     drawAudioSpectrumOverlay();
@@ -5236,6 +5363,7 @@ function resize() {
   canvas.style.height = `${height}px`;
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.imageSmoothingEnabled = false;
+  resizeBloomLayer();
 
   glyphCache = new Map();
   prebuildGlyphAtlases();

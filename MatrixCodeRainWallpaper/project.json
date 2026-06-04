@@ -16,18 +16,18 @@
         "value": true,
         "order": 10
       },
-      "a_02_rainstyle": {
-        "text": "ui_rain_style",
+      "a_02_style": {
+        "text": "ui_style",
         "type": "combo",
-        "value": "clean",
+        "value": "matrix1",
         "options": [
           {
-            "label": "ui_rain_style_clean",
-            "value": "clean"
+            "label": "ui_style_matrix1",
+            "value": "matrix1"
           },
           {
-            "label": "ui_rain_style_matrix3",
-            "value": "matrix3_trails"
+            "label": "ui_style_matrix23",
+            "value": "matrix23"
           }
         ],
         "order": 20
@@ -84,37 +84,6 @@
         "editable": true,
         "order": 70
       },
-      "a_08_characterspacing": {
-        "text": "ui_character_spacing",
-        "type": "slider",
-        "value": 70,
-        "min": 40,
-        "max": 240,
-        "editable": true,
-        "order": 80
-      },
-      "a_09_headstyle": {
-        "text": "ui_head_style",
-        "type": "combo",
-        "value": "matrix1",
-        "options": [
-          {
-            "label": "ui_head_style_matrix1",
-            "value": "matrix1"
-          },
-          {
-            "label": "ui_head_style_matrix23",
-            "value": "matrix23"
-          }
-        ],
-        "order": 90
-      },
-      "a_10_codetrails": {
-        "text": "ui_code_trails",
-        "type": "bool",
-        "value": false,
-        "order": 100
-      },
       "a_11_color": {
         "text": "ui_custom_color",
         "type": "color",
@@ -145,7 +114,7 @@
       "b_03_clockcolor": {
         "text": "ui_clock_color",
         "type": "color",
-        "value": "0.70 1.00 0.78",
+        "value": "1.00 1.00 1.00",
         "order": 230,
         "condition": "b_01_clock.value == true"
       },
@@ -233,13 +202,13 @@
         "ui_group_clock": "Clock",
         "ui_group_audio": "Audio",
         "ui_rain_font": "Font",
-        "ui_font_trilogy": "Matrix Code trilogy",
+        "ui_font_trilogy": "Matrix Trilogy",
         "ui_font_resurrections": "Matrix Resurrections",
         "ui_cold_start": "Cold start",
         "ui_skip_intro": "Skip intro",
-        "ui_rain_style": "Generation style",
-        "ui_rain_style_clean": "The Matrix",
-        "ui_rain_style_matrix3": "The Matrix 3",
+        "ui_style": "Style",
+        "ui_style_matrix1": "Matrix 1",
+        "ui_style_matrix23": "Matrix 2&3",
         "ui_clock": "Clock",
         "ui_audio_spectrum": "Audio spectrum",
         "ui_base_advanced": "Base advanced",
@@ -247,11 +216,6 @@
         "ui_speed": "Speed",
         "ui_brightness": "Rain brightness",
         "ui_character_size": "Character size",
-        "ui_character_spacing": "Character spacing",
-        "ui_head_style": "Head style",
-        "ui_head_style_matrix1": "Matrix 1",
-        "ui_head_style_matrix23": "Matrix 2&3",
-        "ui_code_trails": "Code trails",
         "ui_custom_color": "Custom color",
         "ui_clock_brightness": "Clock brightness",
         "ui_clock_color": "Clock color",
@@ -271,13 +235,13 @@
         "ui_group_clock": "时钟",
         "ui_group_audio": "音频",
         "ui_rain_font": "字体",
-        "ui_font_trilogy": "黑客帝国三部曲",
-        "ui_font_resurrections": "黑客帝国复活",
+        "ui_font_trilogy": "Matrix Trilogy",
+        "ui_font_resurrections": "Matrix Resurrections",
         "ui_cold_start": "冷启动",
         "ui_skip_intro": "跳过开场",
-        "ui_rain_style": "生成风格",
-        "ui_rain_style_clean": "黑客帝国一",
-        "ui_rain_style_matrix3": "黑客帝国三",
+        "ui_style": "风格",
+        "ui_style_matrix1": "Matrix 1",
+        "ui_style_matrix23": "Matrix 2&3",
         "ui_clock": "时钟",
         "ui_audio_spectrum": "音频示波器",
         "ui_base_advanced": "基础高级选项",
@@ -285,11 +249,6 @@
         "ui_speed": "速度",
         "ui_brightness": "雨亮度",
         "ui_character_size": "字符大小",
-        "ui_character_spacing": "字符间距",
-        "ui_head_style": "首字母风格",
-        "ui_head_style_matrix1": "Matrix 1",
-        "ui_head_style_matrix23": "Matrix 2&3",
-        "ui_code_trails": "代码残影",
         "ui_custom_color": "自定义颜色",
         "ui_clock_brightness": "时钟亮度",
         "ui_clock_color": "时钟颜色",
@@ -309,13 +268,13 @@
         "ui_group_clock": "時鐘",
         "ui_group_audio": "音訊",
         "ui_rain_font": "字體",
-        "ui_font_trilogy": "駭客任務三部曲",
-        "ui_font_resurrections": "駭客任務復活",
+        "ui_font_trilogy": "Matrix Trilogy",
+        "ui_font_resurrections": "Matrix Resurrections",
         "ui_cold_start": "冷啟動",
         "ui_skip_intro": "跳過開場",
-        "ui_rain_style": "生成風格",
-        "ui_rain_style_clean": "駭客任務一",
-        "ui_rain_style_matrix3": "駭客任務三",
+        "ui_style": "風格",
+        "ui_style_matrix1": "Matrix 1",
+        "ui_style_matrix23": "Matrix 2&3",
         "ui_clock": "時鐘",
         "ui_audio_spectrum": "音訊示波器",
         "ui_base_advanced": "基礎進階選項",
@@ -323,11 +282,6 @@
         "ui_speed": "速度",
         "ui_brightness": "雨亮度",
         "ui_character_size": "字元大小",
-        "ui_character_spacing": "字元間距",
-        "ui_head_style": "首字母風格",
-        "ui_head_style_matrix1": "Matrix 1",
-        "ui_head_style_matrix23": "Matrix 2&3",
-        "ui_code_trails": "程式碼殘影",
         "ui_custom_color": "自訂顏色",
         "ui_clock_brightness": "時鐘亮度",
         "ui_clock_color": "時鐘顏色",

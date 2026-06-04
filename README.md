@@ -8,17 +8,12 @@ Live preview: [ericcilcn.github.io/MatrixCodeRainWallpaper](https://ericcilcn.gi
 
 ## Preview Links / 效果预览
 
-These links open the same web wallpaper with different URL parameters. Browser previews cannot receive real Wallpaper Engine audio, so audio examples use the built-in debug signal.
+These links open the current public web wallpaper. Browser previews cannot receive real Wallpaper Engine audio; real audio response works inside Wallpaper Engine.
 
-下面这些链接会用不同 URL 参数打开同一个 Web 壁纸。普通浏览器无法读取 Wallpaper Engine 的真实音频数据，所以音频示例使用内置调试信号模拟。
+下面两个链接打开当前公开网页版本。普通浏览器无法读取 Wallpaper Engine 的真实音频数据；真实音频响应需要在 Wallpaper Engine 里运行。
 
-- [Default Matrix rain / 默认代码雨](https://ericcilcn.github.io/MatrixCodeRainWallpaper/MatrixCodeRainWallpaper/index.html)
-- [Controls / 控制台](https://ericcilcn.github.io/MatrixCodeRainWallpaper/MatrixCodeRainWallpaper/index.html?controls=1&debugstate)
-- [Main rain cold start / 主雨冷启动](https://ericcilcn.github.io/MatrixCodeRainWallpaper/MatrixCodeRainWallpaper/index.html?skipintro=false&clock=false&audio=false)
-- [Clock enabled / 点阵时钟](https://ericcilcn.github.io/MatrixCodeRainWallpaper/MatrixCodeRainWallpaper/index.html?clock=true&audio=false)
-- [Audio spectrum debug / 音频频谱模拟](https://ericcilcn.github.io/MatrixCodeRainWallpaper/MatrixCodeRainWallpaper/index.html?controls=1&debugstate&audio=true&audiodebug=1)
-- [Frequency gradient spectrum / 频率渐变示波器](https://ericcilcn.github.io/MatrixCodeRainWallpaper/MatrixCodeRainWallpaper/index.html?controls=1&debugstate&audio=true&audiodebug=1&audiocolormode=frequency_gradient)
-- [Peak caps only, reversed / 仅峰值帽反向示波器](https://ericcilcn.github.io/MatrixCodeRainWallpaper/MatrixCodeRainWallpaper/index.html?controls=1&debugstate&audio=true&audiodebug=1&audiocolormode=caps_only&audiospectrumreverse=1)
+- [Default / 默认效果](https://ericcilcn.github.io/MatrixCodeRainWallpaper/)
+- [Controls / 控制台](https://ericcilcn.github.io/MatrixCodeRainWallpaper/?controls=1&debugstate)
 
 ## Support
 
@@ -31,26 +26,24 @@ Creator-page and Workshop description drafts are in [docs/support-pages.md](docs
 
 ## Screenshots
 
-### Matrix rain
+### Default / 默认效果
 
 ![Matrix rain](docs/screenshots/matrix-rain.png)
 
-### Audio spectrum
+### Controls / 控制台
 
-![Audio spectrum](docs/screenshots/audio-spectrum.png)
-
-### Peak caps only, reversed
-
-![Peak caps only](docs/screenshots/peak-caps-only.png)
+![Controls](docs/screenshots/controls.png)
 
 ## Features / 主要功能
 
 - Real-time Canvas renderer with Matrix-style fixed-grid rain.
 - 实时 Canvas 渲染，字符固定在网格内，模拟 Matrix 风格代码雨。
-- Local bundled fonts, including Matrix Code and a Resurrections-style option.
-- 内置本地字体，支持 Matrix Code 三部曲风格和 Resurrections 风格字体。
-- Wallpaper Engine user properties for font, clock, rain brightness, character size, spacing, head style, optional code trails, and color.
-- Wallpaper Engine 属性面板可调字体、时钟、雨亮度、字符大小、字符间距、首字母风格、可选代码残影和颜色。
+- Local bundled fonts, including Matrix Trilogy and Matrix Resurrections options.
+- 内置本地字体，支持 Matrix Trilogy 和 Matrix Resurrections 两种字体选项。
+- Wallpaper Engine user properties for cold start, style, font, density, speed, rain brightness, character size, custom color, clock, and audio spectrum.
+- Wallpaper Engine 属性面板可调冷启动、风格、字体、密度、速度、雨亮度、字符大小、自定义颜色、时钟和音频示波器。
+- Two rain styles: Matrix 1 and Matrix 2&3.
+- 两种代码雨风格：Matrix 1 和 Matrix 2&3。
 - Optional dot-matrix clock rendered from code-rain glyph cells.
 - 可选点阵时钟，使用代码雨字符格组成时间显示。
 - Optional audio spectrum layer using Wallpaper Engine audio data.
@@ -59,8 +52,8 @@ Creator-page and Workshop description drafts are in [docs/support-pages.md](docs
 - 音频颜色模式包括频率渐变、极光渐变、霓虹色块、冷色微光和仅峰值帽。
 - Optional reversed spectrum that grows from the bottom upward.
 - 可选反向示波器，让音频柱从屏幕底部向上顶出。
-- Optional cold start where the main rain itself begins from black and falls in from the top.
-- 可选主雨冷启动：真实代码雨从黑屏开始，由顶部落下进入正常随机状态。
+- Cold start where the main rain itself begins from black and falls in from the top.
+- 主雨冷启动：真实代码雨从黑屏开始，由顶部落下进入正常随机状态。
 - Browser control panel for previewing settings with URL parameters.
 - 网页控制台，可通过 URL 参数在浏览器里调试预览。
 - No video playback, no `.scr`, no Windows binary dependency.
@@ -73,7 +66,7 @@ Creator-page and Workshop description drafts are in [docs/support-pages.md](docs
 3. In Wallpaper Engine, create or import a web wallpaper from `MatrixCodeRainWallpaper/index.html`.
 4. Use the Wallpaper Engine properties panel to adjust the wallpaper.
 
-The audio spectrum requires Wallpaper Engine's desktop audio processing. Normal browsers and GitHub Pages cannot access Wallpaper Engine audio; use the audio debug preview links above for browser-only previews.
+The audio spectrum requires Wallpaper Engine's desktop audio processing. Normal browsers and GitHub Pages cannot access Wallpaper Engine audio.
 
 ## Local Development
 
@@ -87,15 +80,22 @@ This command serves the same files locally for development. Public preview links
 
 ## Main Settings
 
-- `Rain font`: Matrix Code trilogy or Matrix Resurrections.
-- `Skip intro`: enabled by default; turn it off to let the main rain cold-start from black.
+- `Cold start`: enabled by default; turn it off to start immediately from the stable rain state.
+- `Style`: Matrix 1 or Matrix 2&3.
+- `Font`: Matrix Trilogy or Matrix Resurrections.
+- `Density`: default `180`, controls overall rain amount.
+- `Speed`: controls rain speed.
+- `Rain brightness`: controls the green rain brightness.
+- `Character size`: changes the grid and glyph size together.
+- `Custom color`: changes the base rain color.
 - `Clock`: toggles the dot-matrix clock.
+- `Clock brightness`: controls only the clock brightness.
+- `Clock color`: controls only the clock color.
 - `Audio spectrum`: toggles the audio-responsive visualizer.
 - `Audio response`: default `80`, controls spectrum amplitude response.
 - `Audio brightness`: controls only the audio spectrum brightness.
 - `Audio color`: spectrum color/display preset.
 - `Reverse spectrum`: makes the audio spectrum grow from the bottom upward.
-- `Character spacing`: controls glyph edge spacing without changing the fixed grid.
 
 ## Project Layout
 

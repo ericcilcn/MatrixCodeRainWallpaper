@@ -26,11 +26,15 @@ Creator-page and Workshop description drafts are in [docs/support-pages.md](docs
 
 ## Screenshots
 
-### Default / 默认效果
+### Matrix rain only / 纯代码雨
 
 ![Matrix rain](docs/screenshots/matrix-rain.png)
 
-### Controls / 控制台
+### Clock and audio response / 时钟与音频响应
+
+![Clock and audio response](docs/screenshots/clock-audio.png)
+
+### Reverse peak caps with controls / 反向峰值帽与控制台
 
 ![Controls](docs/screenshots/controls.png)
 

@@ -149,7 +149,7 @@ const CONTROL_TEXT = {
     resetPreview: "Reset preview",
     linkCopied: "Link copied",
     hiddenStatus: "Hidden unless controls=1",
-    pauseHint: "Space: pause/resume",
+    pauseHint: "P: pause/resume",
     pausedStatus: "Paused",
     runningStatus: "Running",
     audioState: "audio",
@@ -198,7 +198,7 @@ const CONTROL_TEXT = {
     resetPreview: "重置预览",
     linkCopied: "链接已复制",
     hiddenStatus: "仅在 controls=1 时显示",
-    pauseHint: "空格：暂停/恢复",
+    pauseHint: "P：暂停/恢复",
     pausedStatus: "已暂停",
     runningStatus: "运行中",
     audioState: "音频",
@@ -247,7 +247,7 @@ const CONTROL_TEXT = {
     resetPreview: "重置預覽",
     linkCopied: "連結已複製",
     hiddenStatus: "僅在 controls=1 時顯示",
-    pauseHint: "空格：暫停/恢復",
+    pauseHint: "P：暫停/恢復",
     pausedStatus: "已暫停",
     runningStatus: "執行中",
     audioState: "音訊",
@@ -1446,14 +1446,17 @@ function chooseStableChar(seed, columnIndex, rowIndex, salt = 0) {
 }
 
 function referenceToneColor(referenceColor, brightness) {
+  return scaleColor(referenceTintedColor(referenceColor), brightness);
+}
+
+function referenceTintedColor(referenceColor) {
   const baseColor = DEFAULT_PRESET.baseColor;
-  const tinted = {
+
+  return {
     r: referenceColor.r * (settings.color.r / baseColor.r),
     g: referenceColor.g * (settings.color.g / baseColor.g),
     b: referenceColor.b * (settings.color.b / baseColor.b)
   };
-
-  return scaleColor(tinted, brightness);
 }
 
 function buildPalettes() {
@@ -1461,9 +1464,7 @@ function buildPalettes() {
   const audioBrightness = clamp(settings.audiobrightness / 100, 0.3, 1.6);
   const clockBrightness = clamp(settings.clockbrightness / DEFAULT_PRESET.wallpaperProperties.clockbrightness, 0.55, 1.45);
   const glowIntensity = DEFAULT_PRESET.glowingTracers.intensity / 100;
-  const whiteGreenHead = settings.headstyle === "matrix23"
-    ? { r: 118, g: 246, b: 138 }
-    : { r: 226, g: 255, b: 220 };
+  const matrix1Head = { r: 226, g: 255, b: 220 };
   const audioHeadWhite = { r: 255, g: 252, b: 232 };
   const clockBaseColor = settings.clockcolor || DEFAULT_PRESET.clockColor;
   const clockColorDelta = Math.abs(clockBaseColor.r - DEFAULT_PRESET.clockColor.r)
@@ -1518,16 +1519,19 @@ function buildPalettes() {
     const dim = variant.fixed
       ? scaleColor(dimSource, paletteBrightness)
       : referenceToneColor(dimSource, paletteBrightness);
+    const matrix23HeadBase = settings.headstyle === "matrix23" && !variant.fixed
+      ? mixColor(referenceTintedColor(brightColor), { r: 255, g: 255, b: 242 }, 0.24)
+      : null;
     const headBase = clockVariant
       ? clockBrightColor
       : (variant.fixed
         ? mixColor(audioHeadWhite, variant.brightColor, 0.44)
-        : mixColor(whiteGreenHead, settings.color, 0.008));
+        : (matrix23HeadBase || mixColor(matrix1Head, settings.color, 0.008)));
     const head = scaleColor(headBase, paletteBrightness);
     const headCoreBase = clockVariant
       ? clockBrightColor
       : (settings.headstyle === "matrix23" && !variant.fixed
-        ? mixColor({ r: 138, g: 255, b: 154 }, settings.color, 0.016)
+        ? mixColor(headBase, { r: 255, g: 255, b: 250 }, 0.28)
         : mixColor(headBase, { r: 255, g: 255, b: 242 }, 0.18));
     const headCore = scaleColor(headCoreBase, paletteBrightness);
     const glowBase = variant.fixed
@@ -3954,13 +3958,6 @@ function paintGlyph(context, char, styleName, palette, x, y) {
   context.shadowColor = "transparent";
   context.globalAlpha = 1;
 
-  if (settings.glow) {
-    if (styleName === "head" && !matrix23Head) {
-      context.shadowColor = palette.glow;
-      context.shadowBlur = fontSize * 0.34;
-    }
-  }
-
   context.fillStyle = color;
   fillFittedText(context, char, x, y);
   if (matrix23Head) {
@@ -4504,31 +4501,6 @@ function drawClockFallbackGlyphs() {
   }
 }
 
-function drawHeadGlyphGlow(cell, palette, x, y, finalAlpha) {
-  if (!settings.glow || settings.headstyle === "matrix23" || !cell.head || finalAlpha <= 0.02) {
-    return;
-  }
-
-  ctx.save();
-  ctx.globalCompositeOperation = "lighter";
-  ctx.shadowColor = palette.glow;
-  ctx.shadowBlur = fontSize * 0.62;
-  ctx.fillStyle = palette.glow;
-  ctx.globalAlpha = clamp(finalAlpha * 0.28, 0, 0.38);
-  ctx.beginPath();
-  ctx.ellipse(
-    x,
-    y,
-    Math.max(2, cellWidth * 0.38),
-    Math.max(2, cellHeight * 0.48),
-    0,
-    0,
-    Math.PI * 2
-  );
-  ctx.fill();
-  ctx.restore();
-}
-
 function matrixBloomActive() {
   return settings.headstyle === "matrix23" && bloomCtx && bloomCanvas.width > 0 && bloomCanvas.height > 0;
 }
@@ -4676,17 +4648,6 @@ function drawGlyph(cell, column, rowIndex) {
     renderBrightness = 1;
   }
   const finalAlpha = clamp(alpha * visibility * renderBrightness, 0, 1);
-  if (
-    styleName === "head"
-    && !cell.clockCell
-    && !cell.clockIntroDrop
-    && !clockMaskHit
-    && !clockEmphasisHit
-    && !clockHighlightHit
-  ) {
-    drawHeadGlyphGlow(cell, palette, x, y, finalAlpha);
-  }
-
   ctx.globalAlpha = finalAlpha;
   ctx.drawImage(
     sprite.canvas,
@@ -5528,7 +5489,7 @@ function collectMatrixRainState() {
       running: animationRunning(),
       visible: visibleRunning,
       manualPaused,
-      shortcut: "Space"
+      shortcut: "P"
     },
     font: {
       style: settings.fontstyle,
@@ -6391,7 +6352,7 @@ function setManualPaused(paused) {
 }
 
 document.addEventListener("keydown", (event) => {
-  if (event.code !== "Space" || event.repeat || keyboardEventFromEditableTarget(event)) {
+  if (event.code !== "KeyP" || event.repeat || keyboardEventFromEditableTarget(event)) {
     return;
   }
 

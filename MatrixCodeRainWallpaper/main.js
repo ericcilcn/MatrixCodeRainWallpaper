@@ -561,6 +561,20 @@ const DEFAULT_PRESET = {
     minTicks: 30,
     maxTicks: 95
   },
+  matrix23Wave: {
+    minSpeedScale: 0.72,
+    maxSpeedScale: 1.12,
+    speedJitter: 0.08,
+    restartGapMinRows: 8,
+    restartGapMaxRows: 20,
+    phaseGapMinRows: 13,
+    phaseGapMaxRows: 30,
+    topStartLengthScaleMin: 0.55,
+    topStartLengthScaleMax: 0.92,
+    activeDurationScale: 2.85,
+    quietDurationScale: 0.58,
+    splashReleaseScale: 0.18
+  },
   ambientGrid: {
     topChance: 0.23,
     midChance: 0.14,
@@ -1737,9 +1751,20 @@ function softenGlyphEdges(sprite) {
   sctx.putImageData(image, 0, 0);
 }
 
-function streamRowsPerSecond(stream) {
-  const base = randomSpeedScale(stream.seed) * clamp(settings.speed / 55, 0.32, 2.05);
-  return base;
+function matrix23ColumnSpeedScale(stream, column) {
+  const wave = DEFAULT_PRESET.matrix23Wave;
+  const columnScale = seededRange(column.seed ^ 0x7b3d, wave.minSpeedScale, wave.maxSpeedScale);
+  const streamScale = seededRange(stream.seed ^ 0x4d81, 1 - wave.speedJitter, 1 + wave.speedJitter);
+  return columnScale * streamScale;
+}
+
+function streamRowsPerSecond(stream, column = null) {
+  const speedScale = clamp(settings.speed / 55, 0.32, 2.05);
+  if (column && matrix3FallingStream(stream)) {
+    return DEFAULT_PRESET.speedRowsPerSecond * speedScale * matrix23ColumnSpeedScale(stream, column);
+  }
+
+  return randomSpeedScale(stream.seed) * speedScale;
 }
 
 function randomSpeedScale(seed) {
@@ -2781,6 +2806,10 @@ function shapeColumnSingletons(column) {
         continue;
       }
 
+      if (strictMatrix3 && matrix3StreamForCell(column, cell)) {
+        continue;
+      }
+
       const seed = hashInt((cell.salt || column.seed) ^ Math.imul(rowIndex + 37 + pass * 113, 1597334677));
       const roll = hashUnit(seed ^ 0x51a3);
       if (roll < singletonKeepChance(rowIndex)) {
@@ -2804,7 +2833,9 @@ function shapeColumnSingletons(column) {
     }
   }
 
-  bridgeSingleCellGaps(column);
+  if (!strictMatrix3) {
+    bridgeSingleCellGaps(column);
+  }
 }
 
 function ambientAlpha(seed, column, rowIndex, bright) {
@@ -3144,6 +3175,7 @@ function resetStream(stream, column, initial = false) {
   stream.toneMultiplier = 1;
   stream.length = streamLength(stream, cycleSeed);
   stream.trailRows = streamTrailRows({ seed: cycleSeed, length: stream.length });
+  const matrix3FlowStream = matrix3FallingStream(stream);
   if (stream.mode === "fragment") {
     const fragmentScaleMin = matrix3RainStyleActive() ? 0.78 : 0.48;
     const fragmentScaleMax = matrix3RainStyleActive() ? 1.02 : 0.78;
@@ -3167,25 +3199,31 @@ function resetStream(stream, column, initial = false) {
     (glowMean + glowVariance * 0.5) / 100
   );
   stream.brightHead = !stream.negative && hashUnit(cycleSeed ^ 0x57ac) < glow.fallingHeadChance;
-  stream.speed = streamRowsPerSecond(stream);
+  stream.speed = streamRowsPerSecond(stream, column);
   const origin = DEFAULT_PRESET.topOrigin;
   const modes = DEFAULT_PRESET.releaseModes;
   if (stream.mode === "fragment") {
     stream.endRow = Math.floor(seededRange(cycleSeed ^ 0x25ef, rows * modes.fragmentEndMinRows, rows * modes.fragmentEndMaxRows));
   } else if (stream.mode === "eraser") {
     stream.endRow = Math.floor(seededRange(cycleSeed ^ 0x25ef, rows * modes.eraserEndMinRows, rows * modes.eraserEndMaxRows));
+  } else if (matrix3FlowStream) {
+    stream.endRow = rows + stream.length + 2;
   } else {
-    const reachesBottomChance = matrix3RainStyleActive()
-      ? Math.min(0.38, origin.reachesBottomChance * 1.25)
-      : origin.reachesBottomChance;
+    const reachesBottomChance = origin.reachesBottomChance;
     const reachesBottom = stream.mode === "deep" || hashUnit(cycleSeed ^ 0x671a) < reachesBottomChance;
     stream.endRow = reachesBottom
       ? rows + stream.length + 2
       : Math.floor(seededRange(cycleSeed ^ 0x25ef, rows * origin.endMinRows, rows * origin.endMaxRows));
   }
 
-  if (matrix3FallingStream(stream)) {
-    stream.headRow = Math.floor(seededRange(cycleSeed ^ 0x8cc5, -Math.max(4, stream.length * 0.72), -1));
+  if (matrix3FlowStream) {
+    const wave = DEFAULT_PRESET.matrix23Wave;
+    const startRows = seededRange(
+      cycleSeed ^ 0x8cc5,
+      Math.max(4, stream.length * wave.topStartLengthScaleMin),
+      Math.max(5, stream.length * wave.topStartLengthScaleMax)
+    );
+    stream.headRow = -Math.ceil(startRows);
     stream.progress = hashUnit(cycleSeed ^ 0x423f) * 0.45;
   } else if (initial) {
     const topBiased = hashUnit(cycleSeed ^ 0x49ac) < origin.initialTopChance;
@@ -3286,6 +3324,13 @@ function desiredStreamCount(seed) {
 }
 
 function streamRestartDelay(stream, column) {
+  if (matrix3FallingStream(stream)) {
+    const wave = DEFAULT_PRESET.matrix23Wave;
+    const seed = hashInt(stream.seed ^ column.activitySeed ^ Math.imul(logicalTick + 1, 374761393));
+    const gapRows = seededRange(seed ^ 0x3a7b, wave.restartGapMinRows, wave.restartGapMaxRows);
+    return Math.max(1, Math.round((gapRows / Math.max(1, stream.speed)) * tickRate()));
+  }
+
   const restart = DEFAULT_PRESET.streamRestart;
   const seed = hashInt(stream.seed ^ column.activitySeed ^ Math.imul(logicalTick + 1, 374761393));
   return Math.floor(seededRange(seed, restart.minTicks, restart.maxTicks));
@@ -3301,12 +3346,13 @@ function pauseStream(stream, column) {
 function columnActivityDuration(seed, active) {
   const activity = DEFAULT_PRESET.columnActivity;
   const matrix3Style = matrix3RainStyleActive();
+  const wave = DEFAULT_PRESET.matrix23Wave;
   const min = active
-    ? activity.minActiveTicks * (matrix3Style ? 1.85 : 1)
-    : activity.minQuietTicks * (matrix3Style ? 0.72 : 1);
+    ? activity.minActiveTicks * (matrix3Style ? wave.activeDurationScale : 1)
+    : activity.minQuietTicks * (matrix3Style ? wave.quietDurationScale : 1);
   const max = active
-    ? activity.maxActiveTicks * (matrix3Style ? 1.75 : 1)
-    : activity.maxQuietTicks * (matrix3Style ? 0.82 : 1);
+    ? activity.maxActiveTicks * (matrix3Style ? wave.activeDurationScale : 1)
+    : activity.maxQuietTicks * (matrix3Style ? wave.quietDurationScale : 1);
   return Math.floor(seededRange(seed ^ 0xa91f, min, max));
 }
 
@@ -3348,8 +3394,18 @@ function ensureColumnStreams(column, initial = false) {
 
 function retireColumn(column) {
   const activity = DEFAULT_PRESET.columnActivity;
-  column.streams.length = 0;
-  const retireScale = matrix3RainStyleActive() ? 1.45 : 1;
+  const matrix3Style = matrix3RainStyleActive();
+  if (!matrix3Style) {
+    column.streams.length = 0;
+  } else {
+    for (const stream of column.streams) {
+      if (matrix3FallingStream(stream)) {
+        stream.cooldownTicks = 0;
+        stream.endRow = Math.max(stream.endRow, rows + stream.length + 2);
+      }
+    }
+  }
+  const retireScale = matrix3Style ? 1.65 : 1;
 
   for (let rowIndex = 0; rowIndex < rows; rowIndex += 1) {
     const cell = column.cells[rowIndex];
@@ -3396,6 +3452,39 @@ function matrix3StreamHead(stream) {
   return stream.headRow + stream.progress;
 }
 
+function matrix23TopStartRow(stream, column, seed) {
+  const wave = DEFAULT_PRESET.matrix23Wave;
+  const randomStartRows = seededRange(
+    seed ^ 0x7391,
+    Math.max(4, stream.length * wave.topStartLengthScaleMin),
+    Math.max(5, stream.length * wave.topStartLengthScaleMax)
+  );
+  let startRow = -Math.ceil(randomStartRows);
+
+  const visibleHeads = column.streams
+    .filter((candidate) => (
+      candidate !== stream
+      && matrix3FallingStream(candidate)
+      && !candidate.finished
+      && candidate.cooldownTicks <= 0
+      && matrix3StreamHead(candidate) < rows + candidate.length
+      && matrix3StreamHead(candidate) > -candidate.length * 1.4
+    ))
+    .map((candidate) => matrix3StreamHead(candidate));
+
+  if (visibleHeads.length > 0) {
+    const topHead = Math.min(...visibleHeads);
+    if (topHead < rows * 0.62) {
+      const phaseGap = seededRange(seed ^ 0x6f2d, wave.phaseGapMinRows, wave.phaseGapMaxRows);
+      const preferred = Math.floor(topHead - phaseGap);
+      const lowerBound = -Math.ceil(stream.length * 1.35 + wave.phaseGapMaxRows);
+      startRow = clampInt(Math.min(-1, preferred), lowerBound, -1);
+    }
+  }
+
+  return startRow;
+}
+
 function resetMatrix3StreamFromTop(stream, column, seed) {
   if (!matrix3RainStyleActive() || !matrix3FallingStream(stream)) {
     return;
@@ -3403,7 +3492,7 @@ function resetMatrix3StreamFromTop(stream, column, seed) {
 
   demoteStreamHead(column, stream);
   resetStream(stream, column);
-  stream.headRow = Math.floor(seededRange(seed ^ 0x7391, -Math.max(4, stream.length * 0.68), -1));
+  stream.headRow = matrix23TopStartRow(stream, column, seed);
   stream.progress = seededRange(seed ^ 0x58ad, 0, 0.45);
   stream.cooldownTicks = 0;
   stream.finished = false;
@@ -3415,12 +3504,13 @@ function bridgeMatrix3StartupColumn(column, seed) {
     return;
   }
 
+  ensureColumnStreams(column, false);
   const fallingStreams = column.streams.filter((stream) => matrix3FallingStream(stream));
   const visibleStreams = fallingStreams.filter((stream) => streamVisibleInGrid(stream));
   const hasIncomingStream = fallingStreams.some((stream) => (
     !stream.finished
     && stream.cooldownTicks <= 0
-    && matrix3StreamHead(stream) < rows * 0.42
+    && matrix3StreamHead(stream) < rows * 0.28
   ));
 
   if (visibleStreams.length > 0 && hasIncomingStream) {
@@ -3429,7 +3519,7 @@ function bridgeMatrix3StartupColumn(column, seed) {
 
   if (
     visibleStreams.length > 0
-    && Math.min(...visibleStreams.map((stream) => matrix3StreamHead(stream))) < rows * 0.58
+    && Math.min(...visibleStreams.map((stream) => matrix3StreamHead(stream))) < rows * 0.36
   ) {
     return;
   }
@@ -3663,6 +3753,10 @@ function updateCell(column, rowIndex) {
 }
 
 function releaseAmbientSingles() {
+  if (matrix3RainStyleActive()) {
+    return;
+  }
+
   const ambient = DEFAULT_PRESET.ambientGrid;
   const chance = ambient.singleBirthChancePerTick * rainStyleMultiplier(0.025);
   if (hashUnit(Math.imul(logicalTick + 31, 2246822519)) > chance) {
@@ -3699,6 +3793,10 @@ function releaseAmbientSingles() {
 }
 
 function releaseAmbientSmallColumns() {
+  if (matrix3RainStyleActive()) {
+    return;
+  }
+
   const ambient = DEFAULT_PRESET.ambientGrid;
   const chance = ambient.smallColumnChancePerTick * rainStyleMultiplier(0.035);
   if (hashUnit(Math.imul(logicalTick + 79, 1103515245)) > chance) {
@@ -3777,7 +3875,7 @@ function releaseSplash() {
   const styleActive = matrix3RainStyleActive();
   const chance = (1 / DEFAULT_PRESET.releaseEveryTicks)
     * clamp(Math.pow(settings.density / 100, 1.25), 0.28, 2.3)
-    * (styleActive ? 2.42 : 1);
+    * (styleActive ? DEFAULT_PRESET.matrix23Wave.splashReleaseScale : 1);
   if (hashUnit(logicalTick * 2654435761) > chance) {
     return;
   }
@@ -3820,6 +3918,10 @@ function releaseSplash() {
 }
 
 function releaseStandaloneRotators() {
+  if (matrix3RainStyleActive()) {
+    return;
+  }
+
   const rotators = DEFAULT_PRESET.standaloneRotators;
   const chance = rotators.chancePerTick * clamp(Math.pow(settings.density / 100, 1.18), 0.32, 2) * rainStyleMultiplier(0.025);
   if (hashUnit(Math.imul(logicalTick + 29, 1597334677)) > chance) {
@@ -3911,6 +4013,10 @@ function hasWritableRows(column, startRow, length) {
 }
 
 function releaseLowerFragments() {
+  if (matrix3RainStyleActive()) {
+    return;
+  }
+
   const fragments = DEFAULT_PRESET.lowerFragments;
   const chance = fragments.chancePerTick * clamp(Math.pow(settings.density / 100, 1.18), 0.32, 1.9) * rainStyleMultiplier(0.045);
   if (hashUnit(Math.imul(logicalTick + 47, 1103515245)) > chance) {
@@ -3979,7 +4085,12 @@ function logicStep() {
       if (stream.cooldownTicks > 0) {
         stream.cooldownTicks -= 1;
         if (stream.cooldownTicks <= 0 && column.active) {
-          resetStream(stream, column);
+          if (matrix3FallingStream(stream)) {
+            const seed = hashInt(column.activitySeed ^ stream.seed ^ rainPatternEpoch ^ Math.imul(logicalTick + 1, 1597334677));
+            resetMatrix3StreamFromTop(stream, column, seed);
+          } else {
+            resetStream(stream, column);
+          }
         }
         continue;
       }

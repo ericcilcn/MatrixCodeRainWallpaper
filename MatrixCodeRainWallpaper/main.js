@@ -1032,6 +1032,10 @@ function matrix3RainStyleActive() {
   return settings.rainstyle === "matrix3_trails";
 }
 
+function matrix1UniformColumnToneActive() {
+  return settings.headstyle === "matrix1" && !matrix3RainStyleActive();
+}
+
 function codeTrailsActive() {
   return Boolean(settings.codetrails);
 }
@@ -1163,6 +1167,10 @@ function referenceActiveFactor(rowIndex) {
 
 function referenceBrightnessFactor(rowIndex) {
   return clamp(sampleReferenceRow(REFERENCE_ROW_PROFILE.mean, rowIndex) / REFERENCE_SCORE_MEAN, 0.32, 1.24);
+}
+
+function rowBrightnessFactor(rowIndex) {
+  return matrix1UniformColumnToneActive() ? 1 : referenceBrightnessFactor(rowIndex);
 }
 
 function referenceBrightChance(rowIndex, baseChance) {
@@ -2455,8 +2463,12 @@ function updateAudioSpectrumBars() {
 }
 
 function rowVisibility(rowIndex) {
+  if (matrix1UniformColumnToneActive()) {
+    return 1;
+  }
+
   if (!DEFAULT_PRESET.fadeBottom) {
-    return referenceBrightnessFactor(rowIndex);
+    return rowBrightnessFactor(rowIndex);
   }
 
   const fade = DEFAULT_PRESET.bottomFade;
@@ -2465,7 +2477,7 @@ function rowVisibility(rowIndex) {
   const falloff = clamp((t - fade.start) / (1 - fade.start), 0, 1);
   const base = fade.baseVisibility - Math.pow(falloff, fade.power) * fade.amount;
   const entryBoost = 1 + clamp((boost.portion - t) / boost.portion, 0, 1) * boost.amount;
-  return clamp(base * entryBoost * referenceBrightnessFactor(rowIndex), fade.minVisibility, fade.maxVisibility);
+  return clamp(base * entryBoost * rowBrightnessFactor(rowIndex), fade.minVisibility, fade.maxVisibility);
 }
 
 function ambientRegionChance(rowIndex) {
@@ -2557,7 +2569,7 @@ function demoteUnsupportedBrightCell(column, rowIndex, cell, seed, extraLifeTick
   cell.headStreamId = null;
   cell.headPreviousGlowHead = false;
   cell.glowHead = false;
-  cell.baseAlpha = seededRange(seed ^ 0x4a91, 0.34, 0.62) * column.intensity * referenceBrightnessFactor(rowIndex);
+  cell.baseAlpha = seededRange(seed ^ 0x4a91, 0.34, 0.62) * column.intensity * rowBrightnessFactor(rowIndex);
   cell.target = cell.baseAlpha;
   cell.alpha = cell.baseAlpha;
   cell.life = Math.min(cell.life, cell.age + extraLifeTicks);
@@ -2755,7 +2767,7 @@ function ambientAlpha(seed, column, rowIndex, bright) {
   const ambient = DEFAULT_PRESET.ambientGrid;
   const min = bright ? ambient.brightAlphaMin : ambient.bodyAlphaMin;
   const max = bright ? ambient.brightAlphaMax : ambient.bodyAlphaMax;
-  return seededRange(seed ^ 0x5a1fc9, min, max) * column.intensity * referenceBrightnessFactor(rowIndex);
+  return seededRange(seed ^ 0x5a1fc9, min, max) * column.intensity * rowBrightnessFactor(rowIndex);
 }
 
 function createAmbientCell(column, rowIndex, seed, options = {}) {
@@ -2946,7 +2958,7 @@ function createCell(column, stream, rowIndex, age = 0, forceVisible = false) {
     ),
     alpha: 0,
     target: 0,
-    baseAlpha: alphaBase * column.intensity * stream.toneMultiplier * referenceBrightnessFactor(rowIndex),
+    baseAlpha: alphaBase * column.intensity * stream.toneMultiplier * rowBrightnessFactor(rowIndex),
     paletteName: stream.paletteName,
     rotator,
     head: false,
@@ -3562,7 +3574,7 @@ function updateCell(column, rowIndex) {
       cell.headStreamId = null;
       cell.headPreviousGlowHead = false;
       cell.glowHead = false;
-      cell.baseAlpha = seededRange(dimSeed ^ 0x4a91, 0.34, 0.62) * column.intensity * referenceBrightnessFactor(rowIndex);
+      cell.baseAlpha = seededRange(dimSeed ^ 0x4a91, 0.34, 0.62) * column.intensity * rowBrightnessFactor(rowIndex);
       cell.target = cell.baseAlpha;
       cell.alpha = cell.baseAlpha;
       cell.life = cell.age + Math.floor(seededRange(dimSeed ^ 0x2c5f, 70, 160));
@@ -3786,7 +3798,7 @@ function releaseStandaloneRotators() {
     const groupSize = sizeRoll < rotators.tripleChance ? 3 : sizeRoll < rotators.tripleChance + rotators.pairChance ? 2 : 1;
     const startRow = Math.min(row, rows - groupSize);
     const life = Math.floor(seededRange(seed ^ 0x44f1, rotators.minLifeTicks, rotators.maxLifeTicks));
-    const baseAlpha = seededRange(seed ^ 0x9e3d, rotators.minAlpha, rotators.maxAlpha) * column.intensity * referenceBrightnessFactor(startRow);
+    const baseAlpha = seededRange(seed ^ 0x9e3d, rotators.minAlpha, rotators.maxAlpha) * column.intensity * rowBrightnessFactor(startRow);
     const rotates = hashUnit(seed ^ 0x71dd) < rotators.rotatingChance;
 
     for (let offset = 0; offset < groupSize; offset += 1) {
@@ -4633,7 +4645,7 @@ function drawGlyph(cell, column, rowIndex) {
   } else if (clockHighlightHit) {
     visibility = Math.max(visibility, 0.68);
   }
-  if (!cell.negative && cell.head) {
+  if (!matrix1UniformColumnToneActive() && !cell.negative && cell.head) {
     const rowUnit = rowIndex / Math.max(1, rows - 1);
     const upperFloor = 0.88;
     const lowerFloor = 0.64;

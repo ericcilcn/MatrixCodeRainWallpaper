@@ -911,6 +911,10 @@ let audioState = {
 let audioListenerRecoveryTimers = [];
 
 function clamp(value, min, max) {
+  if (!Number.isFinite(value)) {
+    return value === Infinity ? max : min;
+  }
+
   return Math.max(min, Math.min(max, value));
 }
 
@@ -1206,11 +1210,9 @@ function streamGlyphDensity(stream, rowIndex) {
     return density;
   }
 
-  const rowUnit = rowIndex / Math.max(1, rows - 1);
-  const continuityFloor = rowUnit > 0.76 ? 0.46 : rowUnit > 0.58 ? 0.6 : 0.7;
-  const densityScale = clamp(settings.density / 100, 0.26, 2.2);
-  const scaledFloor = clamp(continuityFloor * densityScale, 0.1, 0.98);
-  return Math.max(density, scaledFloor);
+  const densityScale = clamp(settings.density / 100, 0.3, 1.8);
+  const continuityFloor = 0.72 + densityScale * 0.08;
+  return clamp(Math.max(density * 0.94, continuityFloor), 0.68, 0.9);
 }
 
 function matrix3FallingStream(stream) {
@@ -1282,8 +1284,8 @@ function matrix3TailAlphaFactor(column, rowIndex, cell) {
     }
 
     const tailPosition = distanceBehindHead - bodyRows;
-    const fade = 1 - tailPosition / (tailRows + 1);
-    return clamp(Math.pow(fade, 1.16), 0, 1);
+    const fade = clamp(1 - tailPosition / (tailRows + 1), 0, 1);
+    return Math.pow(fade, 1.16);
   }
 
   const life = Math.max(1, cell.life);
@@ -1628,10 +1630,18 @@ function applyColumnTone(column, seed, updateExistingCells = false) {
   const tone = toneForSeed(seed);
   const previousIntensity = Number.isFinite(column.intensity) ? column.intensity : 1;
   const toneJitter = seededRange(seed ^ 0x99103, 0.96, 1.06);
-  const nextIntensity = clamp(tone.multiplier * toneJitter, 0.56, 1.34);
+  const matrix3Style = matrix3RainStyleActive();
+  const matrix3ToneMultiplier = {
+    dim: 0.82,
+    normal: 0.9,
+    pale: 1,
+    accent: 1.04
+  }[tone.paletteName] || tone.multiplier;
+  const paletteName = matrix3Style && tone.paletteName === "accent" ? "pale" : tone.paletteName;
+  const nextIntensity = clamp((matrix3Style ? matrix3ToneMultiplier : tone.multiplier) * toneJitter, 0.56, matrix3Style ? 1.12 : 1.34);
 
-  column.paletteName = tone.paletteName;
-  column.palette = paletteByName(tone.paletteName) || paletteForColumn(seed);
+  column.paletteName = paletteName;
+  column.palette = paletteByName(paletteName) || paletteForColumn(seed);
   column.intensity = nextIntensity;
 
   if (!updateExistingCells || previousIntensity <= 0) {
@@ -1644,7 +1654,7 @@ function applyColumnTone(column, seed, updateExistingCells = false) {
       continue;
     }
 
-    cell.paletteName = tone.paletteName;
+    cell.paletteName = paletteName;
     cell.baseAlpha = clamp(cell.baseAlpha * ratio, 0.08, 2.2);
     cell.target = cell.baseAlpha;
     cell.alpha = cell.baseAlpha;
@@ -1794,8 +1804,8 @@ function streamLength(stream, seed) {
     : seededRange(seed ^ 0x2b61fd9, rows * lengthPreset.shortMinRows, rows * lengthPreset.shortMaxRows);
   const longFallStyle = matrix3RainStyleActive() && !stream.negative && (stream.mode === "normal" || stream.mode === "deep");
   const matrix1FallingStyle = matrix1GenerationStyleActive() && !stream.negative && (stream.mode === "normal" || stream.mode === "deep");
-  const styleBoost = longFallStyle ? 0.76 : (matrix1FallingStyle ? 0.8 : 1);
-  const minRows = longFallStyle ? Math.max(8, Math.floor(rows * 0.16)) : (matrix1FallingStyle ? 6 : 7);
+  const styleBoost = longFallStyle ? 0.6 : (matrix1FallingStyle ? 0.8 : 1);
+  const minRows = longFallStyle ? Math.max(8, Math.floor(rows * 0.13)) : (matrix1FallingStyle ? 6 : 7);
   return Math.max(minRows, Math.round(length * styleBoost));
 }
 
@@ -3374,6 +3384,10 @@ function visibleRainColumn(column) {
   return column && column.index >= 0 && column.index < gridColumns;
 }
 
+function columnHasVisibleCells(column, minAlpha = 0.025) {
+  return column.cells.some((cell) => cell && !cell.negative && (cell.target > minAlpha || cell.alpha > minAlpha));
+}
+
 function addColumnStream(column, initial, mode = "normal") {
   const stream = createStream(column, column.nextStreamOrdinal, initial, mode);
   column.nextStreamOrdinal += 1;
@@ -3383,9 +3397,14 @@ function addColumnStream(column, initial, mode = "normal") {
 
 function ensureColumnStreams(column, initial = false) {
   const activity = DEFAULT_PRESET.columnActivity;
-  const target = initial
+  let target = initial
     ? column.streamTarget
     : Math.max(1, Math.round(column.streamTarget * activity.reawakenStreamRatio * rainStyleMultiplier(1.25)));
+  if (matrix3RainStyleActive()) {
+    const densityUnit = clamp(settings.density / 180, 0, 1);
+    const secondStreamChance = 0.06 + densityUnit * 0.14;
+    target = hashUnit(column.seed ^ rainPatternEpoch ^ 0x6ec3) < secondStreamChance ? 2 : 1;
+  }
 
   while (column.streams.length < target && column.streams.length < DEFAULT_PRESET.maxConcurrentStreamsPerColumn) {
     addColumnStream(column, initial);
@@ -3430,7 +3449,10 @@ function setColumnActivity(column, active, seed, initial = false) {
 
   if (active) {
     if (!initial) {
-      applyColumnTone(column, seed, true);
+      const canRetoneColumn = !matrix3RainStyleActive() || !columnHasVisibleCells(column);
+      if (canRetoneColumn) {
+        applyColumnTone(column, seed, !matrix3RainStyleActive());
+      }
     }
     ensureColumnStreams(column, initial);
   } else if (!initial) {
@@ -3450,6 +3472,14 @@ function streamVisibleInGrid(stream) {
 
 function matrix3StreamHead(stream) {
   return stream.headRow + stream.progress;
+}
+
+function matrix3StreamHasCells(column, stream) {
+  if (!matrix3FallingStream(stream)) {
+    return false;
+  }
+
+  return column.cells.some((cell) => cell && cell.streamId === stream.id);
 }
 
 function matrix23TopStartRow(stream, column, seed) {
@@ -3711,22 +3741,26 @@ function updateCell(column, rowIndex) {
   cell.justWritten = false;
   const matrix3StreamCell = matrix3StreamForCell(column, cell);
   if (cell.age >= cell.life) {
-    if (!matrix3StreamCell && !cell.transient && !cell.demotedBeforeClear && (cell.head || cell.glowHead)) {
-      const dimSeed = hashInt(cell.salt ^ Math.imul(logicalTick + rowIndex + 5, 668265263));
-      cell.demotedBeforeClear = true;
-      cell.head = false;
-      cell.headStreamId = null;
-      cell.headPreviousGlowHead = false;
-      cell.glowHead = false;
-      cell.baseAlpha = seededRange(dimSeed ^ 0x4a91, 0.34, 0.62) * column.intensity * rowBrightnessFactor(rowIndex);
-      cell.target = cell.baseAlpha;
-      cell.alpha = cell.baseAlpha;
-      cell.life = cell.age + Math.floor(seededRange(dimSeed ^ 0x2c5f, 70, 160));
+    if (matrix3StreamCell) {
+      cell.life = cell.age + Math.max(8, Math.round(tickRate() * 0.5));
+    } else {
+      if (!cell.transient && !cell.demotedBeforeClear && (cell.head || cell.glowHead)) {
+        const dimSeed = hashInt(cell.salt ^ Math.imul(logicalTick + rowIndex + 5, 668265263));
+        cell.demotedBeforeClear = true;
+        cell.head = false;
+        cell.headStreamId = null;
+        cell.headPreviousGlowHead = false;
+        cell.glowHead = false;
+        cell.baseAlpha = seededRange(dimSeed ^ 0x4a91, 0.34, 0.62) * column.intensity * rowBrightnessFactor(rowIndex);
+        cell.target = cell.baseAlpha;
+        cell.alpha = cell.baseAlpha;
+        cell.life = cell.age + Math.floor(seededRange(dimSeed ^ 0x2c5f, 70, 160));
+        return;
+      }
+
+      column.cells[rowIndex] = null;
       return;
     }
-
-    column.cells[rowIndex] = null;
-    return;
   }
 
   if (!matrix3StreamCell && (cell.head || cell.glowHead) && cell.age > 4) {
@@ -3864,7 +3898,8 @@ function stepStream(column, stream) {
 
   const written = writeCell(column, stream, stream.headRow, 0, {
     forceVisible: !stream.negative && (stream.brightHead || stream.mode === "lowerFragment" || stream.mode === "audio"),
-    head: stream.brightHead
+    head: stream.brightHead,
+    coverExisting: !matrix3FallingStream(stream)
   });
   if (written) {
     stream.headCellRow = stream.headRow;
@@ -4082,6 +4117,14 @@ function logicStep() {
 
     for (let i = column.streams.length - 1; i >= 0; i -= 1) {
       const stream = column.streams[i];
+      if (stream.finished) {
+        if (matrix3FallingStream(stream) && matrix3StreamHasCells(column, stream)) {
+          continue;
+        }
+        column.streams.splice(i, 1);
+        continue;
+      }
+
       if (stream.cooldownTicks > 0) {
         stream.cooldownTicks -= 1;
         if (stream.cooldownTicks <= 0 && column.active) {
@@ -4103,6 +4146,9 @@ function logicStep() {
       }
 
       if (stream.finished || (column.streams.length > 4 && stream.headRow > rows + stream.length + 2)) {
+        if (matrix3FallingStream(stream) && matrix3StreamHasCells(column, stream)) {
+          continue;
+        }
         column.streams.splice(i, 1);
       }
     }
@@ -4255,7 +4301,7 @@ function paletteForCell(cell, column, clockHighlightHit) {
     return paletteByName(cell.paletteName) || column.palette;
   }
 
-  return column.palette || paletteByName(column.paletteName);
+  return paletteByName(cell.paletteName) || column.palette || paletteByName(column.paletteName);
 }
 
 function currentClockText() {

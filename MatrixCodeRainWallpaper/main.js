@@ -1036,6 +1036,10 @@ function matrix1UniformColumnToneActive() {
   return settings.headstyle === "matrix1" && !matrix3RainStyleActive();
 }
 
+function matrix1GenerationStyleActive() {
+  return settings.style === "matrix1" && !matrix3RainStyleActive();
+}
+
 function codeTrailsActive() {
   return Boolean(settings.codetrails);
 }
@@ -1271,6 +1275,10 @@ function matrix3TailAlphaFactor(column, rowIndex, cell) {
   const life = Math.max(1, cell.life);
   const ageRatio = clamp(cell.age / life, 0, 1);
   return clamp(Math.pow(1 - ageRatio, 1.8), 0, 1);
+}
+
+function tailClearThreshold() {
+  return matrix3RainStyleActive() ? 0.012 : 0.025;
 }
 
 function hashInt(value) {
@@ -1760,8 +1768,9 @@ function streamLength(stream, seed) {
     ? seededRange(seed ^ 0x7f3ac21, rows * lengthPreset.longMinRows, rows * lengthPreset.longMaxRows)
     : seededRange(seed ^ 0x2b61fd9, rows * lengthPreset.shortMinRows, rows * lengthPreset.shortMaxRows);
   const longFallStyle = matrix3RainStyleActive() && !stream.negative && (stream.mode === "normal" || stream.mode === "deep");
-  const styleBoost = longFallStyle ? 0.76 : 1;
-  const minRows = longFallStyle ? Math.max(8, Math.floor(rows * 0.16)) : 7;
+  const matrix1FallingStyle = matrix1GenerationStyleActive() && !stream.negative && (stream.mode === "normal" || stream.mode === "deep");
+  const styleBoost = longFallStyle ? 0.76 : (matrix1FallingStyle ? 0.8 : 1);
+  const minRows = longFallStyle ? Math.max(8, Math.floor(rows * 0.16)) : (matrix1FallingStyle ? 6 : 7);
   return Math.max(minRows, Math.round(length * styleBoost));
 }
 
@@ -2484,9 +2493,31 @@ function ambientRegionChance(rowIndex) {
   return clamp(sampleReferenceRow(REFERENCE_ROW_PROFILE.active, rowIndex) * 0.38, 0.006, 0.24);
 }
 
+function quietColumnScore(index) {
+  return hashUnit(hashInt(PATTERN_SEED ^ rainPatternEpoch ^ Math.imul(index + 4096, 1103515245) ^ 0x4c171));
+}
+
 function ambientColumnMultiplier(column) {
   const ambient = DEFAULT_PRESET.ambientGrid;
-  if (hashUnit(column.seed ^ 0x4c171) < ambient.quietColumnChance) {
+  const quietChance = matrix1GenerationStyleActive()
+    ? Math.min(ambient.quietColumnChance, 0.17)
+    : ambient.quietColumnChance;
+  const quietScore = quietColumnScore(column.index);
+
+  if (quietScore < quietChance) {
+    if (matrix1GenerationStyleActive()) {
+      const leftQuiet = quietColumnScore(column.index - 1) < quietChance;
+      const rightQuiet = quietColumnScore(column.index + 1) < quietChance;
+      const leftPair = leftQuiet && quietColumnScore(column.index - 2) < quietChance;
+      const rightPair = rightQuiet && quietColumnScore(column.index + 2) < quietChance;
+
+      if (leftQuiet || rightQuiet || leftPair || rightPair) {
+        return 0.42;
+      }
+
+      return 0.13;
+    }
+
     return ambient.quietColumnMultiplier;
   }
 
@@ -2511,6 +2542,9 @@ function ambientContinueChance(column, rowIndex) {
   const chance = ambient.runContinueMin + ambientCellChance(column, rowIndex) * ambient.runContinueByDensity;
   if (matrix3RainStyleActive()) {
     return clamp(chance + 0.1, Math.min(0.68, ambient.runContinueMin + 0.06), Math.min(0.86, ambient.runContinueMax + 0.12));
+  }
+  if (matrix1GenerationStyleActive()) {
+    return clamp(chance * 0.68, 0.36, 0.54);
   }
   return clamp(chance, ambient.runContinueMin, ambient.runContinueMax);
 }
@@ -2628,11 +2662,12 @@ function singletonColumnizeChance(rowIndex) {
 
 function bridgeGapChance(rowIndex) {
   const ambient = DEFAULT_PRESET.ambientGrid;
+  const matrix1Scale = matrix1GenerationStyleActive() ? 0.42 : 1;
   if (!isLowerSingletonRow(rowIndex)) {
-    return ambient.bridgeSingleGapChance * rainStyleMultiplier(1.35);
+    return ambient.bridgeSingleGapChance * rainStyleMultiplier(1.35) * matrix1Scale;
   }
 
-  return lowerDepthValue(rowIndex, ambient.bridgeSingleGapChance, ambient.bridgeLowerGapChance) * rainStyleMultiplier(1.15);
+  return lowerDepthValue(rowIndex, ambient.bridgeSingleGapChance, ambient.bridgeLowerGapChance) * rainStyleMultiplier(1.15) * matrix1Scale;
 }
 
 function maybeColumnizeSingleton(column, rowIndex, seed, options = {}) {
@@ -2686,12 +2721,21 @@ function streamRotatorForCell(column, stream, rowIndex) {
     return false;
   }
 
-  const laneEvery = Math.max(1, DEFAULT_PRESET.streamRotatorLaneEveryRows || 1);
+  const matrix3Stream = matrix3FallingStream(stream);
+  const laneEvery = matrix3Stream
+    ? Math.max(1, (DEFAULT_PRESET.streamRotatorLaneEveryRows || 1) + 4)
+    : Math.max(1, DEFAULT_PRESET.streamRotatorLaneEveryRows || 1);
   const lanePhase = Math.floor(hashUnit(stream.seed ^ column.seed ^ 0x2b77) * laneEvery);
+  const laneChance = matrix3Stream
+    ? DEFAULT_PRESET.streamRotatorLaneChance * 0.42
+    : DEFAULT_PRESET.streamRotatorLaneChance;
+  const randomRate = matrix3Stream
+    ? stream.rotatorRate * 0.36
+    : stream.rotatorRate;
   const laneRotator =
     (rowIndex + lanePhase) % laneEvery === 0 &&
-    hashUnit(stream.seed ^ Math.imul(rowIndex + 131, 1103515245)) < DEFAULT_PRESET.streamRotatorLaneChance;
-  const randomRotator = hashUnit(stream.seed ^ Math.imul(rowIndex + 41, 2654435761)) < stream.rotatorRate;
+    hashUnit(stream.seed ^ Math.imul(rowIndex + 131, 1103515245)) < laneChance;
+  const randomRotator = hashUnit(stream.seed ^ Math.imul(rowIndex + 41, 2654435761)) < randomRate;
   return laneRotator || randomRotator;
 }
 
@@ -2892,7 +2936,7 @@ function updateAmbientCell(column, rowIndex, cell) {
   }
 
   const matrix3AlphaFactor = matrix3TailAlphaFactor(column, rowIndex, cell);
-  if (codeTrailsActive() && matrix3AlphaFactor <= 0.025 && cell.age > 6 && !cell.head) {
+  if (codeTrailsActive() && matrix3AlphaFactor <= tailClearThreshold() && cell.age > 6 && !cell.head) {
     column.cells[rowIndex] = null;
     return;
   }
@@ -3256,8 +3300,13 @@ function pauseStream(stream, column) {
 
 function columnActivityDuration(seed, active) {
   const activity = DEFAULT_PRESET.columnActivity;
-  const min = active ? activity.minActiveTicks : activity.minQuietTicks;
-  const max = active ? activity.maxActiveTicks : activity.maxQuietTicks;
+  const matrix3Style = matrix3RainStyleActive();
+  const min = active
+    ? activity.minActiveTicks * (matrix3Style ? 1.85 : 1)
+    : activity.minQuietTicks * (matrix3Style ? 0.72 : 1);
+  const max = active
+    ? activity.maxActiveTicks * (matrix3Style ? 1.75 : 1)
+    : activity.maxQuietTicks * (matrix3Style ? 0.82 : 1);
   return Math.floor(seededRange(seed ^ 0xa91f, min, max));
 }
 
@@ -3300,6 +3349,7 @@ function ensureColumnStreams(column, initial = false) {
 function retireColumn(column) {
   const activity = DEFAULT_PRESET.columnActivity;
   column.streams.length = 0;
+  const retireScale = matrix3RainStyleActive() ? 1.45 : 1;
 
   for (let rowIndex = 0; rowIndex < rows; rowIndex += 1) {
     const cell = column.cells[rowIndex];
@@ -3307,7 +3357,11 @@ function retireColumn(column) {
       continue;
     }
 
-    const retireTicks = Math.floor(seededRange(column.activitySeed ^ Math.imul(rowIndex + 1, 2246822519), activity.retireMinTicks, activity.retireMaxTicks));
+    const retireTicks = Math.floor(seededRange(
+      column.activitySeed ^ Math.imul(rowIndex + 1, 2246822519),
+      activity.retireMinTicks * retireScale,
+      activity.retireMaxTicks * retireScale
+    ));
     cell.life = Math.min(cell.life, cell.age + retireTicks);
     cell.glowHead = false;
   }
@@ -3599,7 +3653,7 @@ function updateCell(column, rowIndex) {
   }
 
   const matrix3AlphaFactor = matrix3TailAlphaFactor(column, rowIndex, cell);
-  if (codeTrailsActive() && matrix3AlphaFactor <= 0.025 && cell.age > 6 && !cell.head) {
+  if (codeTrailsActive() && matrix3AlphaFactor <= tailClearThreshold() && cell.age > 6 && !cell.head) {
     column.cells[rowIndex] = null;
     return;
   }
@@ -3610,7 +3664,7 @@ function updateCell(column, rowIndex) {
 
 function releaseAmbientSingles() {
   const ambient = DEFAULT_PRESET.ambientGrid;
-  const chance = ambient.singleBirthChancePerTick * rainStyleMultiplier(0.12);
+  const chance = ambient.singleBirthChancePerTick * rainStyleMultiplier(0.025);
   if (hashUnit(Math.imul(logicalTick + 31, 2246822519)) > chance) {
     return;
   }
@@ -3646,7 +3700,7 @@ function releaseAmbientSingles() {
 
 function releaseAmbientSmallColumns() {
   const ambient = DEFAULT_PRESET.ambientGrid;
-  const chance = ambient.smallColumnChancePerTick * rainStyleMultiplier(0.12);
+  const chance = ambient.smallColumnChancePerTick * rainStyleMultiplier(0.035);
   if (hashUnit(Math.imul(logicalTick + 79, 1103515245)) > chance) {
     return;
   }
@@ -3758,8 +3812,8 @@ function releaseSplash() {
             : "normal";
     const stream = addColumnStream(column, false, mode);
     const minLength = styleActive ? Math.max(10, Math.floor(rows * 0.18)) : 10;
-    const minScale = styleActive ? 0.55 : 0.68;
-    const maxScale = styleActive ? 0.9 : 1.25;
+    const minScale = styleActive ? 0.55 : (matrix1GenerationStyleActive() ? 0.52 : 0.68);
+    const maxScale = styleActive ? 0.9 : (matrix1GenerationStyleActive() ? 0.94 : 1.25);
     stream.length = Math.max(minLength, Math.floor(stream.length * seededRange(stream.seed ^ 0x751e, minScale, maxScale)));
     stream.speed *= seededRange(stream.seed ^ 0x431c, styleActive ? 0.96 : 0.9, styleActive ? 1.24 : 1.42);
   }
@@ -3767,7 +3821,7 @@ function releaseSplash() {
 
 function releaseStandaloneRotators() {
   const rotators = DEFAULT_PRESET.standaloneRotators;
-  const chance = rotators.chancePerTick * clamp(Math.pow(settings.density / 100, 1.18), 0.32, 2) * rainStyleMultiplier(0.08);
+  const chance = rotators.chancePerTick * clamp(Math.pow(settings.density / 100, 1.18), 0.32, 2) * rainStyleMultiplier(0.025);
   if (hashUnit(Math.imul(logicalTick + 29, 1597334677)) > chance) {
     return;
   }
@@ -3858,7 +3912,7 @@ function hasWritableRows(column, startRow, length) {
 
 function releaseLowerFragments() {
   const fragments = DEFAULT_PRESET.lowerFragments;
-  const chance = fragments.chancePerTick * clamp(Math.pow(settings.density / 100, 1.18), 0.32, 1.9) * rainStyleMultiplier(0.28);
+  const chance = fragments.chancePerTick * clamp(Math.pow(settings.density / 100, 1.18), 0.32, 1.9) * rainStyleMultiplier(0.045);
   if (hashUnit(Math.imul(logicalTick + 47, 1103515245)) > chance) {
     return;
   }

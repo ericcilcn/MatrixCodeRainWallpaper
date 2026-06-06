@@ -1,8 +1,12 @@
 # Third-party notices
 
-## Matrix Resurrected font
+## Matrix fonts
 
-`assets/fonts/Matrix-Resurrected.ttf` is from Rezmason's `matrix` project:
+The following font files are from Rezmason's `matrix` project:
+
+- `assets/fonts/Matrix-Code.ttf`
+- `assets/fonts/Matrix-Resurrected.ttf`
+
 https://github.com/Rezmason/matrix
 
 The source project is distributed under the MIT License:

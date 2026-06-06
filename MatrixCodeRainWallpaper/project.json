@@ -186,12 +186,12 @@
         "condition": "c_01_audioenabled.value == true"
       },
       "z_00_support_group": {
-        "text": "支持作者",
+        "text": "ui_group_links_thanks",
         "type": "group",
         "order": 900
       },
       "z_01_supportauthor": {
-        "text": "<center><a href='https://ko-fi.com/ericcil'>Ko-fi</a> · <a href='https://ifdian.net/a/Ericcil'>爱发电 / Afdian</a></center>",
+        "text": "ui_support_links",
         "type": "text",
         "order": 910
       }
@@ -201,6 +201,7 @@
         "ui_group_base": "Base",
         "ui_group_clock": "Clock",
         "ui_group_audio": "Audio",
+        "ui_group_links_thanks": "Links & Thanks",
         "ui_rain_font": "Font",
         "ui_font_trilogy": "Matrix Trilogy",
         "ui_font_resurrections": "Matrix Resurrections",
@@ -228,12 +229,14 @@
         "ui_audio_color_neon_blocks": "Neon blocks",
         "ui_audio_color_matrix_tint": "Cool tint",
         "ui_audio_color_caps_only": "Transparent",
-        "ui_audio_spectrum_reverse": "Reverse spectrum"
+        "ui_audio_spectrum_reverse": "Reverse spectrum",
+        "ui_support_links": "<a href='https://github.com/ericcilcn/MatrixCodeRainWallpaper'>GitHub</a><br><a href='https://ko-fi.com/ericcil'>Ko-fi</a>"
       },
       "zh-chs": {
         "ui_group_base": "基础",
         "ui_group_clock": "时钟",
         "ui_group_audio": "音频",
+        "ui_group_links_thanks": "链接与感谢",
         "ui_rain_font": "字体",
         "ui_font_trilogy": "Matrix Trilogy",
         "ui_font_resurrections": "Matrix Resurrections",
@@ -261,12 +264,14 @@
         "ui_audio_color_neon_blocks": "霓虹色块",
         "ui_audio_color_matrix_tint": "冷色微光",
         "ui_audio_color_caps_only": "透明",
-        "ui_audio_spectrum_reverse": "示波器反向"
+        "ui_audio_spectrum_reverse": "示波器反向",
+        "ui_support_links": "<a href='https://github.com/ericcilcn/MatrixCodeRainWallpaper'>GitHub</a><br><a href='https://ifdian.net/a/Ericcil'>爱发电</a>"
       },
       "zh-cht": {
         "ui_group_base": "基礎",
         "ui_group_clock": "時鐘",
         "ui_group_audio": "音訊",
+        "ui_group_links_thanks": "連結與感謝",
         "ui_rain_font": "字體",
         "ui_font_trilogy": "Matrix Trilogy",
         "ui_font_resurrections": "Matrix Resurrections",
@@ -294,7 +299,8 @@
         "ui_audio_color_neon_blocks": "霓虹色塊",
         "ui_audio_color_matrix_tint": "冷色微光",
         "ui_audio_color_caps_only": "透明",
-        "ui_audio_spectrum_reverse": "示波器反向"
+        "ui_audio_spectrum_reverse": "示波器反向",
+        "ui_support_links": "<a href='https://github.com/ericcilcn/MatrixCodeRainWallpaper'>GitHub</a><br><a href='https://ifdian.net/a/Ericcil'>愛發電</a>"
       }
     },
     "supportsaudioprocessing": true

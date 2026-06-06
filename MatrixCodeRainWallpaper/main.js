@@ -55,6 +55,8 @@ const URL_PARAMS = new URLSearchParams(window.location.search);
 const DEBUG_STATE_ENABLED = URL_PARAMS.has("debugstate");
 const CONTROLS_ENABLED = parseBooleanParam(URL_PARAMS.get("controls")) ?? URL_PARAMS.has("controls");
 const WALLPAPER_AUDIO_API_AVAILABLE = typeof window.wallpaperRegisterAudioListener === "function";
+const WALLPAPER_ENGINE_RUNTIME = WALLPAPER_AUDIO_API_AVAILABLE
+  || typeof window.wallpaperRegisterMediaPropertiesListener === "function";
 const LAYOUT_OVERRIDE = normalizeLayoutMode(URL_PARAMS.get("layout"));
 const CLOCK_OVERRIDE = parseBooleanParam(URL_PARAMS.get("clock"));
 const SKIP_INTRO_OVERRIDE = parseBooleanParam(URL_PARAMS.get("skipintro"));
@@ -62,12 +64,9 @@ const RAIN_STYLES = new Set(["clean", "matrix3_trails"]);
 const HEAD_STYLES = new Set(["matrix1", "matrix23"]);
 const AUDIO_COLOR_MODES = new Set(["level_layers", "frequency_gradient", "neon_blocks", "matrix_tint", "caps_only"]);
 const AUDIO_HUE_STEPS = 144;
+const GLYPH_CACHE_MAX_ENTRIES = 256;
+const GLYPH_CACHE_PRUNE_TARGET = 220;
 const AUDIO_SPECTRUM_BINS = 64;
-const AUDIO_LISTENER_RECOVERY_DELAYS_MS = [0, 250, 1250, 3500];
-const AUDIO_LISTENER_RECOVERY_COOLDOWN_MS = 3000;
-const AUDIO_LISTENER_STALE_CALLBACK_MS = 4500;
-const AUDIO_LISTENER_NO_CALLBACK_MS = 2200;
-const AUDIO_LISTENER_WATCHDOG_MS = 1800;
 const AUDIO_SPECTRUM_HUES = {
   level_layers: [286, 270, 254, 238, 222, 206, 190, 318, 334, 350, 6, 22, 38, 54],
   frequency_gradient: [222, 204, 188, 46, 28, 0, 316, 276],
@@ -449,8 +448,6 @@ const DEFAULT_PRESET = {
     firstDropMs: 260,
     columnStartSpreadMs: 900,
     startPower: 1.45,
-    speedRowsPerSecond: 52,
-    speedVarianceRowsPerSecond: 12,
     activeColumnRatio: 0.34,
     allowAmbientAt: 0.9,
     holdActiveExtraTicks: 90,
@@ -861,6 +858,18 @@ let rainPatternEpoch = 0;
 let renderSeconds = 0;
 let visibleRunning = true;
 let manualPaused = false;
+let wallpaperEnginePaused = false;
+let wallpaperAudioListenerRegistered = false;
+let lifecycleState = {
+  recoveryCount: 0,
+  lastRecoveryReason: "",
+  lastRecoveryTime: 0,
+  lastPauseReason: "",
+  lastPauseTime: 0,
+  autoResumeCount: 0,
+  lastAutoResumeReason: "",
+  lastAutoResumeTime: 0
+};
 let started = false;
 let introState = {
   active: !settings.skipintro,
@@ -908,7 +917,6 @@ let audioState = {
   zeroStartUntilTick: 0,
   debugPhase: 0
 };
-let audioListenerRecoveryTimers = [];
 
 function clamp(value, min, max) {
   if (!Number.isFinite(value)) {
@@ -1632,13 +1640,13 @@ function applyColumnTone(column, seed, updateExistingCells = false) {
   const toneJitter = seededRange(seed ^ 0x99103, 0.96, 1.06);
   const matrix3Style = matrix3RainStyleActive();
   const matrix3ToneMultiplier = {
-    dim: 0.82,
+    dim: 0.76,
     normal: 0.9,
-    pale: 1,
-    accent: 1.04
+    pale: 1.08,
+    accent: 1.16
   }[tone.paletteName] || tone.multiplier;
-  const paletteName = matrix3Style && tone.paletteName === "accent" ? "pale" : tone.paletteName;
-  const nextIntensity = clamp((matrix3Style ? matrix3ToneMultiplier : tone.multiplier) * toneJitter, 0.56, matrix3Style ? 1.12 : 1.34);
+  const paletteName = tone.paletteName;
+  const nextIntensity = clamp((matrix3Style ? matrix3ToneMultiplier : tone.multiplier) * toneJitter, 0.56, matrix3Style ? 1.32 : 1.34);
 
   column.paletteName = paletteName;
   column.palette = paletteByName(paletteName) || paletteForColumn(seed);
@@ -2056,25 +2064,7 @@ function updateAudioResponsiveState() {
     return;
   }
 
-  const now = performance.now();
-  if (now - audioState.lastInputTime > DEFAULT_PRESET.audioResponsive.silenceAfterMs) {
-    applyAudioLevels(0, 0, 0, false);
-    applyAudioSpectrumBins(null);
-    updateAudioSpectrumBars();
-  }
-
-	  if (
-	    settings.audioenabled
-	    && WALLPAPER_AUDIO_API_AVAILABLE
-	    && (
-	      audioState.lastAudioCallbackTime > 0
-	        ? now - audioState.lastAudioCallbackTime > AUDIO_LISTENER_STALE_CALLBACK_MS
-	        : now - audioState.lastAudioListenerRegisterTime > AUDIO_LISTENER_NO_CALLBACK_MS
-	    )
-	    && now - audioState.lastAudioListenerRegisterTime > AUDIO_LISTENER_RECOVERY_COOLDOWN_MS
-	  ) {
-	    scheduleWallpaperAudioListenerRecovery(audioState.lastAudioCallbackTime > 0 ? "stale-callback" : "missing-callback");
-	  }
+  updateAudioSpectrumBars();
 }
 
 function activeAudioLevel() {
@@ -4214,6 +4204,8 @@ function createGlyphAtlas(styleName, palette) {
   const key = glyphAtlasKey(styleName, palette);
   const cached = glyphCache.get(key);
   if (cached) {
+    glyphCache.delete(key);
+    glyphCache.set(key, cached);
     return cached;
   }
 
@@ -4256,7 +4248,32 @@ function createGlyphAtlas(styleName, palette) {
 
   softenGlyphEdges(atlas);
   glyphCache.set(key, atlas);
+  pruneGlyphCache();
   return atlas;
+}
+
+function pruneGlyphCache() {
+  if (glyphCache.size <= GLYPH_CACHE_MAX_ENTRIES) {
+    return;
+  }
+
+  for (const key of glyphCache.keys()) {
+    if (glyphCache.size <= GLYPH_CACHE_PRUNE_TARGET) {
+      break;
+    }
+
+    if (key.includes(":audioHue")) {
+      glyphCache.delete(key);
+    }
+  }
+
+  for (const key of glyphCache.keys()) {
+    if (glyphCache.size <= GLYPH_CACHE_MAX_ENTRIES) {
+      break;
+    }
+
+    glyphCache.delete(key);
+  }
 }
 
 function prebuildGlyphAtlases() {
@@ -5165,25 +5182,12 @@ function primeColdStartColumn(column) {
   const cold = DEFAULT_PRESET.coldStartRain;
   const seed = hashInt(column.seed ^ rainPatternEpoch ^ 0xc01d57a7);
   column.coldStartReleased = true;
-  setColumnActivity(column, true, seed, true);
+  setColumnActivity(column, true, seed, false);
   column.nextActivityTick = introState.startTick
     + Math.round(tickRate() * cold.durationMs / 1000)
     + cold.holdActiveExtraTicks
     + Math.floor(seededRange(seed ^ 0x5741, 0, cold.holdActiveExtraTicks))
     + Math.round(tickRate() * (settings.density > 100 ? seededRange(seed ^ 0x6cb1, 4, 9) : 0));
-
-  for (const stream of column.streams) {
-    if (matrix3RainStyleActive() && !stream.negative && (stream.mode === "normal" || stream.mode === "deep")) {
-      stream.length = Math.max(8, Math.floor(stream.length * seededRange(stream.seed ^ 0x91ac, 0.58, 0.82)));
-    }
-    stream.headRow = Math.floor(seededRange(stream.seed ^ 0xa17f, -Math.max(3, stream.length * 0.65), 0));
-    stream.progress = hashUnit(stream.seed ^ 0x11d3) * 0.35;
-    stream.speed = cold.speedRowsPerSecond
-      + (hashUnit(stream.seed ^ 0xead39) - 0.5) * cold.speedVarianceRowsPerSecond;
-    stream.endRow = rows + stream.length + 2;
-    stream.cooldownTicks = 0;
-    stream.finished = false;
-  }
 }
 
 function releaseColdStartRain() {
@@ -5410,19 +5414,29 @@ function simulationStep(deltaSeconds) {
 }
 
 function animationRunning() {
-  return visibleRunning && !manualPaused;
+  const visibilityAllowsAnimation = WALLPAPER_ENGINE_RUNTIME || visibleRunning;
+  return visibilityAllowsAnimation && !manualPaused && !wallpaperEnginePaused;
+}
+
+function cancelQueuedAnimationFrame() {
+  if (animationFrame) {
+    cancelAnimationFrame(animationFrame);
+    animationFrame = 0;
+  }
 }
 
 function restartAnimationFrame() {
   lastFrameTime = performance.now();
   fpsRemainder = 0;
-  cancelAnimationFrame(animationFrame);
+  cancelQueuedAnimationFrame();
   if (animationRunning()) {
     animationFrame = requestAnimationFrame(frame);
   }
 }
 
 function frame(now) {
+  animationFrame = 0;
+
   if (!animationRunning()) {
     return;
   }
@@ -5711,7 +5725,25 @@ function collectMatrixRainState() {
     playback: {
       running: animationRunning(),
       visible: visibleRunning,
+      documentHidden: document.hidden,
+      wallpaperEngineRuntime: WALLPAPER_ENGINE_RUNTIME,
+      wallpaperEnginePaused,
       manualPaused,
+      visibilityControlsAnimation: !WALLPAPER_ENGINE_RUNTIME,
+      recoveryCount: lifecycleState.recoveryCount,
+      lastRecoveryReason: lifecycleState.lastRecoveryReason,
+      lastRecoveryAgeMs: lifecycleState.lastRecoveryTime > 0
+        ? Math.max(0, Math.round(performance.now() - lifecycleState.lastRecoveryTime))
+        : null,
+      lastPauseReason: lifecycleState.lastPauseReason,
+      lastPauseAgeMs: lifecycleState.lastPauseTime > 0
+        ? Math.max(0, Math.round(performance.now() - lifecycleState.lastPauseTime))
+        : null,
+      autoResumeCount: lifecycleState.autoResumeCount,
+      lastAutoResumeReason: lifecycleState.lastAutoResumeReason,
+      lastAutoResumeAgeMs: lifecycleState.lastAutoResumeTime > 0
+        ? Math.max(0, Math.round(performance.now() - lifecycleState.lastAutoResumeTime))
+        : null,
       shortcut: "P"
     },
     font: {
@@ -5727,6 +5759,11 @@ function collectMatrixRainState() {
     characterSpacing: settings.characterspacing,
     layoutProfile: activeLayoutProfile,
     layout: DEFAULT_PRESET.layout,
+    glyphCache: {
+      size: glyphCache.size,
+      maxEntries: GLYPH_CACHE_MAX_ENTRIES,
+      pruneTarget: GLYPH_CACHE_PRUNE_TARGET
+    },
     clock: {
       enabled: settings.clock,
       override: CLOCK_OVERRIDE,
@@ -5766,8 +5803,12 @@ function collectMatrixRainState() {
       lastCallbackAgeMs: audioState.lastAudioCallbackTime > 0
         ? Math.max(0, Math.round(performance.now() - audioState.lastAudioCallbackTime))
         : null,
+      listenerRegistered: wallpaperAudioListenerRegistered,
       listenerRegisterCount: audioState.audioListenerRegisterCount,
       listenerRegisterReason: audioState.audioListenerRegisterReason,
+      lastListenerRegisterAgeMs: audioState.lastAudioListenerRegisterTime > 0
+        ? Math.max(0, Math.round(performance.now() - audioState.lastAudioListenerRegisterTime))
+        : null,
       audioRainCells: audioState.spectrumCells,
       spectrumBars: spectrumGeometry.barCount,
       spectrumTopRow: spectrumGeometry.topRow,
@@ -5893,6 +5934,17 @@ function restartRain() {
   if (started) {
     resize();
   }
+}
+
+function refreshAfterLateFontLoad() {
+  if (!started) {
+    return;
+  }
+
+  resize();
+  restartAnimationFrame();
+  publishDebugState();
+  updateControlsStatusText();
 }
 
 function propertyValue(value) {
@@ -6241,7 +6293,7 @@ function start() {
   clearAudioRain();
   lastFrameTime = performance.now();
   fpsRemainder = 0;
-  cancelAnimationFrame(animationFrame);
+  cancelQueuedAnimationFrame();
   initializeControlsPanel();
   restartAnimationFrame();
 }
@@ -6366,7 +6418,6 @@ window.wallpaperPropertyListener = {
       if (!settings.audioenabled && nextAudioEnabled) {
         clearAudioRain();
         needsAppearanceRefresh = true;
-        scheduleWallpaperAudioListenerRecovery("audio-enabled", { force: true });
       }
       settings.audioenabled = nextAudioEnabled;
       needsAppearanceRefresh = true;
@@ -6446,6 +6497,10 @@ window.wallpaperPropertyListener = {
       fpsRemainder = 0;
       lastFrameTime = performance.now();
     }
+  },
+
+  setPaused(paused) {
+    setWallpaperEnginePaused(paused, "wallpaper-setPaused");
   }
 };
 
@@ -6465,24 +6520,69 @@ function resetWallpaperAudioInput() {
   updateAudioSpectrumBars();
 }
 
-function registerWallpaperAudioListener(reason = "manual", options = {}) {
+function resetFrameTiming(now = performance.now()) {
+  lastFrameTime = now;
+  fpsRemainder = 0;
+  tickAccumulator = 0;
+}
+
+function clearStaleWallpaperPause(reason, now = performance.now()) {
+  if (!wallpaperEnginePaused || !WALLPAPER_ENGINE_RUNTIME || document.hidden) {
+    return;
+  }
+
+  const pauseAge = lifecycleState.lastPauseTime > 0
+    ? now - lifecycleState.lastPauseTime
+    : Number.POSITIVE_INFINITY;
+  if (pauseAge < 1000) {
+    return;
+  }
+
+  wallpaperEnginePaused = false;
+  lifecycleState.autoResumeCount += 1;
+  lifecycleState.lastAutoResumeReason = reason;
+  lifecycleState.lastAutoResumeTime = now;
+}
+
+function softRecoverWallpaper(reason = "resume", allowStalePauseRecovery = false) {
+  const now = performance.now();
+  if (allowStalePauseRecovery) {
+    clearStaleWallpaperPause(reason, now);
+  }
+
+  lifecycleState.recoveryCount += 1;
+  lifecycleState.lastRecoveryReason = reason;
+  lifecycleState.lastRecoveryTime = now;
+  resetFrameTiming(now);
+
+  const audioCallbackAge = audioState.lastAudioCallbackTime > 0
+    ? now - audioState.lastAudioCallbackTime
+    : Number.POSITIVE_INFINITY;
+  if (settings.audioenabled && audioCallbackAge > 1000) {
+    resetWallpaperAudioInput();
+  }
+
+  if (started) {
+    restartAnimationFrame();
+  }
+
+  publishDebugState();
+  updateControlsStatusText();
+}
+
+function registerWallpaperAudioListener(reason = "initial") {
   if (typeof window.wallpaperRegisterAudioListener !== "function") {
     return false;
   }
 
-  const now = performance.now();
-  if (
-    !options.force
-    &&
-    reason !== "initial"
-    && now - audioState.lastAudioListenerRegisterTime < AUDIO_LISTENER_RECOVERY_COOLDOWN_MS
-  ) {
-    return false;
+  if (wallpaperAudioListenerRegistered) {
+    return true;
   }
 
   try {
     window.wallpaperRegisterAudioListener(wallpaperAudioListener);
-    audioState.lastAudioListenerRegisterTime = now;
+    wallpaperAudioListenerRegistered = true;
+    audioState.lastAudioListenerRegisterTime = performance.now();
     audioState.audioListenerRegisterCount += 1;
     audioState.audioListenerRegisterReason = reason;
     return true;
@@ -6492,52 +6592,6 @@ function registerWallpaperAudioListener(reason = "manual", options = {}) {
       source: "wallpaperRegisterAudioListener"
     });
     return false;
-  }
-}
-
-function clearWallpaperAudioRecoveryTimers() {
-  for (const timerId of audioListenerRecoveryTimers) {
-    window.clearTimeout(timerId);
-  }
-  audioListenerRecoveryTimers = [];
-}
-
-function scheduleWallpaperAudioListenerRecovery(reason, options = {}) {
-  if (!settings.audioenabled || audioDebugEnabled || typeof window.wallpaperRegisterAudioListener !== "function") {
-    return;
-  }
-
-  const callbackAgeMs = audioState.lastAudioCallbackTime > 0
-    ? performance.now() - audioState.lastAudioCallbackTime
-    : Infinity;
-  if (!options.force && reason !== "devicechange" && reason !== "stale-callback" && reason !== "missing-callback" && callbackAgeMs < 1000) {
-    return;
-  }
-
-  clearWallpaperAudioRecoveryTimers();
-  resetWallpaperAudioInput();
-  audioListenerRecoveryTimers = AUDIO_LISTENER_RECOVERY_DELAYS_MS.map((delayMs) => (
-    window.setTimeout(() => {
-      registerWallpaperAudioListener(reason, { force: options.force || delayMs === 0 });
-    }, delayMs)
-  ));
-}
-
-function installWallpaperAudioDeviceRecovery() {
-  const mediaDevices = navigator.mediaDevices;
-  if (!mediaDevices || typeof mediaDevices.addEventListener !== "function") {
-    return;
-  }
-
-  try {
-	    mediaDevices.addEventListener("devicechange", () => {
-	      scheduleWallpaperAudioListenerRecovery("devicechange", { force: true });
-	    });
-  } catch (error) {
-    window.__matrixRuntimeErrors.push({
-      message: error && error.message ? error.message : String(error),
-      source: "mediaDevices.devicechange"
-    });
   }
 }
 
@@ -6558,6 +6612,31 @@ function updateControlsStatusText() {
   }
 }
 
+function setWallpaperEnginePaused(paused, reason = "wallpaper-setPaused") {
+  const nextPaused = Boolean(paused);
+  const now = performance.now();
+
+  if (wallpaperEnginePaused === nextPaused) {
+    if (!nextPaused) {
+      softRecoverWallpaper(reason);
+    }
+    return;
+  }
+
+  wallpaperEnginePaused = nextPaused;
+  if (wallpaperEnginePaused) {
+    lifecycleState.lastPauseReason = reason;
+    lifecycleState.lastPauseTime = now;
+    cancelQueuedAnimationFrame();
+    resetFrameTiming(now);
+    publishDebugState();
+    updateControlsStatusText();
+    return;
+  }
+
+  softRecoverWallpaper(reason);
+}
+
 function setManualPaused(paused) {
   const nextPaused = Boolean(paused);
   if (manualPaused === nextPaused) {
@@ -6566,9 +6645,13 @@ function setManualPaused(paused) {
 
   manualPaused = nextPaused;
   if (manualPaused) {
-    cancelAnimationFrame(animationFrame);
+    lifecycleState.lastPauseReason = "manual";
+    lifecycleState.lastPauseTime = performance.now();
+    cancelQueuedAnimationFrame();
+    resetFrameTiming();
   } else {
-    restartAnimationFrame();
+    softRecoverWallpaper("manual-resume");
+    return;
   }
   publishDebugState();
   updateControlsStatusText();
@@ -6583,44 +6666,36 @@ document.addEventListener("keydown", (event) => {
   setManualPaused(!manualPaused);
 });
 
-document.addEventListener("visibilitychange", () => {
+function handleVisibilityChange() {
   visibleRunning = !document.hidden;
 
   if (visibleRunning) {
-    restartAnimationFrame();
-	  scheduleWallpaperAudioListenerRecovery("visibilitychange", { force: true });
+    softRecoverWallpaper("visibilitychange", true);
   } else {
-    cancelAnimationFrame(animationFrame);
+    lifecycleState.lastPauseReason = "visibilitychange";
+    lifecycleState.lastPauseTime = performance.now();
+    if (!WALLPAPER_ENGINE_RUNTIME) {
+      cancelQueuedAnimationFrame();
+      resetFrameTiming();
+    }
+    publishDebugState();
+    updateControlsStatusText();
   }
-  updateControlsStatusText();
+}
+
+document.addEventListener("visibilitychange", handleVisibilityChange);
+
+window.addEventListener("pageshow", (event) => {
+  visibleRunning = !document.hidden;
+  softRecoverWallpaper(event.persisted ? "pageshow-persisted" : "pageshow", true);
 });
 
 window.addEventListener("focus", () => {
-  scheduleWallpaperAudioListenerRecovery("focus", { force: true });
-});
-
-window.addEventListener("pageshow", () => {
-  scheduleWallpaperAudioListenerRecovery("pageshow", { force: true });
-});
-
-window.setInterval(() => {
-  if (!settings.audioenabled || audioDebugEnabled || typeof window.wallpaperRegisterAudioListener !== "function") {
-    return;
+  visibleRunning = !document.hidden;
+  if (visibleRunning || WALLPAPER_ENGINE_RUNTIME) {
+    softRecoverWallpaper("focus", true);
   }
-
-  const now = performance.now();
-  const callbackAgeMs = audioState.lastAudioCallbackTime > 0
-    ? now - audioState.lastAudioCallbackTime
-    : Infinity;
-  const registerAgeMs = now - audioState.lastAudioListenerRegisterTime;
-  if (
-    audioState.lastAudioCallbackTime === 0
-      ? registerAgeMs > AUDIO_LISTENER_NO_CALLBACK_MS
-      : callbackAgeMs > AUDIO_LISTENER_STALE_CALLBACK_MS
-  ) {
-    scheduleWallpaperAudioListenerRecovery("watchdog", { force: true });
-  }
-}, AUDIO_LISTENER_WATCHDOG_MS);
+});
 
 function wallpaperAudioListener(audioArray) {
   audioState.lastAudioCallbackTime = performance.now();
@@ -6631,14 +6706,28 @@ function wallpaperAudioListener(audioArray) {
 window.__matrixWallpaperAudioListener = wallpaperAudioListener;
 
 registerWallpaperAudioListener("initial");
-installWallpaperAudioDeviceRecovery();
 
 setActiveFontStyle(settings.fontstyle);
 
 const fontReady = loadActiveFont();
+let lateFontRefreshComplete = false;
+
+fontReady
+  .then(() => {
+    if (started && !lateFontRefreshComplete) {
+      lateFontRefreshComplete = true;
+      refreshAfterLateFontLoad();
+    }
+  })
+  .catch((error) => {
+    window.__matrixRuntimeErrors.push({
+      message: error && error.message ? error.message : String(error),
+      source: "font-ready"
+    });
+  });
 
 Promise.race([
-  fontReady,
+  fontReady.catch(() => undefined),
   new Promise((resolve) => {
     window.setTimeout(resolve, 800);
   })
